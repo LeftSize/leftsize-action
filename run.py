@@ -336,37 +336,19 @@ def load_configuration(config_path: str) -> Dict[str, Any]:
 
 
 def create_default_config() -> Dict[str, Any]:
-    """Create a default configuration for local testing"""
+    """Create a minimal default configuration for GitHub Action"""
     return {
         'version': '1.0',
-        'name': 'local-development',
-        'targets': {
-            'azure': {
-                'subscriptions': [os.getenv('AZURE_SUBSCRIPTION_ID', '')],
-                'resource_groups': [],
-                'regions': []
-            }
-        },
+        'name': 'github-action-scan',
+        'targets': {},  # Will be populated from environment variables
         'auth': {
             'method': 'environment'
         },
-        'policies': {
-            'enabled_rules': ['idle-vms', 'unattached-disks', 'unused-public-ips'],
-            'rule_config': {
-                'idle-vms': {'cpu_threshold': 5.0, 'duration_days': 7},
-                'unattached-disks': {'age_threshold_days': 7},
-                'unused-public-ips': {}
-            }
-        },
-        'output': {
-            'backend_url': os.getenv('LEFTSIZE_BACKEND_URL', 'http://localhost:5251'),
-            'installation_id': os.getenv('LEFTSIZE_INSTALLATION_ID', ''),
-            'local_output': {'enabled': True, 'format': 'json'}
-        },
+        'policies': {},  # Will be populated from include/exclude inputs
+        'output': {},   # Will be populated from environment variables
         'execution': {
-            'dry_run': True,
-            'max_workers': 2,
-            'timeout_minutes': 15
+            'max_workers': 4,
+            'timeout_minutes': 30
         }
     }
 
