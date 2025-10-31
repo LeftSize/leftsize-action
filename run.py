@@ -613,8 +613,6 @@ def convert_resource_to_finding(policy_name: str, resource: Dict[str, Any], conf
             'resourceName': resource_name,
             'resourceType': resource_type,
             'scope': scope,
-            'estSavings': 0.0,  # Backend will calculate actual savings
-            'severity': 'info',  # Backend will determine actual severity
             'discoveredAt': datetime.now(timezone.utc).isoformat(),
             'metadata': metadata  # Include extracted metadata
         }
@@ -779,12 +777,9 @@ def group_findings(findings: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             }
         
         # Convert to backend expected format (PascalCase)
-        # Backend will calculate/override EstSavings and Severity
         backend_finding = {
             'ResourceId': finding['resourceId'],
-            'EstSavings': finding['estSavings'],  # Placeholder, backend calculates actual value
-            'Severity': finding['severity'],      # Placeholder, backend determines actual value
-            'Metadata': finding.get('metadata')   # Include metadata if present
+            'Metadata': finding.get('metadata')
         }
         
         groups[key]['Findings'].append(backend_finding)
