@@ -604,12 +604,6 @@ def convert_resource_to_finding(policy_name: str, resource: Dict[str, Any], conf
         # Build scope from resource ID
         scope = build_scope_from_resource_id(resource_id, config)
         
-        # Estimate savings based on resource type and policy
-        estimated_savings = estimate_savings(rule_id, resource)
-        
-        # Determine severity
-        severity = determine_severity(rule_id, estimated_savings)
-        
         # Extract metadata from resource - only include what Cloud Custodian provides
         metadata = extract_resource_metadata(resource, resource_id)
         
@@ -619,8 +613,8 @@ def convert_resource_to_finding(policy_name: str, resource: Dict[str, Any], conf
             'resourceName': resource_name,
             'resourceType': resource_type,
             'scope': scope,
-            'estSavings': estimated_savings,
-            'severity': severity,
+            'estSavings': 0.0,  # Backend will calculate actual savings
+            'severity': 'info',  # Backend will determine actual severity
             'discoveredAt': datetime.now(timezone.utc).isoformat(),
             'metadata': metadata  # Include extracted metadata
         }
@@ -720,87 +714,6 @@ def extract_resource_metadata(resource: Dict[str, Any], resource_id: str) -> Dic
 
 
 
-def estimate_savings(rule_id: str, resource: Dict[str, Any]) -> float:
-    """Estimate monthly savings for a resource based on rule type"""
-    
-    # Match on rule_id which is the full policy name (leftsize-*)
-    if 'idle-vm' in rule_id or 'virtualMachines' in rule_id:
-        return estimate_vm_savings(resource)
-    elif 'unattached-disk' in rule_id or 'disk' in rule_id.lower():
-        return estimate_disk_savings(resource)
-    elif 'unused-public-ip' in rule_id or 'publicIPAddresses' in rule_id:
-        return 3.65  # ~$3.65/month for standard public IP
-    elif 'idle-app-service' in rule_id or 'serverfarms' in rule_id:
-        return estimate_app_service_savings(resource)
-    elif 'storage' in rule_id.lower():
-        return 20.0  # Rough estimate for storage issues
-    else:
-        return 10.0  # Default estimate
-
-
-def estimate_vm_savings(resource: Dict[str, Any]) -> float:
-    """Estimate savings for idle VM"""
-    # This is a simplified estimation - real implementation would use Azure pricing APIs
-    vm_size = resource.get('properties', {}).get('hardwareProfile', {}).get('vmSize', 'Standard_B2s')
-    
-    # Basic cost estimates per month (USD)
-    size_costs = {
-        'Standard_B1s': 7.30,
-        'Standard_B2s': 29.20,
-        'Standard_D2s_v3': 70.08,
-        'Standard_D4s_v3': 140.16,
-        'Standard_F2s_v2': 62.05,
-        'Standard_F4s_v2': 124.10,
-    }
-    
-    return size_costs.get(vm_size, 50.0)  # Default estimate
-
-
-def estimate_disk_savings(resource: Dict[str, Any]) -> float:
-    """Estimate savings for unattached disk"""
-    # Simplified disk cost estimation
-    disk_size_gb = resource.get('properties', {}).get('diskSizeGB', 128)
-    sku_tier = resource.get('sku', {}).get('tier', 'Standard')
-    
-    # Rough estimates per GB per month
-    if sku_tier == 'Premium':
-        cost_per_gb = 0.18
-    else:
-        cost_per_gb = 0.045
-        
-    return disk_size_gb * cost_per_gb
-
-
-def estimate_app_service_savings(resource: Dict[str, Any]) -> float:
-    """Estimate savings for idle App Service Plan"""
-    sku = resource.get('sku', {})
-    tier = sku.get('tier', 'Standard')
-    size = sku.get('size', 'S1')
-    
-    # Basic App Service Plan cost estimates per month
-    cost_map = {
-        ('Free', 'F1'): 0.0,
-        ('Shared', 'D1'): 9.49,
-        ('Basic', 'B1'): 13.14,
-        ('Basic', 'B2'): 26.28,
-        ('Standard', 'S1'): 56.94,
-        ('Standard', 'S2'): 113.88,
-        ('Premium', 'P1'): 182.50,
-    }
-    
-    return cost_map.get((tier, size), 50.0)
-
-
-def determine_severity(rule_id: str, estimated_savings: float) -> str:
-    """Determine finding severity based on estimated savings"""
-    if estimated_savings >= 100:
-        return 'high'
-    elif estimated_savings >= 25:
-        return 'medium'
-    else:
-        return 'low'
-
-
 def submit_findings(findings: List[Dict[str, Any]], config: Dict[str, Any]) -> None:
     """Submit findings to LeftSize backend"""
     
@@ -866,11 +779,12 @@ def group_findings(findings: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             }
         
         # Convert to backend expected format (PascalCase)
+        # Backend will calculate/override EstSavings and Severity
         backend_finding = {
             'ResourceId': finding['resourceId'],
-            'EstSavings': finding['estSavings'],
-            'Severity': finding['severity'],
-            'Metadata': finding.get('metadata')  # Include metadata if present
+            'EstSavings': finding['estSavings'],  # Placeholder, backend calculates actual value
+            'Severity': finding['severity'],      # Placeholder, backend determines actual value
+            'Metadata': finding.get('metadata')   # Include metadata if present
         }
         
         groups[key]['Findings'].append(backend_finding)
