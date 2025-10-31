@@ -46,10 +46,6 @@ inputs:
     description: 'Comma-separated specific policy names to exclude (e.g., leftsize-idle-vm)'
     required: false
   
-  config-file:
-    description: 'Path to custom leftsize.yml configuration file'
-    required: false
-  
   # Execution options
   verbose:
     description: 'Enable verbose logging'
@@ -78,5 +74,4 @@ runs:
     LEFTSIZE_AWS_REGIONS: ${{ inputs.aws-regions }}
     LEFTSIZE_INCLUDE_POLICIES: ${{ inputs.include-policies }}
     LEFTSIZE_EXCLUDE_POLICIES: ${{ inputs.exclude-policies }}
-    LEFTSIZE_CONFIG_FILE: ${{ inputs.config-file }}
     LEFTSIZE_VERBOSE: ${{ inputs.verbose }}

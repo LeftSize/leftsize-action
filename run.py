@@ -53,7 +53,6 @@ def github_action_main():
     aws_regions = os.getenv('LEFTSIZE_AWS_REGIONS', '')
     include_policies = os.getenv('LEFTSIZE_INCLUDE_POLICIES', '')
     exclude_policies = os.getenv('LEFTSIZE_EXCLUDE_POLICIES', '')
-    config_file = os.getenv('LEFTSIZE_CONFIG_FILE', '')
     
     if verbose:
         logging.basicConfig(level=logging.DEBUG)
@@ -63,11 +62,8 @@ def github_action_main():
     logger.info("LeftSize GitHub Action starting", version="1.0.0", cloud_provider=cloud_provider)
     
     try:
-        # Load or create configuration
-        if config_file and os.path.exists(config_file):
-            config_data = load_configuration(config_file)
-        else:
-            config_data = create_default_config()
+        # Create minimal configuration from environment variables
+        config_data = create_default_config()
         
         # Override with environment variables
         if backend_url:
