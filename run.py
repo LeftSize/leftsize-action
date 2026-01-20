@@ -103,6 +103,30 @@ def validate_aws_region(region: str) -> bool:
     return re.match(region_pattern, region.strip()) is not None
 
 
+def get_aws_account_id() -> Optional[str]:
+    """Get AWS account ID using STS GetCallerIdentity.
+    
+    Returns the 12-digit AWS account ID or None if unable to retrieve.
+    This is used to scope findings properly in multi-account setups.
+    """
+    try:
+        import boto3
+        sts = boto3.client('sts')
+        response = sts.get_caller_identity()
+        account_id = response.get('Account')
+        if account_id:
+            logger.info("Retrieved AWS account ID", account_id=account_id)
+            return account_id
+        logger.warning("STS GetCallerIdentity returned no Account")
+        return None
+    except ImportError:
+        logger.warning("boto3 not available, cannot retrieve AWS account ID")
+        return None
+    except Exception as e:
+        logger.warning("Failed to retrieve AWS account ID", error=str(e))
+        return None
+
+
 def validate_policy_name(policy_name: str) -> bool:
     """Validate policy name (alphanumeric, hyphens, underscores only)"""
     if not policy_name or not policy_name.strip():
@@ -260,6 +284,13 @@ def github_action_main():
             # AWS auth validation handled by boto3/AWS CLI
             # AWS defaults to USD
             config_data['currency'] = currency.upper() if currency else 'USD'
+            
+            # Get AWS account ID for proper multi-account scope isolation
+            aws_account_id = get_aws_account_id()
+            if aws_account_id:
+                config_data.setdefault('targets', {}).setdefault('aws', {})['account_id'] = aws_account_id
+            else:
+                logger.warning("Could not retrieve AWS account ID - multi-account scoping may not work correctly")
         
         # Execute Cloud Custodian policies
         findings = execute_custodian_policies(policies_dir, config_data)
@@ -864,26 +895,39 @@ def execute_single_policy_file(policies_file: str, config: Dict[str, Any]) -> Li
 
 
 def build_scope_from_resource_id(resource_id: str, config: Dict[str, Any]) -> str:
-    """Build LeftSize scope from resource ID - handles Azure and AWS formats"""
+    """Build LeftSize scope from resource ID - handles Azure and AWS formats.
+    
+    For AWS: Uses account ID as primary scope identifier to support multi-account setups.
+    For Azure: Uses subscription ID and resource group.
+    """
     cloud_provider = config.get('cloud_provider', 'azure')
     
-    # Helper to get AWS region from config or environment
-    def get_aws_region_from_config() -> str:
-        regions = config.get('targets', {}).get('aws', {}).get('regions', [])
-        if regions:
-            return regions[0]
-        return os.getenv('AWS_REGION', 'us-east-1')
+    # Helper to get AWS account ID from config (set during initialization via STS)
+    def get_aws_account_id_from_config() -> Optional[str]:
+        return config.get('targets', {}).get('aws', {}).get('account_id')
     
     try:
         if cloud_provider == 'aws':
             # AWS ARN format: arn:aws:service:region:account:resource
-            # Note: Some services like S3 have global ARNs without region (arn:aws:s3:::bucket)
+            # Try to extract account from ARN first
+            account_id = None
             if resource_id.startswith('arn:aws:'):
                 parts = resource_id.split(':')
-                if len(parts) >= 4 and parts[3]:  # Only use if region is non-empty
-                    return f"aws:region/{parts[3]}"
-            # Fallback: use configured region (for S3 and other region-less ARNs)
-            return f"aws:region/{get_aws_region_from_config()}"
+                # parts[4] is the account ID in standard ARNs
+                if len(parts) >= 5 and parts[4]:
+                    account_id = parts[4]
+            
+            # Fall back to account ID from config (retrieved via STS at startup)
+            if not account_id:
+                account_id = get_aws_account_id_from_config()
+            
+            # Use account-based scope for proper multi-account isolation
+            if account_id:
+                return f"aws:account/{account_id}"
+            
+            # Final fallback if no account ID available (shouldn't happen in normal operation)
+            logger.warning("No AWS account ID available for scope - using fallback")
+            return "aws:account/unknown"
         
         # Azure resource ID: /subscriptions/{sub}/resourceGroups/{rg}/providers/{provider}/{type}/{name}
         parts = resource_id.split('/')
@@ -898,9 +942,8 @@ def build_scope_from_resource_id(resource_id: str, config: Dict[str, Any]) -> st
     except Exception:
         # Final fallback - ensure we never return None
         if cloud_provider == 'aws':
-            regions = config.get('targets', {}).get('aws', {}).get('regions', [])
-            region = regions[0] if regions else os.getenv('AWS_REGION', 'us-east-1')
-            return f"aws:region/{region}"
+            account_id = get_aws_account_id_from_config() or 'unknown'
+            return f"aws:account/{account_id}"
         subscription_id = get_subscription_id(config) or 'unknown'
         return f"azure:subscription/{subscription_id}"
 
