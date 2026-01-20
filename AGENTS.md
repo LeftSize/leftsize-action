@@ -7,6 +7,45 @@
 **Type**: Docker-based GitHub Action (Linux only)  
 **Distribution**: GitHub Marketplace (planned)
 
+## How It Works
+
+LeftSize is a "Dependabot for Cloud Waste" - it scans your cloud infrastructure for cost optimization opportunities and creates GitHub issues with actionable remediation steps.
+
+**Flow**:
+1. User installs LeftSize GitHub App on their repository
+2. User adds the `leftsize-action` workflow to run on schedule (e.g., daily)
+3. Action authenticates with cloud provider via OIDC (no long-lived secrets)
+4. Action runs Cloud Custodian policies to detect waste/inefficiencies
+5. Findings are submitted to LeftSize backend
+6. Backend creates/updates GitHub issues with templated remediation guidance
+7. Users can interact via comments (`@leftsize explain`, `@leftsize snooze 14d`, etc.)
+
+## Key Technical Details
+
+### Resource ID Formats
+
+**Azure**: `/subscriptions/{sub}/resourceGroups/{rg}/providers/{provider}/{type}/{name}`
+**AWS**: ARN format varies by service:
+- S3 (global, no region): `arn:aws:s3:::bucket-name`
+- EC2: `arn:aws:ec2:{region}::instance/{id}`
+- RDS: `arn:aws:rds:{region}::db/{id}`
+- EBS: `arn:aws:ec2:{region}::volume/{id}`
+
+### Scope Format
+
+Scope is used to group findings and is derived from resource IDs:
+- **Azure**: `azure:subscription/{id}/resourceGroup/{rg}`
+- **AWS**: `aws:account/{account_id}` (e.g., `aws:account/123456789012`)
+
+**Multi-account support**: AWS scopes use the 12-digit account ID (retrieved via STS GetCallerIdentity at scan start) to properly isolate findings across different AWS accounts. This prevents findings from one account being incorrectly marked as "resolved" when scanning a different account.
+
+### Key Functions in run.py
+
+- `extract_resource_id(resource, config)` - Extract ID from Cloud Custodian resource (handles Azure vs AWS differences)
+- `build_scope_from_resource_id(resource_id, config)` - Build scope string for grouping findings
+- `convert_resource_to_finding(policy_name, resource, config)` - Convert C7N resource to LeftSize finding format
+- `extract_resource_metadata(resource, resource_id)` - Extract metadata for template rendering
+
 ## Architecture
 
 ### Action Type
@@ -389,7 +428,14 @@ pytest tests/integration/ --mock-backend
 
 **Users reference**: `uses: leftsize/leftsize-action@v1`
 
-## Known Issues
+## Known Issues & Recent Fixes
+
+### Recently Fixed (Jan 2026)
+
+1. **✅ AWS S3 region extraction** - S3 ARNs are global (`arn:aws:s3:::bucket`) and don't contain region. Fixed to use configured `targets.aws.regions` instead of defaulting to `us-east-1`
+2. **✅ AWS resource ID extraction** - Added `extract_resource_id()` function to handle AWS-specific fields (S3 uses `Name`, EC2 uses `InstanceId`, RDS uses `DBInstanceIdentifier`, etc.)
+
+### Current Issues
 
 1. **Linux runners only** - Docker actions don't work on Windows/macOS
 2. **Long scan times** - Large subscriptions can take 5-10 minutes
