@@ -3,8 +3,8 @@ Tests for AWS scope building and account ID retrieval.
 
 These tests verify that:
 - AWS account ID is properly retrieved via STS
-- AWS scope includes account ID for multi-account isolation
-- S3 and other global resources get proper scope from account ID
+- AWS scope includes account ID and region for multi-account/multi-region isolation
+- S3 and other global resources get proper scope from account ID + configured region
 """
 from unittest.mock import patch, MagicMock
 
@@ -64,8 +64,27 @@ class TestGetAwsAccountId:
 class TestBuildScopeFromResourceId:
     """Tests for build_scope_from_resource_id with AWS resources"""
 
-    def test_aws_scope_uses_account_id_from_config(self):
-        """AWS scope should use account ID from config for S3 buckets"""
+    def test_aws_scope_includes_account_and_region_from_arn(self):
+        """AWS scope should include both account and region from ARN"""
+        config = {
+            'cloud_provider': 'aws',
+            'targets': {
+                'aws': {
+                    'account_id': '999999999999',  # Different from ARN
+                    'regions': ['eu-west-1']  # Different from ARN
+                }
+            }
+        }
+        # EC2 ARN has both region and account
+        resource_id = 'arn:aws:ec2:us-east-1:123456789012:instance/i-1234567890abcdef0'
+
+        scope = build_scope_from_resource_id(resource_id, config)
+
+        # Should use account and region from ARN
+        assert scope == 'aws:account/123456789012/region/us-east-1'
+
+    def test_aws_scope_uses_config_for_s3_global_resources(self):
+        """S3 buckets (global) should use account from config and region from config"""
         config = {
             'cloud_provider': 'aws',
             'targets': {
@@ -80,46 +99,28 @@ class TestBuildScopeFromResourceId:
 
         scope = build_scope_from_resource_id(resource_id, config)
 
-        assert scope == 'aws:account/123456789012'
+        assert scope == 'aws:account/123456789012/region/eu-west-1'
 
-    def test_aws_scope_extracts_account_from_arn(self):
-        """AWS scope should extract account ID from ARN when available"""
+    def test_aws_scope_extracts_account_from_arn_region_from_config(self):
+        """When ARN has account but no region, use config region"""
         config = {
             'cloud_provider': 'aws',
             'targets': {
                 'aws': {
-                    'account_id': '999999999999',  # Different from ARN
-                    'regions': ['us-east-1']
+                    'account_id': '999999999999',
+                    'regions': ['ap-southeast-1']
                 }
             }
         }
-        # EC2 ARN has account ID at position 4
-        resource_id = 'arn:aws:ec2:us-east-1:123456789012:instance/i-1234567890abcdef0'
+        # IAM ARN has account but no region (global service)
+        resource_id = 'arn:aws:iam::123456789012:role/my-role'
 
         scope = build_scope_from_resource_id(resource_id, config)
 
-        # Should use account from ARN
-        assert scope == 'aws:account/123456789012'
+        # Account from ARN, region from config
+        assert scope == 'aws:account/123456789012/region/ap-southeast-1'
 
-    def test_aws_scope_falls_back_to_config_account(self):
-        """AWS scope should fall back to config account ID when ARN has no account"""
-        config = {
-            'cloud_provider': 'aws',
-            'targets': {
-                'aws': {
-                    'account_id': '987654321098',
-                    'regions': ['eu-west-1']
-                }
-            }
-        }
-        # S3 ARN has no account
-        resource_id = 'arn:aws:s3:::my-bucket'
-
-        scope = build_scope_from_resource_id(resource_id, config)
-
-        assert scope == 'aws:account/987654321098'
-
-    def test_aws_scope_unknown_when_no_account_available(self):
+    def test_aws_scope_unknown_account_when_not_available(self):
         """AWS scope should use 'unknown' when no account ID available"""
         config = {
             'cloud_provider': 'aws',
@@ -134,7 +135,7 @@ class TestBuildScopeFromResourceId:
 
         scope = build_scope_from_resource_id(resource_id, config)
 
-        assert scope == 'aws:account/unknown'
+        assert scope == 'aws:account/unknown/region/eu-west-1'
 
     def test_azure_scope_unchanged(self):
         """Azure scope should still use subscription/resourceGroup format"""
@@ -154,15 +155,15 @@ class TestBuildScopeFromResourceId:
 
     def test_multi_account_isolation(self):
         """Different AWS accounts should produce different scopes"""
-        # Account A
+        # Account A in eu-west-1
         config_a = {
             'cloud_provider': 'aws',
-            'targets': {'aws': {'account_id': '111111111111'}}
+            'targets': {'aws': {'account_id': '111111111111', 'regions': ['eu-west-1']}}
         }
-        # Account B
+        # Account B in eu-west-1
         config_b = {
             'cloud_provider': 'aws',
-            'targets': {'aws': {'account_id': '222222222222'}}
+            'targets': {'aws': {'account_id': '222222222222', 'regions': ['eu-west-1']}}
         }
         # Same bucket name (different accounts)
         resource_id = 'arn:aws:s3:::shared-bucket-name'
@@ -171,5 +172,70 @@ class TestBuildScopeFromResourceId:
         scope_b = build_scope_from_resource_id(resource_id, config_b)
 
         assert scope_a != scope_b
-        assert scope_a == 'aws:account/111111111111'
-        assert scope_b == 'aws:account/222222222222'
+        assert scope_a == 'aws:account/111111111111/region/eu-west-1'
+        assert scope_b == 'aws:account/222222222222/region/eu-west-1'
+
+    def test_multi_region_isolation(self):
+        """Same account in different regions should produce different scopes"""
+        # Same account, different regions
+        config_us = {
+            'cloud_provider': 'aws',
+            'targets': {'aws': {'account_id': '123456789012', 'regions': ['us-east-1']}}
+        }
+        config_eu = {
+            'cloud_provider': 'aws',
+            'targets': {'aws': {'account_id': '123456789012', 'regions': ['eu-west-1']}}
+        }
+        # S3 bucket (global, so uses config region)
+        resource_id = 'arn:aws:s3:::my-bucket'
+
+        scope_us = build_scope_from_resource_id(resource_id, config_us)
+        scope_eu = build_scope_from_resource_id(resource_id, config_eu)
+
+        assert scope_us != scope_eu
+        assert scope_us == 'aws:account/123456789012/region/us-east-1'
+        assert scope_eu == 'aws:account/123456789012/region/eu-west-1'
+
+    def test_regional_resources_use_arn_region(self):
+        """Regional resources should use region from ARN, not config"""
+        config = {
+            'cloud_provider': 'aws',
+            'targets': {'aws': {'account_id': '123456789012', 'regions': ['eu-west-1']}}
+        }
+        # EC2 instance in us-west-2 (different from config)
+        resource_id = 'arn:aws:ec2:us-west-2:123456789012:instance/i-abc123'
+
+        scope = build_scope_from_resource_id(resource_id, config)
+
+        # Should use region from ARN, not config
+        assert scope == 'aws:account/123456789012/region/us-west-2'
+
+    def test_multi_account_multi_region_full_isolation(self):
+        """Full test: different accounts deploying to multiple regions"""
+        # Dev account scans eu-west-1
+        config_dev_eu = {
+            'cloud_provider': 'aws',
+            'targets': {'aws': {'account_id': '111111111111', 'regions': ['eu-west-1']}}
+        }
+        # Dev account scans us-west-1
+        config_dev_us = {
+            'cloud_provider': 'aws',
+            'targets': {'aws': {'account_id': '111111111111', 'regions': ['us-west-1']}}
+        }
+        # Prod account scans eu-west-1
+        config_prod_eu = {
+            'cloud_provider': 'aws',
+            'targets': {'aws': {'account_id': '222222222222', 'regions': ['eu-west-1']}}
+        }
+
+        s3_bucket = 'arn:aws:s3:::my-bucket'
+
+        scope_dev_eu = build_scope_from_resource_id(s3_bucket, config_dev_eu)
+        scope_dev_us = build_scope_from_resource_id(s3_bucket, config_dev_us)
+        scope_prod_eu = build_scope_from_resource_id(s3_bucket, config_prod_eu)
+
+        # All three should be different
+        assert len({scope_dev_eu, scope_dev_us, scope_prod_eu}) == 3
+        assert scope_dev_eu == 'aws:account/111111111111/region/eu-west-1'
+        assert scope_dev_us == 'aws:account/111111111111/region/us-west-1'
+        assert scope_prod_eu == 'aws:account/222222222222/region/eu-west-1'

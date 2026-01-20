@@ -897,7 +897,7 @@ def execute_single_policy_file(policies_file: str, config: Dict[str, Any]) -> Li
 def build_scope_from_resource_id(resource_id: str, config: Dict[str, Any]) -> str:
     """Build LeftSize scope from resource ID - handles Azure and AWS formats.
     
-    For AWS: Uses account ID as primary scope identifier to support multi-account setups.
+    For AWS: Uses account ID + region for proper isolation in multi-account and multi-region setups.
     For Azure: Uses subscription ID and resource group.
     """
     cloud_provider = config.get('cloud_provider', 'azure')
@@ -906,28 +906,38 @@ def build_scope_from_resource_id(resource_id: str, config: Dict[str, Any]) -> st
     def get_aws_account_id_from_config() -> Optional[str]:
         return config.get('targets', {}).get('aws', {}).get('account_id')
     
+    # Helper to get AWS region from config or environment
+    def get_aws_region_from_config() -> str:
+        regions = config.get('targets', {}).get('aws', {}).get('regions', [])
+        if regions:
+            return regions[0]
+        return os.getenv('AWS_REGION', 'us-east-1')
+    
     try:
         if cloud_provider == 'aws':
             # AWS ARN format: arn:aws:service:region:account:resource
-            # Try to extract account from ARN first
+            # Extract both account and region from ARN when available
             account_id = None
+            region = None
+            
             if resource_id.startswith('arn:aws:'):
                 parts = resource_id.split(':')
-                # parts[4] is the account ID in standard ARNs
-                if len(parts) >= 5 and parts[4]:
-                    account_id = parts[4]
+                # parts[3] is region, parts[4] is account ID
+                if len(parts) >= 5:
+                    if parts[3]:  # Region (empty for global services like S3)
+                        region = parts[3]
+                    if parts[4]:  # Account ID
+                        account_id = parts[4]
             
-            # Fall back to account ID from config (retrieved via STS at startup)
+            # Fall back to config values if not in ARN
             if not account_id:
                 account_id = get_aws_account_id_from_config()
+            if not region:
+                region = get_aws_region_from_config()
             
-            # Use account-based scope for proper multi-account isolation
-            if account_id:
-                return f"aws:account/{account_id}"
-            
-            # Final fallback if no account ID available (shouldn't happen in normal operation)
-            logger.warning("No AWS account ID available for scope - using fallback")
-            return "aws:account/unknown"
+            # Use account + region scope for proper multi-account AND multi-region isolation
+            account_id = account_id or 'unknown'
+            return f"aws:account/{account_id}/region/{region}"
         
         # Azure resource ID: /subscriptions/{sub}/resourceGroups/{rg}/providers/{provider}/{type}/{name}
         parts = resource_id.split('/')
@@ -943,7 +953,8 @@ def build_scope_from_resource_id(resource_id: str, config: Dict[str, Any]) -> st
         # Final fallback - ensure we never return None
         if cloud_provider == 'aws':
             account_id = get_aws_account_id_from_config() or 'unknown'
-            return f"aws:account/{account_id}"
+            region = get_aws_region_from_config()
+            return f"aws:account/{account_id}/region/{region}"
         subscription_id = get_subscription_id(config) or 'unknown'
         return f"azure:subscription/{subscription_id}"
 

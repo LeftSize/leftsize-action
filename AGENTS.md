@@ -35,9 +35,11 @@ LeftSize is a "Dependabot for Cloud Waste" - it scans your cloud infrastructure 
 
 Scope is used to group findings and is derived from resource IDs:
 - **Azure**: `azure:subscription/{id}/resourceGroup/{rg}`
-- **AWS**: `aws:account/{account_id}` (e.g., `aws:account/123456789012`)
+- **AWS**: `aws:account/{account_id}/region/{region}` (e.g., `aws:account/123456789012/region/eu-west-1`)
 
-**Multi-account support**: AWS scopes use the 12-digit account ID (retrieved via STS GetCallerIdentity at scan start) to properly isolate findings across different AWS accounts. This prevents findings from one account being incorrectly marked as "resolved" when scanning a different account.
+**Multi-account AND multi-region support**: AWS scopes use the 12-digit account ID (retrieved via STS GetCallerIdentity at scan start) combined with the region to properly isolate findings. This prevents findings from one account/region being incorrectly marked as "resolved" when scanning a different account or region.
+
+For regional resources (EC2, RDS, etc.), the region is extracted from the ARN. For global resources (S3, IAM), the configured scan region is used.
 
 ### Key Functions in run.py
 
