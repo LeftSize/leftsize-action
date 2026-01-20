@@ -352,10 +352,18 @@ def print_github_summary(
     """
     github_step_summary = os.getenv('GITHUB_STEP_SUMMARY')
     
+    # Calculate issues to be created vs findings requiring upgrade
+    findings_included = len(findings)
+    findings_require_upgrade = 0
+    if plan_info:
+        findings_included = plan_info.get('FindingsIncluded', len(findings))
+        findings_require_upgrade = plan_info.get('FindingsRequireUpgrade', 0)
+    
     summary = f"""# LeftSize Cloud Cost Optimization Scan Results
 
 ## Summary
-- **Findings**: {len(findings)}
+- **Findings Detected**: {len(findings)}
+- **Issues to be Created**: {findings_included}
 - **Submitted to Backend**: {'✅ Yes' if submitted else '❌ No'}
 
 """
@@ -382,6 +390,9 @@ Upgrade to LeftSize Pro for unlimited repository scanning and access to all opti
         plan_type = plan_info.get('PlanType', 'Free')
         repo_count = plan_info.get('ScannedRepositoryCount', 0)
         repo_limit = plan_info.get('RepositoryLimit', 3)
+        findings_included = plan_info.get('FindingsIncluded', len(findings))
+        findings_require_upgrade = plan_info.get('FindingsRequireUpgrade', 0)
+        upgrade_url = plan_info.get('UpgradeUrl', 'https://github.com/marketplace/leftsize')
         
         if plan_type == 'Free':
             remaining = max(0, repo_limit - repo_count)
@@ -391,7 +402,25 @@ Upgrade to LeftSize Pro for unlimited repository scanning and access to all opti
 - **Remaining**: {remaining} repositories
 
 """
-            if remaining <= 1:
+            # Show findings breakdown for free tier
+            if findings_require_upgrade > 0:
+                summary += f"""## ⚠️ Some Findings Require Pro Plan
+
+| Category | Count |
+|----------|-------|
+| Issues to be created | {findings_included} |
+| Findings requiring upgrade | {findings_require_upgrade} |
+
+**{findings_require_upgrade} findings** were detected but won't create GitHub Issues because they require the Pro plan.
+
+These findings are from rules that analyze security, governance, and advanced cost optimizations not included in the Free tier.
+
+👉 **[Upgrade to Pro]({upgrade_url})** to unlock all {findings_included + findings_require_upgrade} findings.
+
+---
+
+"""
+            elif remaining <= 1:
                 summary += f"""### 💡 Running low on free scans?
 Upgrade to LeftSize Pro for unlimited repository scanning and access to all optimization rules.
 
@@ -404,6 +433,7 @@ Upgrade to LeftSize Pro for unlimited repository scanning and access to all opti
             summary += f"""## Plan Information
 - **Plan**: Pro ✨
 - **Repositories Scanned**: {repo_count} (unlimited)
+- **All Findings Included**: {findings_included}
 
 ---
 
