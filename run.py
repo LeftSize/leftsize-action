@@ -167,6 +167,7 @@ def github_action_main():
     cloud_provider = os.getenv('LEFTSIZE_CLOUD_PROVIDER', 'azure')
     azure_subscription_ids = os.getenv('LEFTSIZE_AZURE_SUBSCRIPTION_IDS', '')
     aws_regions = os.getenv('LEFTSIZE_AWS_REGIONS', '')
+    environment_name = os.getenv('LEFTSIZE_ENVIRONMENT_NAME', '')
     currency = os.getenv('LEFTSIZE_CURRENCY', '')
     include_policies = os.getenv('LEFTSIZE_INCLUDE_POLICIES', '')
     exclude_policies = os.getenv('LEFTSIZE_EXCLUDE_POLICIES', '')
@@ -1127,23 +1128,50 @@ def extract_resource_metadata(resource: Dict[str, Any], resource_id: str) -> Dic
     
     try:
         # Parse resource ID to extract components
+        # Azure format: /subscriptions/{sub}/resourceGroups/{rg}/...
+        # AWS format: arn:aws:service:region:account:resource
         parts = resource_id.split('/')
         if len(parts) >= 5 and parts[1] == 'subscriptions':
+            # Azure resource ID
             metadata['subscriptionId'] = parts[2]
             if len(parts) >= 5:
                 metadata['resourceGroup'] = parts[4]
             if len(parts) >= 9:
                 metadata['resourceName'] = parts[8]
+        elif resource_id.startswith('arn:aws:'):
+            # AWS ARN - extract account and region
+            arn_parts = resource_id.split(':')
+            if len(arn_parts) >= 5:
+                if arn_parts[3]:  # region (empty for global services)
+                    metadata['region'] = arn_parts[3]
+                if arn_parts[4]:  # account ID
+                    metadata['accountId'] = arn_parts[4]
         
-        # Extract location
+        # Extract location (Azure)
         location = resource.get('location')
         if location:
             metadata['location'] = location
         
-        # Extract tags
-        tags = resource.get('tags', {})
+        # Extract tags - handle both Azure (dict) and AWS (list) formats
+        # Azure: {"Environment": "Production", "Team": "DevOps"}
+        # AWS: [{"Key": "Environment", "Value": "Production"}, {"Key": "Team", "Value": "DevOps"}]
+        tags = resource.get('tags') or resource.get('Tags')
         if tags:
-            metadata['tags'] = tags
+            if isinstance(tags, dict):
+                # Azure format - already a dict
+                metadata['tags'] = tags
+            elif isinstance(tags, list):
+                # AWS format - convert list of Key/Value dicts to simple dict
+                tags_dict = {}
+                for tag in tags:
+                    if isinstance(tag, dict):
+                        key = tag.get('Key') if tag.get('Key') is not None else tag.get('key')
+                        # Handle value carefully - empty string '' is valid, None is not
+                        value = tag.get('Value') if 'Value' in tag else tag.get('value')
+                        if key and value is not None:
+                            tags_dict[key] = value
+                if tags_dict:
+                    metadata['tags'] = tags_dict
         
         # Extract resource-specific properties
         properties = resource.get('properties', {})
