@@ -208,6 +208,11 @@ def github_action_main():
         # Store cloud provider in config for policy filtering
         config_data['cloud_provider'] = cloud_provider
         
+        # Store environment name override if provided
+        if environment_name:
+            config_data['environment_name'] = environment_name.strip()
+            logger.info("Environment name override specified", environment=environment_name)
+        
         # Override with environment variables
         if backend_url:
             config_data.setdefault('output', {})['backend_url'] = backend_url
@@ -1101,6 +1106,14 @@ def convert_resource_to_finding(policy_name: str, resource: Dict[str, Any], conf
         
         # Extract metadata from resource - only include what Cloud Custodian provides
         metadata = extract_resource_metadata(resource, resource_id)
+        
+        # Add environment override if specified in config
+        # This allows users to manually specify environment when auto-detection doesn't work
+        environment_override = config.get('environment_name')
+        if environment_override:
+            if metadata is None:
+                metadata = {}
+            metadata['environmentOverride'] = environment_override
         
         finding = {
             'ruleId': rule_id,
