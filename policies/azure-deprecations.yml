@@ -39,8 +39,6 @@ policies:
       Reference: https://azure.microsoft.com/updates?id=500578
     
     resource: azure.vm
-    metadata:
-      tier: pro
     
     filters:
       # Match all NVv4-series VM sizes
@@ -114,8 +112,6 @@ policies:
       Note: Can still be managed via infrastructure as code and Azure CLI until retirement date.
     
     resource: azure.appserviceplan
-    metadata:
-      tier: pro
     
     filters:
       # Match Linux Consumption hosting plan (Y1 SKU)
@@ -158,6 +154,93 @@ policies:
         op: notify
         days: 1  # Notify after 1 day
         tag: leftsize-functions-linux-consumption-notify
+
+  # ========================================
+  # ☸️ AKS KUBERNETES VERSION DEPRECATIONS
+  # ========================================
+
+  - name: leftsize-aks-outdated-version
+    description: |
+      Find AKS clusters running outdated Kubernetes versions.
+      
+      AKS version support:
+      - Each K8s minor version supported for ~12 months
+      - After support ends, clusters must upgrade or risk security issues
+      - Automatic upgrades available but require planning
+      
+      Outdated versions (as of 2025):
+      - 1.27 and below: Out of support or ending soon
+      - 1.28: Support ending soon
+      
+      Current recommended: 1.29, 1.30, 1.31
+      
+      Reference: https://learn.microsoft.com/en-us/azure/aks/supported-kubernetes-versions
+    
+    resource: azure.aks
+    
+    filters:
+      # Match outdated Kubernetes versions
+      - type: value
+        key: 'properties.kubernetesVersion'
+        op: in
+        value:
+          - '1.23'
+          - '1.24'
+          - '1.25'
+          - '1.26'
+          - '1.27'
+          - '1.28'
+      # Only running clusters
+      - type: value
+        key: 'properties.provisioningState'
+        value: 'Succeeded'
+    
+    actions:
+      - type: tag
+        tag: 'leftsize-migration-required'
+        value: 'aks-version-upgrade'
+      
+      - type: mark-for-op
+        op: notify
+        days: 7
+        tag: leftsize-aks-upgrade-notify
+
+  # ========================================
+  # 🗄️ SQL DATABASE DTU MODEL (Legacy)
+  # ========================================
+
+  - name: leftsize-sql-database-dtu-model
+    description: |
+      Find Azure SQL Databases using the legacy DTU purchasing model.
+      
+      The DTU model is being phased out in favor of vCore:
+      - DTU: Legacy, less flexible, harder to right-size
+      - vCore: Modern, more control, reserved capacity discounts
+      
+      Benefits of migrating to vCore:
+      - Up to 55% savings with reserved capacity
+      - More granular compute/storage sizing
+      - Hybrid benefit support (use existing SQL licenses)
+      - Better performance predictability
+      
+      Reference: https://learn.microsoft.com/en-us/azure/azure-sql/database/service-tiers-dtu
+    
+    resource: azure.sql-database
+    
+    filters:
+      # DTU-based SKUs (Basic, Standard S0-S12, Premium P1-P15)
+      - type: value
+        key: 'sku.tier'
+        op: in
+        value:
+          - 'Basic'
+          - 'Standard'
+          - 'Premium'
+      # Exclude system databases
+      - type: value
+        key: 'name'
+        op: ne
+        value: 'master'
 
   # ========================================
   # 📝 TEMPLATE FOR FUTURE DEPRECATIONS

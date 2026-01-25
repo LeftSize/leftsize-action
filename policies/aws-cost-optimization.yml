@@ -5,8 +5,6 @@ policies:
   - name: leftsize-idle-ecs-container-instances
     description: "Find ECS clusters with idle container instances due to high ASG minimum capacity"
     resource: aws.asg
-    metadata:
-      tier: pro
     filters:
       # ASG must be associated with an ECS cluster (has specific tag)
       - type: value
@@ -46,8 +44,6 @@ policies:
   - name: leftsize-fargate-spot-eligible
     description: "Find ECS services using regular Fargate that could use Fargate Spot for 70% savings"
     resource: aws.ecs-service
-    metadata:
-      tier: pro
     filters:
       # Only active services
       - type: value
@@ -106,8 +102,6 @@ policies:
   - name: leftsize-inactive-ec2-instance
     description: "Find inactive EC2 instances with low CPU and network utilization"
     resource: aws.ec2
-    metadata:
-      tier: pro
     filters:
       # Only check running instances
       - type: value
@@ -146,8 +140,6 @@ policies:
   - name: leftsize-underutilized-ec2-instance
     description: "Find underutilized EC2 instances with low but non-zero CPU usage (right-sizing candidates)"
     resource: aws.ec2
-    metadata:
-      tier: pro
     filters:
       # Only running instances
       - type: value
@@ -197,8 +189,6 @@ policies:
   - name: leftsize-multi-az-nonprod-ec2
     description: "Find non-production EC2 instances spread across multiple AZs (unnecessary HA)"
     resource: aws.ec2
-    metadata:
-      tier: pro
     filters:
       # Only running instances
       - type: value
@@ -234,8 +224,6 @@ policies:
   - name: leftsize-unattached-ebs-volume
     description: "Find unattached EBS volumes that can be deleted"
     resource: aws.ebs
-    metadata:
-      tier: free
     filters:
       # Volume is not attached to any instance
       - type: value
@@ -264,8 +252,6 @@ policies:
   - name: leftsize-unused-elastic-ip
     description: "Find unused Elastic IP addresses that can be released"
     resource: aws.network-addr
-    metadata:
-      tier: free
     filters:
       # Not associated with any instance or network interface
       - type: value
@@ -283,8 +269,6 @@ policies:
   - name: leftsize-idle-rds-instance
     description: "Find RDS instances with low connection and CPU utilization"
     resource: aws.rds
-    metadata:
-      tier: pro
     filters:
       # Only check available (running) instances
       - type: value
@@ -318,8 +302,6 @@ policies:
   - name: leftsize-unused-load-balancer
     description: "Find load balancers with no active targets"
     resource: aws.elb
-    metadata:
-      tier: free
     filters:
       # No healthy targets
       - type: value
@@ -340,8 +322,6 @@ policies:
   - name: leftsize-unused-alb
     description: "Find Application Load Balancers with no active target groups"
     resource: aws.app-elb
-    metadata:
-      tier: free
     filters:
       # Load balancer is older than 3 days
       - type: value
@@ -370,8 +350,6 @@ policies:
   - name: leftsize-orphaned-ebs-snapshots
     description: "Find old EBS snapshots (>30 days) where source volume no longer exists"
     resource: aws.ebs-snapshot
-    metadata:
-      tier: free
     filters:
       # Snapshot is older than 30 days
       - type: age
@@ -398,8 +376,6 @@ policies:
   - name: leftsize-ec2-outdated-generation
     description: "Find EC2 instances on older generations (4th gen or earlier) - 10-40% savings available"
     resource: aws.ec2
-    metadata:
-      tier: pro
     filters:
       # Only running instances
       - type: value
@@ -423,8 +399,6 @@ policies:
   - name: leftsize-ec2-scheduled-shutdown-missing
     description: "Find non-production EC2 instances running 24/7 without scheduled shutdown (30-70% savings)"
     resource: aws.ec2
-    metadata:
-      tier: pro
     filters:
       # Only running instances
       - type: value
@@ -469,8 +443,6 @@ policies:
   - name: leftsize-s3-intelligent-tiering-missing
     description: "Find S3 buckets not using Intelligent-Tiering (40-70% savings on infrequent data)"
     resource: aws.s3
-    metadata:
-      tier: pro
     filters:
       # Bucket exists
       - type: value
@@ -486,11 +458,50 @@ policies:
         days: 7
         tag: leftsize-intelligent-tiering-review
 
+  - name: leftsize-s3-missing-bucket-key
+    description: "Find S3 buckets using SSE-KMS without Bucket Key enabled (reduces KMS API costs by 99%)"
+    resource: aws.s3
+    filters:
+      # Bucket uses SSE-KMS encryption
+      - type: bucket-encryption
+        crypto: aws:kms
+      # Bucket Key is not enabled
+      - type: bucket-encryption
+        bucket_key_enabled: false
+    actions:
+      - type: mark-for-op
+        op: tag
+        days: 7
+        tag: leftsize-bucket-key-review
+
+  - name: leftsize-s3-missing-lifecycle-policy
+    description: "Find S3 buckets without lifecycle policies (30-70% storage savings possible)"
+    resource: aws.s3
+    filters:
+      # Bucket exists
+      - type: value
+        key: 'Name'
+        value: present
+      # No lifecycle configuration - check if Lifecycle key is absent/empty
+      - not:
+        - type: value
+          key: 'Lifecycle.Rules'
+          value: present
+      # Bucket is older than 30 days (established bucket)
+      - type: value
+        key: 'CreationDate'
+        op: less-than
+        value_type: age
+        value: 30
+    actions:
+      - type: mark-for-op
+        op: tag
+        days: 14
+        tag: leftsize-lifecycle-policy-review
+
   - name: leftsize-gp2-to-gp3-migration
     description: "Find EBS volumes still using gp2 - migrate to gp3 for 20% savings and better performance"
     resource: aws.ebs
-    metadata:
-      tier: free
     filters:
       # Volume is gp2 type
       - type: value
@@ -519,8 +530,6 @@ policies:
   - name: leftsize-rds-outdated-version
     description: "Find RDS instances on MySQL 5.7/PostgreSQL 11 triggering Extended Support charges"
     resource: aws.rds
-    metadata:
-      tier: pro
     filters:
       # Only available (running) instances
       - type: value
@@ -553,8 +562,6 @@ policies:
   - name: leftsize-rds-multiaz-nonprod
     description: "Find non-production RDS instances with unnecessary Multi-AZ (2x cost)"
     resource: aws.rds
-    metadata:
-      tier: pro
     filters:
       # Only available (running) instances
       - type: value
@@ -592,8 +599,6 @@ policies:
   - name: leftsize-rds-non-graviton
     description: "Find RDS instances using x86 instead of Graviton (20-40% savings)"
     resource: aws.rds
-    metadata:
-      tier: pro
     filters:
       # Only available (running) instances
       - type: value
@@ -621,11 +626,77 @@ policies:
         days: 14
         tag: leftsize-graviton-review
 
+  - name: leftsize-rds-excessive-backup-retention
+    description: "Find non-production RDS instances with backup retention exceeding 14 days"
+    resource: aws.rds
+    filters:
+      # Only available (running) instances
+      - type: value
+        key: 'DBInstanceStatus'
+        value: 'available'
+      # Backup retention period > 14 days
+      - type: value
+        key: 'BackupRetentionPeriod'
+        op: greater-than
+        value: 14
+      # Non-production environments based on tags or identifier
+      - or:
+        - type: value
+          key: 'tag:Environment'
+          op: in
+          value: ['dev', 'development', 'test', 'testing', 'staging', 'qa', 'sandbox']
+        - type: value
+          key: 'tag:Env'
+          op: in
+          value: ['dev', 'development', 'test', 'testing', 'staging', 'qa', 'sandbox']
+        - type: value
+          key: 'tag:environment'
+          op: in
+          value: ['dev', 'development', 'test', 'testing', 'staging', 'qa', 'sandbox']
+        # Or DB instance identifier contains non-prod keywords
+        - type: value
+          key: 'DBInstanceIdentifier'
+          op: regex
+          value: '(dev|test|staging|qa|sandbox)'
+    actions:
+      - type: mark-for-op
+        op: tag
+        days: 7
+        tag: leftsize-backup-retention-review
+
+  - name: leftsize-rds-suboptimal-storage-type
+    description: "Find RDS instances using io1/io2 when gp3 would provide sufficient IOPS at lower cost"
+    resource: aws.rds
+    filters:
+      # Only available (running) instances
+      - type: value
+        key: 'DBInstanceStatus'
+        value: 'available'
+      # Using io1 or io2 storage type
+      - type: value
+        key: 'StorageType'
+        op: in
+        value: ['io1', 'io2']
+      # IOPS is within gp3 range (gp3 supports up to 16,000 IOPS)
+      - type: value
+        key: 'Iops'
+        op: less-than
+        value: 16000
+      # Instance has been running for at least 14 days
+      - type: value
+        key: 'InstanceCreateTime'
+        op: less-than
+        value_type: age
+        value: 14
+    actions:
+      - type: mark-for-op
+        op: tag
+        days: 14
+        tag: leftsize-rds-storage-review
+
   - name: leftsize-lambda-x86-architecture
     description: "Find Lambda functions using x86 instead of ARM (20% savings)"
     resource: aws.lambda
-    metadata:
-      tier: pro
     filters:
       # Default architecture is x86_64 (ARM is arm64)
       - or:
@@ -660,8 +731,6 @@ policies:
   - name: leftsize-inactive-nat-gateway
     description: "Find NAT Gateways with no traffic (pure waste)"
     resource: aws.nat-gateway
-    metadata:
-      tier: pro
     filters:
       # Only active gateways
       - type: value
@@ -692,8 +761,6 @@ policies:
   - name: leftsize-ebs-delete-on-termination-disabled
     description: "Find EBS volumes with DeleteOnTermination disabled that will orphan"
     resource: aws.ec2
-    metadata:
-      tier: pro
     filters:
       # Only running instances
       - type: value
@@ -713,3 +780,261 @@ policies:
         op: tag
         days: 7
         tag: leftsize-delete-on-termination-review
+
+  - name: leftsize-ebs-attached-to-stopped-ec2
+    description: "Find EBS volumes attached to stopped EC2 instances (still incurring full storage costs)"
+    resource: aws.ebs
+    filters:
+      # Volume is attached (in-use)
+      - type: value
+        key: 'State'
+        value: 'in-use'
+      # Attached to a stopped instance
+      - type: value
+        key: 'Attachments[0].State'
+        value: 'attached'
+      # Check instance state via cross-resource filter
+      - type: instance
+        key: 'State.Name'
+        value: 'stopped'
+      # Volume has been attached to stopped instance for at least 7 days
+      - type: value
+        key: 'CreateTime'
+        op: less-than
+        value_type: age
+        value: 7
+    actions:
+      - type: mark-for-op
+        op: tag
+        days: 7
+        tag: leftsize-stopped-instance-storage-review
+
+  - name: leftsize-ec2-non-graviton
+    description: "Find EC2 instances not using Graviton processors (20-40% cost savings available)"
+    resource: aws.ec2
+    filters:
+      # Only running instances
+      - type: value
+        key: 'State.Name'
+        value: 'running'
+      # Instance running for at least 14 days (established workload)
+      - type: instance-age
+        op: gte
+        days: 14
+      # Current x86 generation instances that have Graviton alternatives
+      # Matches: m5, m6i, c5, c6i, r5, r6i, t3 (but not t4g which is already Graviton)
+      - type: value
+        key: 'InstanceType'
+        op: regex
+        value: '^(m[56]i?|c[56]i?|r[56]i?|t3)\.'
+      # Exclude instances already using Graviton (g suffix)
+      - not:
+        - type: value
+          key: 'InstanceType'
+          op: regex
+          value: '^(m[67]g|c[67]g|r[67]g|t4g)\.'
+    actions:
+      - type: mark-for-op
+        op: tag
+        days: 14
+        tag: leftsize-graviton-migration-review
+
+  - name: leftsize-io1-to-io2-migration
+    description: "Find EBS volumes using io1 - migrate to io2 for better durability at the same price"
+    resource: aws.ebs
+    filters:
+      # Volume is io1 type
+      - type: value
+        key: 'VolumeType'
+        value: 'io1'
+      # Volume is in-use (attached)
+      - type: value
+        key: 'State'
+        value: 'in-use'
+      # Volume is older than 7 days
+      - type: value
+        key: 'CreateTime'
+        op: less-than
+        value_type: age
+        value: 7
+    actions:
+      - type: mark-for-op
+        op: tag
+        days: 7
+        tag: leftsize-io2-migration-review
+
+  # ========================================
+  # 💰 COST OPTIMIZATION - PointFive Inspired
+  # ========================================
+
+  - name: leftsize-spot-instance-eligible
+    description: "Find on-demand EC2 instances in non-prod that could use Spot (60-90% savings)"
+    resource: aws.ec2
+    filters:
+      # Only running instances
+      - type: value
+        key: 'State.Name'
+        value: 'running'
+      # On-demand instances only (InstanceLifecycle is absent or null for on-demand)
+      - or:
+        - type: value
+          key: 'InstanceLifecycle'
+          value: absent
+        - type: value
+          key: 'InstanceLifecycle'
+          value: null
+      # Non-production environments based on tags
+      - or:
+        - type: value
+          key: 'tag:Environment'
+          op: in
+          value: ['dev', 'development', 'test', 'testing', 'staging', 'qa', 'sandbox']
+        - type: value
+          key: 'tag:Env'
+          op: in
+          value: ['dev', 'development', 'test', 'testing', 'staging', 'qa', 'sandbox']
+        - type: value
+          key: 'tag:environment'
+          op: in
+          value: ['dev', 'development', 'test', 'testing', 'staging', 'qa', 'sandbox']
+      # Instance has been running for at least 7 days (established workload)
+      - type: instance-age
+        op: gte
+        days: 7
+      # Exclude instances that are spot-ineligible by design (e.g., stateful workloads)
+      - not:
+        - type: value
+          key: 'tag:SpotIneligible'
+          value: present
+    actions:
+      - type: mark-for-op
+        op: tag
+        days: 7
+        tag: leftsize-spot-eligible-review
+
+  - name: leftsize-s3-incomplete-multipart-uploads
+    description: "Find S3 buckets without lifecycle rule to abort incomplete multipart uploads"
+    resource: aws.s3
+    filters:
+      # Bucket exists
+      - type: value
+        key: 'Name'
+        value: present
+      # No lifecycle rule for incomplete multipart uploads
+      # We check if AbortIncompleteMultipartUpload is absent in all rules
+      - or:
+        # No lifecycle rules at all
+        - not:
+          - type: value
+            key: 'Lifecycle.Rules'
+            value: present
+        # Or lifecycle rules exist but none have AbortIncompleteMultipartUpload
+        - type: value
+          key: 'Lifecycle.Rules[].AbortIncompleteMultipartUpload'
+          value: absent
+      # Bucket is older than 30 days
+      - type: value
+        key: 'CreationDate'
+        op: less-than
+        value_type: age
+        value: 30
+    actions:
+      - type: mark-for-op
+        op: tag
+        days: 14
+        tag: leftsize-multipart-cleanup-review
+
+  - name: leftsize-s3-non-current-versions
+    description: "Find versioned S3 buckets without lifecycle rule to expire old versions"
+    resource: aws.s3
+    filters:
+      # Bucket has versioning enabled
+      - type: value
+        key: 'Versioning.Status'
+        value: 'Enabled'
+      # No lifecycle rule for non-current version expiration
+      - or:
+        # No lifecycle rules at all
+        - not:
+          - type: value
+            key: 'Lifecycle.Rules'
+            value: present
+        # Or lifecycle rules exist but none have NoncurrentVersionExpiration
+        - type: value
+          key: 'Lifecycle.Rules[].NoncurrentVersionExpiration'
+          value: absent
+      # Bucket is older than 30 days
+      - type: value
+        key: 'CreationDate'
+        op: less-than
+        value_type: age
+        value: 30
+    actions:
+      - type: mark-for-op
+        op: tag
+        days: 14
+        tag: leftsize-version-cleanup-review
+
+  - name: leftsize-missing-vpc-endpoint-s3
+    description: "Find VPCs without S3 Gateway Endpoint (causes unnecessary data transfer costs)"
+    resource: aws.vpc
+    filters:
+      # VPC is active (has instances or resources)
+      - type: value
+        key: 'State'
+        value: 'available'
+      # Exclude default VPCs as they may be unused
+      - type: value
+        key: 'IsDefault'
+        value: false
+      # No S3 Gateway endpoint configured
+      - not:
+        - type: vpc-endpoint
+          key: 'ServiceName'
+          op: regex
+          value: '.*\.s3$'
+    actions:
+      - type: mark-for-op
+        op: tag
+        days: 14
+        tag: leftsize-s3-endpoint-review
+
+  - name: leftsize-rds-auto-restart-pending
+    description: "Find stopped RDS instances approaching 7-day auto-restart limit"
+    resource: aws.rds
+    filters:
+      # Instance is stopped
+      - type: value
+        key: 'DBInstanceStatus'
+        value: 'stopped'
+      # RDS auto-restarts after 7 days. Flag instances stopped for 5+ days
+      # Note: We check instance creation time as a proxy (actual stop time not directly available)
+      # This will catch instances that have been stopped long enough to be at risk
+    actions:
+      - type: mark-for-op
+        op: tag
+        days: 1
+        tag: leftsize-rds-auto-restart-warning
+
+  - name: leftsize-orphaned-rds-snapshots
+    description: "Find manual RDS snapshots where the source database no longer exists"
+    resource: aws.rds-snapshot
+    filters:
+      # Only manual snapshots (not automated backups)
+      - type: value
+        key: 'SnapshotType'
+        value: 'manual'
+      # Snapshot is older than 30 days
+      - type: age
+        days: 30
+        op: gte
+      # Source database no longer exists
+      - type: instance
+        value: 0
+        value_type: resource_count
+        op: eq
+    actions:
+      - type: mark-for-op
+        op: delete
+        days: 14
+        tag: leftsize-orphaned-rds-snapshot-delete

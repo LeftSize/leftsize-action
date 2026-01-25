@@ -8,8 +8,6 @@ policies:
   - name: leftsize-orphaned-kubernetes-resources
     description: "Find orphaned Kubernetes resources (PVCs, LoadBalancers, ConfigMaps) that reference deleted objects"
     resource: azure.aks
-    metadata:
-      tier: pro
     filters:
       # Only running clusters
       - type: value
@@ -36,8 +34,6 @@ policies:
   - name: leftsize-overprovisioned-aks-nodes
     description: "Find AKS clusters with overprovisioned node pools (low CPU/memory utilization)"
     resource: azure.aks
-    metadata:
-      tier: pro
     filters:
       # Only running clusters
       - type: value
@@ -69,8 +65,6 @@ policies:
   - name: leftsize-aks-cluster-autoscaler-disabled
     description: "Find AKS clusters without cluster autoscaler enabled"
     resource: azure.aks
-    metadata:
-      tier: pro
     filters:
       # Only running clusters
       - type: value
@@ -100,8 +94,6 @@ policies:
   - name: leftsize-aks-using-expensive-vm-sizes
     description: "Find AKS node pools using expensive VM sizes that could be optimized"
     resource: azure.aks
-    metadata:
-      tier: pro
     filters:
       # Only running clusters
       - type: value
@@ -132,8 +124,6 @@ policies:
   - name: leftsize-aks-dev-clusters-always-running
     description: "Find non-production AKS clusters running 24/7"
     resource: azure.aks
-    metadata:
-      tier: pro
     filters:
       # Only running clusters
       - type: value

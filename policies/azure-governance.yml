@@ -33,8 +33,6 @@ policies:
       Compliance: CIS Azure Foundations 3.7, ISO 27001, SOC2, GDPR Article 32
     
     resource: azure.storage
-    metadata:
-      tier: pro
     
     filters:
       # Allow blob public access is enabled
@@ -80,8 +78,6 @@ policies:
       Compliance: CIS Azure Foundations 3.1, PCI-DSS 4.1, SOC2, ISO 27001
     
     resource: azure.storage
-    metadata:
-      tier: pro
     
     filters:
       # HTTPS only is NOT enforced
@@ -131,8 +127,6 @@ policies:
       or firewall rules for production storage accounts containing sensitive data.
     
     resource: azure.storage
-    metadata:
-      tier: pro
     
     filters:
       # Public network access is enabled
@@ -167,6 +161,62 @@ policies:
         days: 1
         tag: leftsize-storage-public-network-notify
 
+  # MEDIUM: Public storage access enabled - allows anonymous container access configuration
+  - name: leftsize-public-storage-access
+    description: |
+      Detect Azure Storage Accounts with public access enabled at the account level.
+      
+      When allowBlobPublicAccess is enabled or publicNetworkAccess allows all traffic,
+      containers can potentially be configured for anonymous access, increasing data
+      breach risk. This is different from anonymous blob access - it's the account-level
+      setting that permits public access configuration.
+      
+      Detection criteria:
+      - Storage account allows public blob access (allowBlobPublicAccess = true)
+      - Or publicNetworkAccess is enabled without network restrictions
+      
+      Security impact: MEDIUM - Enables potential data exposure configuration
+      Compliance: CIS Azure Foundations 3.7, SOC2, GDPR Article 32
+    
+    resource: azure.storage
+    
+    filters:
+      # Public blob access is allowed at account level
+      - or:
+        - type: value
+          key: properties.allowBlobPublicAccess
+          value: true
+        # Or public network access without restrictions
+        - and:
+          - type: value
+            key: properties.publicNetworkAccess
+            value: 'Enabled'
+          - type: value
+            key: properties.networkAcls.defaultAction
+            value: 'Allow'
+    
+    actions:
+      - type: tag
+        tag: 'leftsize-security-issue'
+        value: 'public-storage-access'
+      
+      - type: tag
+        tag: 'leftsize-severity'
+        value: 'medium'
+      
+      - type: tag
+        tag: 'leftsize-compliance'
+        value: 'CIS-Azure-Foundations-3.7'
+      
+      - type: tag
+        tag: 'leftsize-detected-date'
+        value: '{now:%Y-%m-%d}'
+      
+      - type: mark-for-op
+        op: notify
+        days: 1
+        tag: leftsize-public-storage-access-notify
+
   - name: leftsize-unencrypted-storage
     description: |
       Ensure all Azure Storage Accounts have encryption enabled at rest.
@@ -182,8 +232,6 @@ policies:
       Compliance: CIS Azure Foundations, ISO 27001, SOC2, PCI-DSS
     
     resource: azure.storage
-    metadata:
-      tier: pro
     
     filters:
       # Check if encryption is disabled for any service
@@ -240,8 +288,6 @@ policies:
       Compliance: CIS Azure Foundations, PCI-DSS, NIST
     
     resource: azure.networksecuritygroup
-    metadata:
-      tier: pro
     
     filters:
       # Has at least one security rule
@@ -315,8 +361,6 @@ policies:
       Compliance: CIS Azure Foundations, ISO 27001, PCI-DSS
     
     resource: azure.disk
-    metadata:
-      tier: pro
     
     filters:
       # Encryption is not enabled
@@ -376,8 +420,6 @@ policies:
       Compliance: FinOps best practices, cost allocation policies
     
     resource: azure.vm
-    metadata:
-      tier: pro
     
     filters:
       # Check for missing or empty owner tag
@@ -420,8 +462,6 @@ policies:
       Ensure all Azure Storage Accounts have clear ownership metadata.
     
     resource: azure.storage
-    metadata:
-      tier: pro
     
     filters:
       - or:
@@ -452,8 +492,6 @@ policies:
       Ensure all Azure SQL Databases have clear ownership metadata.
     
     resource: azure.sqlserver
-    metadata:
-      tier: pro
     
     filters:
       - or:
@@ -484,8 +522,6 @@ policies:
       Ensure all Azure Managed Disks have clear ownership metadata.
     
     resource: azure.disk
-    metadata:
-      tier: pro
     
     filters:
       - or:
@@ -516,8 +552,6 @@ policies:
       Ensure all AKS clusters have clear ownership metadata.
     
     resource: azure.aks
-    metadata:
-      tier: pro
     
     filters:
       - or:
@@ -549,8 +583,6 @@ policies:
       Tags on resource groups can be inherited by child resources through Azure Policy.
     
     resource: azure.resourcegroup
-    metadata:
-      tier: pro
     
     filters:
       - or:

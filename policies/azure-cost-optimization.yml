@@ -5,8 +5,6 @@ policies:
   - name: leftsize-idle-vm
     description: "Find idle Virtual Machines that can be stopped or downsized"
     resource: azure.vm
-    metadata:
-      tier: pro
     filters:
       - type: metric
         metric: 'Percentage CPU'
@@ -30,8 +28,6 @@ policies:
   - name: leftsize-idle-app-service-plan-no-apps
     description: "Find empty App Service Plans with no applications deployed"
     resource: azure.appserviceplan
-    metadata:
-      tier: free
     filters:
       # Filter for plans with no apps deployed (using sites count)
       - type: value
@@ -57,8 +53,6 @@ policies:
   - name: leftsize-idle-app-service-plan
     description: "Find underutilized App Service Plans with low resource usage"
     resource: azure.appserviceplan
-    metadata:
-      tier: pro
     filters:
       # Only target plans that have apps (to distinguish from empty plans)
       - type: value
@@ -95,8 +89,6 @@ policies:
   - name: leftsize-outdated-app-service-plan
     description: "Find App Service Plans using outdated or inefficient SKUs"
     resource: azure.appserviceplan
-    metadata:
-      tier: pro
     filters:
       # Target legacy SKUs that should be upgraded
       - type: value
@@ -126,8 +118,6 @@ policies:
   - name: leftsize-unattached-disk
     description: "Find unattached managed disks that can be deleted"
     resource: azure.disk
-    metadata:
-      tier: free
     filters:
       - type: value
         key: 'properties.diskState'
@@ -154,8 +144,6 @@ policies:
   - name: leftsize-unused-public-ip
     description: "Find unused public IP addresses that can be released"
     resource: azure.publicip
-    metadata:
-      tier: free
     filters:
       # Not attached to any resource
       - type: value
@@ -184,8 +172,6 @@ policies:
   - name: leftsize-inactive-azure-load-balancer
     description: "Find Azure Load Balancers with no active backend pools or targets"
     resource: azure.loadbalancer
-    metadata:
-      tier: free
     filters:
       # Load balancer has no backend pools configured
       - or:
@@ -221,8 +207,6 @@ policies:
   - name: leftsize-hybrid-benefit-missing
     description: "Find Windows VMs not using Azure Hybrid Benefit (up to 40% savings)"
     resource: azure.vm
-    metadata:
-      tier: pro
     filters:
       # Only Windows VMs
       - type: value
@@ -251,8 +235,6 @@ policies:
   - name: leftsize-vm-outdated-series
     description: "Find VMs using outdated series (v2/v3/v4) when v5/v6 available"
     resource: azure.vm
-    metadata:
-      tier: pro
     filters:
       # Running VMs only
       - type: value
@@ -273,8 +255,6 @@ policies:
   - name: leftsize-vm-scheduled-shutdown-missing
     description: "Find non-production VMs without auto-shutdown configured"
     resource: azure.vm
-    metadata:
-      tier: pro
     filters:
       # Running VMs only
       - type: value
@@ -304,8 +284,6 @@ policies:
   - name: leftsize-orphaned-snapshots
     description: "Find old disk snapshots (>30 days) accumulating storage costs"
     resource: azure.snapshot
-    metadata:
-      tier: free
     filters:
       # Snapshots older than 30 days
       - type: value
@@ -323,8 +301,6 @@ policies:
   - name: leftsize-storage-suboptimal-tier
     description: "Find storage accounts using Hot tier for infrequently accessed data"
     resource: azure.storage
-    metadata:
-      tier: pro
     filters:
       # Hot tier accounts
       - type: value
@@ -351,8 +327,6 @@ policies:
   - name: leftsize-vm-arm-architecture
     description: "Find VMs not using ARM-based sizes (Dpsv5/Epsv5) for cost savings"
     resource: azure.vm
-    metadata:
-      tier: pro
     filters:
       # Running VMs only
       - type: value
@@ -380,8 +354,6 @@ policies:
   - name: leftsize-sql-business-critical-nonprod
     description: "Find non-production SQL databases using expensive Business Critical tier"
     resource: azure.sql-database
-    metadata:
-      tier: pro
     filters:
       # Business Critical tier
       - type: value
@@ -412,8 +384,6 @@ policies:
   - name: leftsize-stopped-vm-storage-costs
     description: "Find stopped/deallocated VMs still incurring storage costs for premium disks"
     resource: azure.vm
-    metadata:
-      tier: free
     filters:
       # VM is deallocated (not running, not charged for compute)
       - type: value
@@ -431,3 +401,91 @@ policies:
         op: tag
         days: 7
         tag: leftsize-stopped-vm-review
+
+  # ========================================
+  # 💾 DISK & STORAGE OPTIMIZATION
+  # ========================================
+
+  # Disk Performance Plus - Free 2x IOPS/throughput boost
+  - name: leftsize-disk-performance-plus-missing
+    description: "Find Premium/Standard SSD disks 513+ GiB not using Performance Plus (free 2x boost)"
+    resource: azure.disk
+    filters:
+      # Only attached disks (in-use)
+      - type: value
+        key: 'properties.diskState'
+        value: 'Attached'
+      # Premium SSD or Standard SSD
+      - type: value
+        key: 'sku.name'
+        op: 'in'
+        value: ['Premium_LRS', 'Premium_ZRS', 'StandardSSD_LRS', 'StandardSSD_ZRS']
+      # Disk size >= 513 GiB (Performance Plus eligible)
+      - type: value
+        key: 'properties.diskSizeGB'
+        op: 'gte'
+        value: 513
+      # Performance Plus not enabled (burstingEnabled is false or absent)
+      - or:
+        - type: value
+          key: 'properties.burstingEnabled'
+          value: false
+        - type: value
+          key: 'properties.burstingEnabled'
+          value: null
+    actions:
+      - type: mark-for-op
+        op: tag
+        days: 7
+        tag: leftsize-performance-plus-review
+
+  # ========================================
+  # 🗄️ SQL DATABASE OPTIMIZATION
+  # ========================================
+
+  # Empty SQL Elastic Pools - Pure waste
+  # Note: Using armresource since azure.sql-elasticpool is not a registered resource type
+  - name: leftsize-sql-elastic-pool-empty
+    description: "Find SQL Elastic Pools with zero databases (pure waste)"
+    resource: azure.armresource
+    filters:
+      # Target SQL Elastic Pool resource type
+      - type: resource-type
+        values:
+          - Microsoft.Sql/servers/elasticPools
+      # Pool has been running for more than 7 days (not newly created)
+      - type: value
+        key: 'properties.creationDate'
+        op: 'le'
+        value_type: age
+        value: 7
+    actions:
+      - type: mark-for-op
+        op: delete
+        days: 14
+        tag: leftsize-empty-elastic-pool-delete
+
+  # SQL Hybrid Benefit Missing - Up to 40% savings
+  # Note: azure.sql-database doesn't support tag/mark-for-op, using notify action
+  - name: leftsize-sql-hybrid-benefit-missing
+    description: "Find Azure SQL databases not using Azure Hybrid Benefit (up to 40% savings)"
+    resource: azure.sql-database
+    filters:
+      # vCore-based pricing (Hybrid Benefit only applies to vCore)
+      - type: value
+        key: 'sku.tier'
+        op: 'in'
+        value: ['GeneralPurpose', 'BusinessCritical', 'Hyperscale']
+      # License type is not BasePrice (Hybrid Benefit)
+      - or:
+        - type: value
+          key: 'properties.licenseType'
+          value: 'LicenseIncluded'
+        - type: value
+          key: 'properties.licenseType'
+          value: null
+      # Database is not a system database
+      - type: value
+        key: 'name'
+        op: 'ne'
+        value: 'master'

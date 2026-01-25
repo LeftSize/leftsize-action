@@ -1,0 +1,204 @@
+# ========================================
+# AWS Service Deprecations & EOL Versions
+# ========================================
+#
+# This policy file contains rules for detecting AWS services, runtimes, and
+# versions that are deprecated, approaching EOL, or incurring extended support charges.
+#
+# Categories:
+# - deprecation: Runtime/version scheduled for deprecation
+# - eol: End of life, no longer supported
+# - extended-support: Still works but incurs additional charges
+# ========================================
+
+policies:
+  # ========================================
+  # ⚡ LAMBDA RUNTIME DEPRECATIONS
+  # ========================================
+
+  - name: leftsize-lambda-deprecated-runtime
+    description: |
+      Find Lambda functions using deprecated or soon-to-be-deprecated runtimes.
+      
+      Deprecated runtimes (Phase 1 - can't create, can still update):
+      - Python 3.8: Deprecated Nov 2024
+      - Node.js 16.x: Deprecated Jun 2024
+      - Node.js 18.x: Deprecating Oct 2025
+      - Python 3.9: Deprecating Oct 2025
+      - Java 11: Deprecating Jan 2025
+      - .NET 6: Deprecating Nov 2024
+      
+      After Phase 2, functions can no longer be updated.
+      
+      Reference: https://docs.aws.amazon.com/lambda/latest/dg/lambda-runtimes.html
+    resource: aws.lambda
+    filters:
+      # Match deprecated runtimes
+      - type: value
+        key: 'Runtime'
+        op: in
+        value:
+          # Already deprecated
+          - 'python3.8'
+          - 'nodejs16.x'
+          - 'dotnet6'
+          - 'java11'
+          # Deprecating soon (2025)
+          - 'nodejs18.x'
+          - 'python3.9'
+          - 'java17'
+          # Very old (should have been migrated long ago)
+          - 'python3.7'
+          - 'python3.6'
+          - 'python2.7'
+          - 'nodejs14.x'
+          - 'nodejs12.x'
+          - 'nodejs10.x'
+          - 'dotnetcore3.1'
+          - 'java8'
+          - 'java8.al2'
+          - 'go1.x'
+          - 'ruby2.7'
+    actions:
+      - type: mark-for-op
+        op: tag
+        days: 7
+        tag: leftsize-lambda-runtime-upgrade
+
+  # ========================================
+  # 🗄️ ELASTICACHE VERSION DEPRECATIONS
+  # ========================================
+
+  - name: leftsize-elasticache-eol-redis
+    description: |
+      Find ElastiCache Redis clusters running EOL or deprecated versions.
+      
+      Redis version support:
+      - Redis 6.x: Standard support ending, upgrade to 7.x recommended
+      - Redis 5.x: Legacy, should upgrade
+      - Redis 4.x and below: Very old, critical to upgrade
+      
+      Redis 7.x provides better performance and new features.
+      
+      Reference: https://docs.aws.amazon.com/AmazonElastiCache/latest/red-ug/supported-engine-versions.html
+    resource: aws.cache-cluster
+    filters:
+      # Redis engine only
+      - type: value
+        key: 'Engine'
+        value: 'redis'
+      # Match older Redis versions
+      - type: value
+        key: 'EngineVersion'
+        op: regex
+        value: '^[456]\.'
+    actions:
+      - type: mark-for-op
+        op: tag
+        days: 14
+        tag: leftsize-elasticache-upgrade
+
+  # ========================================
+  # 🔍 OPENSEARCH/ELASTICSEARCH DEPRECATIONS
+  # ========================================
+
+  - name: leftsize-opensearch-outdated-version
+    description: |
+      Find OpenSearch/Elasticsearch domains running outdated versions.
+      
+      Version guidance:
+      - Elasticsearch 7.x and below: Migrate to OpenSearch 2.x
+      - OpenSearch 1.x: Upgrade to OpenSearch 2.x for better performance
+      
+      OpenSearch 2.x provides significant performance improvements,
+      security enhancements, and new features.
+      
+      Reference: https://docs.aws.amazon.com/opensearch-service/latest/developerguide/version-migration.html
+    resource: aws.elasticsearch
+    filters:
+      # Match older versions
+      - or:
+        # Legacy Elasticsearch versions
+        - type: value
+          key: 'ElasticsearchVersion'
+          op: regex
+          value: '^[1-7]\.'
+        # OpenSearch 1.x
+        - type: value
+          key: 'EngineVersion'
+          op: regex
+          value: '^OpenSearch_1\.'
+    actions:
+      - type: mark-for-op
+        op: tag
+        days: 14
+        tag: leftsize-opensearch-upgrade
+
+  # ========================================
+  # ☸️ EKS KUBERNETES VERSION DEPRECATIONS
+  # ========================================
+
+  - name: leftsize-eks-outdated-version
+    description: |
+      Find EKS clusters running outdated Kubernetes versions.
+      
+      EKS version support:
+      - Each K8s version supported for ~14 months after release
+      - Extended support available but costs extra ($0.60/cluster/hour)
+      - Standard support is included in EKS pricing
+      
+      Outdated versions (as of 2025):
+      - 1.27 and below: In or entering extended support
+      - 1.28: Standard support ending soon
+      
+      Current recommended: 1.29, 1.30, 1.31
+      
+      Reference: https://docs.aws.amazon.com/eks/latest/userguide/kubernetes-versions.html
+    resource: aws.eks
+    filters:
+      # Match outdated Kubernetes versions
+      - type: value
+        key: 'version'
+        op: in
+        value:
+          - '1.23'
+          - '1.24'
+          - '1.25'
+          - '1.26'
+          - '1.27'
+          - '1.28'
+    actions:
+      - type: mark-for-op
+        op: tag
+        days: 14
+        tag: leftsize-eks-upgrade
+
+  # ========================================
+  # 📝 TEMPLATE FOR FUTURE DEPRECATIONS
+  # ========================================
+  # 
+  # Copy this template when adding new AWS service deprecations:
+  #
+  # - name: leftsize-[service-name]-deprecated
+  #   description: |
+  #     [Detailed description of what is being deprecated]
+  #     
+  #     Deprecation date: [DATE]
+  #     Recommended migration: [TARGET]
+  #     
+  #     Reference: [AWS DOCS URL]
+  #   
+  #   resource: aws.[resource-type]
+  #   
+  #   filters:
+  #     - type: value
+  #       key: '[property-path]'
+  #       value: '[value-to-match]'
+  #   
+  #   actions:
+  #     - type: mark-for-op
+  #       op: tag
+  #       days: 14
+  #       tag: leftsize-[service]-upgrade
+  #
+  # ========================================
