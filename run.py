@@ -392,20 +392,16 @@ def print_github_summary(
     # Calculate issues to be created vs findings requiring upgrade
     findings_included = len(findings)
     findings_require_upgrade = 0
+    findings_breakdown = []
+    
     if plan_info:
         findings_included = plan_info.get('FindingsIncluded', len(findings))
         findings_require_upgrade = plan_info.get('FindingsRequireUpgrade', 0)
+        findings_breakdown = plan_info.get('FindingsBreakdown') or []
     
-    summary = f"""# LeftSize Cloud Cost Optimization Scan Results
-
-## Summary
-- **Findings Detected**: {len(findings)}
-- **Issues to be Created**: {findings_included}
-- **Submitted to Backend**: {'✅ Yes' if submitted else '❌ No'}
-
-"""
+    summary = "# LeftSize Scan Results\n\n"
     
-    # Show repository limit exceeded warning
+    # Show repository limit exceeded warning first (if applicable)
     if limit_exceeded:
         summary += f"""## ⚠️ Free Tier Limit Reached
 
@@ -413,83 +409,126 @@ Your free plan allows scanning **{limit_exceeded.limit} repositories**. You've a
 
 **Findings from this scan were not submitted** because the repository limit has been exceeded.
 
-### Upgrade to Pro
-Upgrade to LeftSize Pro for unlimited repository scanning and access to all optimization rules.
-
-👉 **[Upgrade Now]({limit_exceeded.upgrade_url})**
+👉 **[Upgrade to Pro]({limit_exceeded.upgrade_url})** for unlimited repository scanning.
 
 ---
 
 """
     
-    # Show plan info if available
-    if plan_info:
-        plan_type = plan_info.get('PlanType', 'Free')
+    # Show summary table for Free tier users with breakdown
+    if plan_info and plan_info.get('PlanType') == 'Free' and findings_breakdown:
+        # Separate free and pro findings
+        free_tier_findings = [f for f in findings_breakdown if f.get('IsFreeTier', False)]
+        pro_tier_findings = [f for f in findings_breakdown if not f.get('IsFreeTier', False)]
+        
+        free_count = sum(f.get('ResourceCount', 0) for f in free_tier_findings)
+        pro_count = sum(f.get('ResourceCount', 0) for f in pro_tier_findings)
+        pro_savings = sum(f.get('EstimatedSavings', 0) for f in pro_tier_findings)
+        
+        # Summary table
+        summary += """## Summary
+
+| Plan | Findings | Issues Created |
+|------|----------|----------------|
+"""
+        summary += f"| Free Tier | {free_count} | ✅ {free_count} |\n"
+        if pro_count > 0:
+            summary += f"| Pro (upgrade required) | {pro_count} | ❌ 0 |\n"
+        summary += f"| **Total** | **{free_count + pro_count}** | **{free_count}** |\n\n"
+        
+        # Free tier findings table
+        if free_tier_findings:
+            summary += f"## Free Tier Findings ({free_count} → Issues Created)\n\n"
+            summary += "| Rule | Resources | Est. Savings |\n"
+            summary += "|------|-----------|-------------|\n"
+            for f in free_tier_findings:
+                rule_name = f.get('RuleName', f.get('RuleId', 'Unknown'))
+                resource_count = f.get('ResourceCount', 0)
+                savings = f.get('EstimatedSavings', 0)
+                savings_str = f"~${savings:,.0f}/mo" if savings > 0 else "-"
+                summary += f"| {rule_name} | {resource_count} | {savings_str} |\n"
+            summary += "\n"
+        
+        # Pro tier findings table (the upsell section)
+        if pro_tier_findings:
+            summary += f"## Pro Findings ({pro_count} → Upgrade to Unlock)\n\n"
+            summary += "| Rule | Resources | Est. Savings |\n"
+            summary += "|------|-----------|-------------|\n"
+            for f in pro_tier_findings:
+                rule_name = f.get('RuleName', f.get('RuleId', 'Unknown'))
+                resource_count = f.get('ResourceCount', 0)
+                savings = f.get('EstimatedSavings', 0)
+                savings_str = f"~${savings:,.0f}/mo" if savings > 0 else "-"
+                summary += f"| {rule_name} | {resource_count} | {savings_str} |\n"
+            summary += "\n"
+            
+            # Upsell message
+            upgrade_url = plan_info.get('UpgradeUrl', 'https://github.com/marketplace/leftsize')
+            if pro_savings > 0:
+                summary += f"> 💡 **Upgrade to Pro** to create issues for all {free_count + pro_count} findings and unlock ~${pro_savings:,.0f}/mo in additional estimated savings.\n"
+            else:
+                summary += f"> 💡 **Upgrade to Pro** to create issues for all {free_count + pro_count} findings.\n"
+            summary += f"> 👉 [Upgrade Now]({upgrade_url})\n\n"
+        
+        # Plan information footer
         repo_count = plan_info.get('ScannedRepositoryCount', 0)
         repo_limit = plan_info.get('RepositoryLimit', 3)
-        findings_included = plan_info.get('FindingsIncluded', len(findings))
-        findings_require_upgrade = plan_info.get('FindingsRequireUpgrade', 0)
-        upgrade_url = plan_info.get('UpgradeUrl', 'https://github.com/marketplace/leftsize')
-        
-        if plan_type == 'Free':
-            remaining = max(0, repo_limit - repo_count)
-            summary += f"""## Plan Information
-- **Plan**: Free Tier
-- **Repositories Scanned**: {repo_count} / {repo_limit}
-- **Remaining**: {remaining} repositories
-
-"""
-            # Show findings breakdown for free tier
-            if findings_require_upgrade > 0:
-                summary += f"""## ⚠️ Some Findings Require Pro Plan
-
-| Category | Count |
-|----------|-------|
-| Issues to be created | {findings_included} |
-| Findings requiring upgrade | {findings_require_upgrade} |
-
-**{findings_require_upgrade} findings** were detected but won't create GitHub Issues because they require the Pro plan.
-
-These findings are from rules that analyze security, governance, and advanced cost optimizations not included in the Free tier.
-
-👉 **[Upgrade to Pro]({upgrade_url})** to unlock all {findings_included + findings_require_upgrade} findings.
-
----
-
-"""
-            elif remaining <= 1:
-                summary += f"""### 💡 Running low on free scans?
-Upgrade to LeftSize Pro for unlimited repository scanning and access to all optimization rules.
-
-👉 **[Upgrade to Pro](https://github.com/marketplace/leftsize)**
-
----
-
-"""
-        else:
-            summary += f"""## Plan Information
-- **Plan**: Pro ✨
-- **Repositories Scanned**: {repo_count} (unlimited)
-- **All Findings Included**: {findings_included}
-
----
-
-"""
+        remaining = max(0, repo_limit - repo_count)
+        summary += "---\n\n"
+        summary += f"**Plan**: Free Tier ({repo_count}/{repo_limit} repositories scanned, {remaining} remaining)\n\n"
     
-    if findings:
-        # Group by rule
-        by_rule = {}
-        for finding in findings:
-            rule_id = finding.get('ruleId', 'unknown')
-            if rule_id not in by_rule:
-                by_rule[rule_id] = []
-            by_rule[rule_id].append(finding)
+    # Show Pro plan summary (simpler, all findings included)
+    elif plan_info and plan_info.get('PlanType') == 'Pro':
+        total_findings = len(findings)
+        total_savings = sum(f.get('EstimatedSavings', 0) for f in findings_breakdown) if findings_breakdown else 0
         
-        summary += "## Findings by Rule\n\n"
-        for rule_id, rule_findings in sorted(by_rule.items()):
-            summary += f"### {rule_id}\n"
-            summary += f"- Count: {len(rule_findings)}\n"
-            summary += f"- Scope: {rule_findings[0].get('scope', 'N/A')}\n\n"
+        summary += f"""## Summary
+
+- **Plan**: Pro ✨
+- **Findings Detected**: {total_findings}
+- **Issues Created**: ✅ {total_findings}
+"""
+        if total_savings > 0:
+            summary += f"- **Estimated Savings**: ~${total_savings:,.0f}/mo\n"
+        summary += "\n"
+        
+        # Show findings table
+        if findings_breakdown:
+            summary += "## Findings by Rule\n\n"
+            summary += "| Rule | Resources | Est. Savings | Category |\n"
+            summary += "|------|-----------|-------------|----------|\n"
+            for f in findings_breakdown:
+                rule_name = f.get('RuleName', f.get('RuleId', 'Unknown'))
+                resource_count = f.get('ResourceCount', 0)
+                savings = f.get('EstimatedSavings', 0)
+                savings_str = f"~${savings:,.0f}/mo" if savings > 0 else "-"
+                category = f.get('Category', 'unknown')
+                summary += f"| {rule_name} | {resource_count} | {savings_str} | {category} |\n"
+            summary += "\n"
+    
+    # Fallback: No plan info or no breakdown - show basic summary
+    else:
+        summary += f"""## Summary
+
+- **Findings Detected**: {len(findings)}
+- **Issues to be Created**: {findings_included}
+- **Submitted to Backend**: {'✅ Yes' if submitted else '❌ No'}
+
+"""
+        # Show basic findings by rule (fallback when no breakdown available)
+        if findings:
+            by_rule = {}
+            for finding in findings:
+                rule_id = finding.get('ruleId', 'unknown')
+                if rule_id not in by_rule:
+                    by_rule[rule_id] = []
+                by_rule[rule_id].append(finding)
+            
+            summary += "## Findings by Rule\n\n"
+            for rule_id, rule_findings in sorted(by_rule.items()):
+                summary += f"### {rule_id}\n"
+                summary += f"- Count: {len(rule_findings)}\n"
+                summary += f"- Scope: {rule_findings[0].get('scope', 'N/A')}\n\n"
     
     if github_step_summary:
         with open(github_step_summary, 'a') as f:
