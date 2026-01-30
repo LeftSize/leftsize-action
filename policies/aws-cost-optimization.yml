@@ -1038,3 +1038,107 @@ policies:
         op: delete
         days: 14
         tag: leftsize-orphaned-rds-snapshot-delete
+
+  # ========================================
+  # 🐳 CONTAINER REGISTRY OPTIMIZATION
+  # ========================================
+
+  # ECR repositories without lifecycle policy - accumulating old images
+  - name: leftsize-ecr-no-lifecycle-policy
+    description: |
+      Identifies ECR repositories without a lifecycle policy configured.
+      Without lifecycle policies, old images accumulate indefinitely,
+      increasing storage costs. Adding a policy to remove untagged or
+      old images typically saves 50-90% on ECR storage costs.
+      
+      ECR charges $0.10/GB/month for storage.
+    resource: aws.ecr
+    filters:
+      - type: lifecycle-rule
+        state: false
+    metadata:
+      category: cost-optimization
+      severity: medium
+      tier: pro
+
+  # ========================================
+  # 📝 LOG & OBSERVABILITY OPTIMIZATION
+  # ========================================
+
+  # CloudWatch Log Groups without retention policy (infinite retention)
+  - name: leftsize-cloudwatch-logs-no-retention
+    description: |
+      Identifies CloudWatch Log Groups with no retention policy (infinite retention).
+      Without a retention policy, logs are kept forever, accumulating significant
+      storage costs. Most logs only need 7-90 days retention for debugging.
+      
+      CloudWatch Logs charges $0.03/GB ingested + $0.03/GB/month storage.
+    resource: aws.log-group
+    filters:
+      # No retention policy means retentionInDays is null/absent
+      - type: value
+        key: retentionInDays
+        value: absent
+    metadata:
+      category: cost-optimization
+      severity: medium
+      tier: pro
+
+  # ========================================
+  # 🔐 SECRETS & CREDENTIALS OPTIMIZATION
+  # ========================================
+
+  # Secrets Manager secrets not accessed in 90 days
+  - name: leftsize-secrets-manager-unused
+    description: |
+      Identifies AWS Secrets Manager secrets not accessed in the last 90 days.
+      Unused secrets indicate deprecated applications or forgotten credentials.
+      Each secret costs $0.40/month plus $0.05 per 10,000 API calls.
+      
+      Unused secrets are also a security risk and should be reviewed.
+    resource: aws.secrets-manager
+    filters:
+      # Secret has not been accessed in 90 days
+      - type: value
+        key: LastAccessedDate
+        value_type: age
+        op: greater-than
+        value: 90
+    metadata:
+      category: cost-optimization
+      severity: low
+      tier: pro
+
+  # ========================================
+  # 💰 COST OPTIMIZATION - Phase 2
+  # ========================================
+
+  - name: leftsize-ebs-io1-io2-overprovisioned
+    description: "Find io1/io2 EBS volumes with IOPS < 16,000 that can migrate to gp3 for 30-50% savings"
+    resource: aws.ebs
+    filters:
+      # Only io1 or io2 volume types
+      - type: value
+        key: 'VolumeType'
+        op: in
+        value: ['io1', 'io2']
+      # Provisioned IOPS is under 16,000 (gp3 max)
+      - type: value
+        key: 'Iops'
+        op: less-than
+        value: 16000
+      # Volume is in use (attached to an instance)
+      - type: value
+        key: 'State'
+        value: 'in-use'
+      # Volume is older than 7 days (avoid catching new provisioning)
+      - type: value
+        key: 'CreateTime'
+        op: less-than
+        value_type: age
+        value: 7
+    actions:
+      - type: mark-for-op
+        op: tag
+        days: 7
+        tag: leftsize-io1-io2-gp3-migration-review

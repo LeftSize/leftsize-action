@@ -608,6 +608,35 @@ policies:
         tag: leftsize-ownership-tags-notify
 
   # ========================================
+  # 📜 CERTIFICATE MANAGEMENT
+  # ========================================
+
+  # Key Vault certificates expiring within 30 days
+  - name: leftsize-keyvault-cert-expiring
+    description: |
+      Identifies Azure Key Vault certificates expiring within 30 days.
+      Expired certificates cause service authentication failures and outages.
+      Proactive renewal prevents production incidents.
+      
+      This rule helps maintain operational continuity by alerting before expiry.
+    resource: azure.keyvault-certificate
+    filters:
+      # Certificate is enabled
+      - type: value
+        key: attributes.enabled
+        value: true
+      # Certificate expires within 30 days
+      - type: value
+        key: attributes.expires
+        value_type: expiration
+        op: less-than
+        value: 30
+    metadata:
+      category: governance
+      severity: high
+      tier: pro
+
+  # ========================================
   # 📝 TEMPLATE FOR FUTURE GOVERNANCE RULES
   # ========================================
   # 

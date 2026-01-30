@@ -489,3 +489,105 @@ policies:
         key: 'name'
         op: 'ne'
         value: 'master'
+
+  # ========================================
+  # 🐳 CONTAINER REGISTRY OPTIMIZATION
+  # ========================================
+
+  # Azure Container Registry without retention policy
+  - name: leftsize-acr-no-lifecycle-policy
+    description: |
+      Identifies Azure Container Registries without retention policies configured.
+      Without retention policies, old images accumulate indefinitely.
+      Similar to ECR, adding cleanup rules typically saves 50-90% on registry storage.
+      
+      ACR charges vary by SKU: Basic $0.167/day, Standard $0.667/day, Premium $1.667/day
+      plus $0.003/GB/day for storage beyond included amounts.
+    resource: azure.container-registry
+    filters:
+      # Retention policy is not enabled
+      - or:
+        - type: value
+          key: properties.policies.retentionPolicy.status
+          op: ne
+          value: enabled
+        - type: value
+          key: properties.policies.retentionPolicy
+          value: absent
+    metadata:
+      category: cost-optimization
+      severity: medium
+      tier: pro
+
+  # ========================================
+  # 💰 COST OPTIMIZATION - Phase 2
+  # ========================================
+
+  # Idle Application Gateways - $200-500/month waste
+  - name: leftsize-app-gateway-idle
+    description: "Find Application Gateways with no backend pools or zero request traffic"
+    resource: azure.application-gateway
+    filters:
+      # Gateway has no backend pools configured, or all pools are empty
+      - or:
+        - type: value
+          key: 'properties.backendAddressPools'
+          value: []
+        - type: value
+          key: 'properties.backendAddressPools[].properties.backendAddresses'
+          value: []
+      # Gateway is older than 7 days (avoid catching new deployments)
+      - type: value
+        key: 'properties.provisioningState'
+        value: 'Succeeded'
+    actions:
+      - type: mark-for-op
+        op: tag
+        days: 14
+        tag: leftsize-app-gateway-idle-review
+
+  # Underutilized SQL Elastic Pools - 50%+ savings by downsizing
+  - name: leftsize-sql-elastic-pool-underutilized
+    description: "Find SQL Elastic Pools with DTU/vCore usage consistently below 20%"
+    resource: azure.sql-elasticpool
+    filters:
+      # Low DTU consumption over 14 days
+      - type: metric
+        metric: 'dtu_consumption_percent'
+        aggregation: 'average'
+        timeframe: 14
+        interval: 'P1D'
+        op: 'le'
+        threshold: 20.0
+      # Pool has been running for at least 14 days
+      - type: value
+        key: 'properties.state'
+        value: 'Ready'
+    actions:
+      - type: mark-for-op
+        op: tag
+        days: 14
+        tag: leftsize-elastic-pool-downsize-review
+
+  # Underutilized Azure Cache for Redis - 40-60% savings by downsizing
+  - name: leftsize-redis-cache-underutilized
+    description: "Find Azure Cache for Redis instances with memory usage consistently below 20%"
+    resource: azure.redis
+    filters:
+      # Low memory usage over 14 days
+      - type: metric
+        metric: 'usedmemorypercentage'
+        aggregation: 'average'
+        timeframe: 14
+        interval: 'P1D'
+        op: 'le'
+        threshold: 20.0
+      # Cache is in running state
+      - type: value
+        key: 'properties.provisioningState'
+        value: 'Succeeded'
+    actions:
+      - type: mark-for-op
+        op: tag
+        days: 14
+        tag: leftsize-redis-downsize-review

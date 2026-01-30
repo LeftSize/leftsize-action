@@ -515,6 +515,36 @@ policies:
         tag: leftsize-ownership-tags-notify
 
   # ========================================
+  # 📜 CERTIFICATE MANAGEMENT
+  # ========================================
+
+  # ACM certificates expiring within 30 days
+  - name: leftsize-acm-certificate-expiring
+    description: |
+      Identifies ACM certificates expiring within 30 days.
+      While ACM auto-renews DNS-validated certificates, email-validated 
+      and imported certificates require manual renewal. Expired certificates
+      cause service outages and security warnings.
+      
+      This rule helps prevent production incidents from expired SSL/TLS certs.
+    resource: aws.acm-certificate
+    filters:
+      # Certificate is active (not pending validation)
+      - type: value
+        key: Status
+        value: ISSUED
+      # Certificate expires within 30 days
+      - type: value
+        key: NotAfter
+        value_type: expiration
+        op: less-than
+        value: 30
+    metadata:
+      category: governance
+      severity: high
+      tier: pro
+
+  # ========================================
   # 📝 TEMPLATE FOR FUTURE GOVERNANCE RULES
   # ========================================
   # 
