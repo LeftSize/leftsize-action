@@ -140,33 +140,49 @@ policies:
 
   - name: leftsize-eks-outdated-version
     description: |
-      Find EKS clusters running outdated Kubernetes versions.
+      Find EKS clusters running outdated Kubernetes versions incurring extended support charges.
       
-      EKS version support:
-      - Each K8s version supported for ~14 months after release
-      - Extended support available but costs extra ($0.60/cluster/hour)
-      - Standard support is included in EKS pricing
+      CRITICAL COST IMPACT:
+      - Extended support costs 6X MORE than standard support
+      - Standard: $0.10/cluster/hour (~$73/month)
+      - Extended: $0.60/cluster/hour (~$438/month)
+      - Potential savings: $365/month per cluster ($4,380/year)
       
-      Outdated versions (as of 2025):
-      - 1.27 and below: In or entering extended support
-      - 1.28: Standard support ending soon
+      EKS Version Support Timeline (as of Feb 2026):
       
-      Current recommended: 1.29, 1.30, 1.31
+      | Version | Standard Support | Extended Support | Status |
+      |---------|------------------|------------------|--------|
+      | 1.27    | Ended Jan 2025   | Ends Jul 2025    | EXPIRED |
+      | 1.28    | Ended Mar 2025   | Ends Nov 2025    | EXPIRED |
+      | 1.29    | Ended Mar 2025   | Ends Mar 2026    | Extended (6X cost) |
+      | 1.30    | Ended Jul 2025   | Ends Jul 2026    | Extended (6X cost) |
+      | 1.31    | Ended Nov 2025   | Ends Nov 2026    | Extended (6X cost) |
+      | 1.32    | Ends Mar 2026    | Ends Mar 2027    | Standard (upgrade soon) |
+      | 1.33+   | Active           | -                | Current |
+      
+      AWS auto-upgrades clusters when extended support ends if upgrade policy is disabled.
       
       Reference: https://docs.aws.amazon.com/eks/latest/userguide/kubernetes-versions.html
     resource: aws.eks
     filters:
-      # Match outdated Kubernetes versions
+      # Match Kubernetes versions in extended support or approaching it
       - type: value
         key: 'version'
         op: in
         value:
+          # Extended support EXPIRED - critical upgrade needed
           - '1.23'
           - '1.24'
           - '1.25'
           - '1.26'
           - '1.27'
           - '1.28'
+          # Currently in EXTENDED SUPPORT (6X cost)
+          - '1.29'
+          - '1.30'
+          - '1.31'
+          # Standard support ending Mar 2026
+          - '1.32'
     actions:
       - type: mark-for-op
         op: tag
