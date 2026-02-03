@@ -243,6 +243,86 @@ policies:
         value: 'master'
 
   # ========================================
+  # 🌐 APPLICATION GATEWAY DEPRECATIONS
+  # ========================================
+
+  # CRITICAL: Azure Application Gateway v1 retiring April 28, 2026
+  - name: leftsize-appgateway-v1-deprecated
+    description: |
+      CRITICAL: Azure Application Gateway V1 SKU is being retired on April 28, 2026.
+      
+      After this date, Application Gateway V1 deployments will be stopped and force deleted.
+      Microsoft recommends migrating to Application Gateway V2, which offers:
+      - Autoscaling capability
+      - Zone redundancy for high availability
+      - Static VIP support
+      - Header rewriting
+      - Web Application Firewall v2 with improved rules
+      - Better performance (up to 5x faster backend health probes)
+      - Faster deployment and update times
+      
+      Timeline:
+      - April 28, 2023: Deprecation announced
+      - July 1, 2023: No new V1 deployments for new subscriptions
+      - September 1, 2024: V1 creation completely stopped for all customers
+      - April 28, 2026: RETIREMENT DATE - V1 gateways stopped and deleted
+      
+      V1 SKU Names (affected):
+      - Standard_Small, Standard_Medium, Standard_Large
+      - WAF_Medium, WAF_Large
+      
+      V2 SKU Names (target):
+      - Standard_v2
+      - WAF_v2
+      
+      Migration path:
+      - Use Azure-provided migration script
+      - Manual migration for complex configurations
+      - Consider Azure Front Door for global load balancing scenarios
+      
+      Reference: https://learn.microsoft.com/en-us/azure/application-gateway/v1-retirement
+    
+    resource: azure.application-gateway
+    
+    filters:
+      # Match V1 SKU names (Standard and WAF without _v2 suffix)
+      - type: value
+        key: 'properties.sku.name'
+        op: 'in'
+        value:
+          - 'Standard_Small'
+          - 'Standard_Medium'
+          - 'Standard_Large'
+          - 'WAF_Medium'
+          - 'WAF_Large'
+    
+    actions:
+      - type: tag
+        tag: 'leftsize-deprecation'
+        value: 'appgateway-v1-eol-apr-2026'
+      
+      - type: tag
+        tag: 'leftsize-severity'
+        value: 'critical'
+      
+      - type: tag
+        tag: 'leftsize-action-required'
+        value: 'migrate-to-v2'
+      
+      - type: tag
+        tag: 'leftsize-retirement-date'
+        value: '2026-04-28'
+      
+      - type: tag
+        tag: 'leftsize-detected-date'
+        value: '{now:%Y-%m-%d}'
+      
+      - type: mark-for-op
+        op: notify
+        days: 1
+        tag: leftsize-appgateway-v1-deprecated-notify
+
+  # ========================================
   # 📝 TEMPLATE FOR FUTURE DEPRECATIONS
   # ========================================
   # 
