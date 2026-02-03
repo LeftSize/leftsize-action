@@ -190,6 +190,83 @@ policies:
         tag: leftsize-eks-upgrade
 
   # ========================================
+  # 📌 AMAZON PINPOINT DEPRECATION
+  # ========================================
+
+  - name: leftsize-pinpoint-deprecated
+    description: |
+      Find Amazon Pinpoint applications that need migration before service shutdown.
+      
+      CRITICAL: Amazon Pinpoint is being discontinued.
+      
+      Timeline:
+      - May 20, 2025: No longer accepting new customers
+      - October 30, 2026: Service END OF LIFE - all access removed
+      
+      After October 30, 2026, you will lose access to:
+      - Amazon Pinpoint console
+      - All Pinpoint resources (endpoints, segments, campaigns, journeys, analytics)
+      
+      Migration Options:
+      - Engagement features → Amazon SNS + Amazon SES
+      - SMS messaging → Amazon SNS SMS
+      - Email campaigns → Amazon SES
+      - Push notifications → Amazon SNS Mobile Push
+      - Analytics → Amazon CloudWatch + custom dashboards
+      
+      Reference: https://aws.amazon.com/pinpoint/
+    resource: aws.pinpoint-app
+    filters:
+      # Match all Pinpoint applications - the entire service is deprecated
+      - type: value
+        key: 'Id'
+        op: not-equal
+        value: ''
+    actions:
+      - type: mark-for-op
+        op: tag
+        days: 30
+        tag: leftsize-pinpoint-migration
+
+  # ========================================
+  # ⏱️ AMAZON TIMESTREAM LIVEANALYTICS DEPRECATION
+  # ========================================
+
+  - name: leftsize-timestream-deprecated
+    description: |
+      Find Amazon Timestream for LiveAnalytics databases that need migration.
+      
+      IMPORTANT: Amazon Timestream for LiveAnalytics is being deprecated.
+      
+      Timeline:
+      - June 20, 2025: No longer accepting new customers
+      - Future: Service will be discontinued (exact date TBD)
+      
+      AWS Recommended Migration:
+      - Amazon Timestream for InfluxDB (similar functionality)
+      - Amazon Managed Service for Prometheus (for metrics)
+      - Amazon OpenSearch Service (for time-series analytics)
+      
+      Timestream for InfluxDB offers:
+      - InfluxDB-compatible API
+      - Better ecosystem support
+      - Similar time-series capabilities
+      
+      Reference: https://aws.amazon.com/timestream/
+    resource: aws.timestream-database
+    filters:
+      # Match all Timestream databases - the service variant is deprecated
+      - type: value
+        key: 'DatabaseName'
+        op: not-equal
+        value: ''
+    actions:
+      - type: mark-for-op
+        op: tag
+        days: 30
+        tag: leftsize-timestream-migration
+
+  # ========================================
   # 📝 TEMPLATE FOR FUTURE DEPRECATIONS
   # ========================================
   # 
