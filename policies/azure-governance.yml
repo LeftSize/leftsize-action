@@ -107,6 +107,58 @@ policies:
         days: 1
         tag: leftsize-storage-http-allowed-notify
 
+  # CRITICAL: Storage accounts using deprecated TLS versions (TLS 1.0/1.1)
+  - name: leftsize-storage-outdated-tls
+    description: |
+      CRITICAL: Detect Azure Storage Accounts using deprecated TLS 1.0 or TLS 1.1.
+      
+      As of February 3, 2026, Azure Blob Storage no longer supports TLS 1.0 and 1.1.
+      Storage accounts must use TLS 1.2 as the minimum version. Accounts still configured
+      for older TLS versions will experience connection failures.
+      
+      Detection criteria:
+      - minimumTlsVersion property is 'TLS1_0' or 'TLS1_1'
+      - Storage account allows connections using deprecated TLS versions
+      
+      Security impact: CRITICAL - Service disruption, deprecated protocol vulnerabilities
+      Compliance: CIS Azure Foundations 3.12, PCI-DSS 4.1, NIST 800-52, FedRAMP
+      
+      Reference: https://learn.microsoft.com/en-us/azure/storage/common/transport-layer-security-configure-migrate-to-tls2
+    
+    resource: azure.storage
+    
+    filters:
+      # Minimum TLS version is older than TLS 1.2
+      - or:
+        - type: value
+          key: properties.minimumTlsVersion
+          value: 'TLS1_0'
+        - type: value
+          key: properties.minimumTlsVersion
+          value: 'TLS1_1'
+    
+    actions:
+      - type: tag
+        tag: 'leftsize-security-issue'
+        value: 'outdated-tls'
+      
+      - type: tag
+        tag: 'leftsize-severity'
+        value: 'critical'
+      
+      - type: tag
+        tag: 'leftsize-compliance'
+        value: 'CIS-Azure-Foundations-3.12'
+      
+      - type: tag
+        tag: 'leftsize-detected-date'
+        value: '{now:%Y-%m-%d}'
+      
+      - type: mark-for-op
+        op: notify
+        days: 1
+        tag: leftsize-storage-outdated-tls-notify
+
   # MEDIUM: Public network access without restrictions (defense-in-depth recommendation)
   - name: leftsize-storage-public-network-access
     description: |
