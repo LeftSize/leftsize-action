@@ -20,15 +20,19 @@ policies:
     description: |
       Find Lambda functions using deprecated or soon-to-be-deprecated runtimes.
       
-      Deprecated runtimes (Phase 1 - can't create, can still update):
-      - Python 3.8: Deprecated Nov 2024
-      - Node.js 16.x: Deprecated Jun 2024
-      - Node.js 18.x: Deprecating Oct 2025
-      - Python 3.9: Deprecating Oct 2025
-      - Java 11: Deprecating Jan 2025
-      - .NET 6: Deprecating Nov 2024
+      Fully blocked (Phase 2 — can't create or update):
+      - Python 3.8: Blocked Feb 2025
+      - Node.js 16.x: Blocked Sep 2024
+      - .NET 6: Blocked Feb 2025
+      - Java 11: Blocked Feb 2025
+      - Node.js 18.x: Blocked Nov 2025
+      - Python 3.9: Blocked Nov 2025
       
-      After Phase 2, functions can no longer be updated.
+      Deprecating soon (Phase 1 approaching):
+      - Ruby 3.2: Phase 1 Apr 2026, Phase 2 May 2026
+      - Node.js 20.x: Phase 1 May 2026, Phase 2 Jun 2026
+      - Python 3.10: Phase 1 Nov 2026, Phase 2 Dec 2026
+      - Java 17: Phase 1 Nov 2026, Phase 2 Dec 2026
       
       Reference: https://docs.aws.amazon.com/lambda/latest/dg/lambda-runtimes.html
     resource: aws.lambda
@@ -38,14 +42,17 @@ policies:
         key: 'Runtime'
         op: in
         value:
-          # Already deprecated
+          # Fully blocked (Phase 2 past)
           - 'python3.8'
           - 'nodejs16.x'
           - 'dotnet6'
           - 'java11'
-          # Deprecating soon (2025)
           - 'nodejs18.x'
           - 'python3.9'
+          # Deprecating soon (2026)
+          - 'ruby3.2'
+          - 'nodejs20.x'
+          - 'python3.10'
           - 'java17'
           # Very old (should have been migrated long ago)
           - 'python3.7'
