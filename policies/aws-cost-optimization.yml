@@ -348,7 +348,7 @@ policies:
   # ========================================
 
   - name: leftsize-orphaned-ebs-snapshots
-    description: "Find old EBS snapshots (>30 days) where source volume no longer exists"
+    description: "Find EBS snapshots older than 30 days that should be reviewed for cleanup"
     resource: aws.ebs-snapshot
     filters:
       # Snapshot is older than 30 days
@@ -359,14 +359,9 @@ policies:
       - type: value
         key: 'OwnerId'
         value: present
-      # Source volume no longer exists (orphaned)
-      - or:
-        - type: value
-          key: 'VolumeId'
-          value: absent
-        - type: value
-          key: 'VolumeId'
-          value: ''
+      # Note: VolumeId is always retained by AWS even after volume deletion,
+      # so we cannot reliably detect true orphans via filters alone.
+      # Template instructs users to verify source volume before deleting.
     actions:
       - type: mark-for-op
         op: delete

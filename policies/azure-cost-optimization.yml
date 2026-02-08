@@ -149,10 +149,10 @@ policies:
       - type: value
         key: 'properties.ipConfiguration'
         value: null
-      # Exclude static IPs that might be reserved intentionally (check allocation method)
+      # Only flag Static IPs — Dynamic IPs are free when unassociated
       - type: value
         key: 'properties.publicIPAllocationMethod'
-        op: 'ne'
+        op: 'eq'
         value: 'Static'
       # Only flag IPs older than 3 days
       - type: value
@@ -252,8 +252,11 @@ policies:
         tag: leftsize-vm-series-upgrade
 
   # VM Scheduled Shutdown - 30-70% savings for non-prod
+  # Note: Only checks for non-prod tags on running VMs. Cannot verify auto-shutdown
+  # configuration (Microsoft.DevTestLab/schedules) with Cloud Custodian VM filters.
+  # Template instructs users to check and configure auto-shutdown.
   - name: leftsize-vm-scheduled-shutdown-missing
-    description: "Find non-production VMs without auto-shutdown configured"
+    description: "Find running non-production VMs that should have auto-shutdown configured"
     resource: azure.vm
     filters:
       # Running VMs only
@@ -280,9 +283,11 @@ policies:
         days: 7
         tag: leftsize-auto-shutdown-review
 
-  # Orphaned Snapshots - 100% waste elimination
+  # Old Snapshots - review for cleanup
+  # Note: Only checks age >30 days. Cannot verify whether source disk still exists
+  # with Cloud Custodian filters alone. Template instructs users to verify before deleting.
   - name: leftsize-orphaned-snapshots
-    description: "Find old disk snapshots (>30 days) accumulating storage costs"
+    description: "Find disk snapshots older than 30 days that should be reviewed for cleanup"
     resource: azure.snapshot
     filters:
       # Snapshots older than 30 days
@@ -444,9 +449,10 @@ policies:
   # ========================================
 
   # Empty SQL Elastic Pools - Pure waste
-  # Note: Using armresource since azure.sql-elasticpool is not a registered resource type
+  # Note: Using armresource since azure.sql-elasticpool is not a registered Cloud Custodian resource type.
+  # ARM list response does not include database count, so we flag old pools for manual review.
   - name: leftsize-sql-elastic-pool-empty
-    description: "Find SQL Elastic Pools with zero databases (pure waste)"
+    description: "Find SQL Elastic Pools older than 7 days that should be reviewed for emptiness"
     resource: azure.armresource
     filters:
       # Target SQL Elastic Pool resource type
@@ -547,27 +553,30 @@ policies:
         tag: leftsize-app-gateway-idle-review
 
   # Underutilized SQL Elastic Pools - 50%+ savings by downsizing
-  - name: leftsize-sql-elastic-pool-underutilized
-    description: "Find SQL Elastic Pools with DTU/vCore usage consistently below 20%"
-    resource: azure.sql-elasticpool
-    filters:
-      # Low DTU consumption over 14 days
-      - type: metric
-        metric: 'dtu_consumption_percent'
-        aggregation: 'average'
-        timeframe: 14
-        interval: 'P1D'
-        op: 'le'
-        threshold: 20.0
-      # Pool has been running for at least 14 days
-      - type: value
-        key: 'properties.state'
-        value: 'Ready'
-    actions:
-      - type: mark-for-op
-        op: tag
-        days: 14
-        tag: leftsize-elastic-pool-downsize-review
+  # DISABLED: azure.sql-elasticpool is not a registered Cloud Custodian resource type.
+  # This policy will fail at runtime. Re-enable when c7n-azure adds sql-elasticpool support,
+  # or rewrite using azure.armresource (which does not support metric filters).
+  # - name: leftsize-sql-elastic-pool-underutilized
+  #   description: "Find SQL Elastic Pools with DTU/vCore usage consistently below 20%"
+  #   resource: azure.sql-elasticpool
+  #   filters:
+  #     # Low DTU consumption over 14 days
+  #     - type: metric
+  #       metric: 'dtu_consumption_percent'
+  #       aggregation: 'average'
+  #       timeframe: 14
+  #       interval: 'P1D'
+  #       op: 'le'
+  #       threshold: 20.0
+  #     # Pool has been running for at least 14 days
+  #     - type: value
+  #       key: 'properties.state'
+  #       value: 'Ready'
+  #   actions:
+  #     - type: mark-for-op
+  #       op: tag
+  #       days: 14
+  #       tag: leftsize-elastic-pool-downsize-review
 
   # Underutilized Azure Cache for Redis - 40-60% savings by downsizing
   - name: leftsize-redis-cache-underutilized

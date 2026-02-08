@@ -702,7 +702,7 @@ policies:
       - All databases and data
       - Management capabilities
       
-      AWS recommends migrating to Azure Database for MySQL - Flexible Server,
+      Microsoft recommends migrating to Azure Database for MySQL - Flexible Server,
       which offers similar functionality with improved performance and features.
       
       Migration path:
