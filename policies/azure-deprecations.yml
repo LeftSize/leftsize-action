@@ -323,6 +323,75 @@ policies:
         tag: leftsize-appgateway-v1-deprecated-notify
 
   # ========================================
+  # 💿 STANDARD HDD OS DISK RETIREMENT
+  # ========================================
+
+  - name: leftsize-hdd-os-disk-retirement
+    description: |
+      Detect Azure Managed Disks using Standard HDD (Standard_LRS) as OS disks.
+      
+      Microsoft is retiring the ability to use Standard HDD disks as OS disks
+      on September 8, 2028. After that date, all Standard HDD OS disks will be
+      automatically converted to Standard SSD disks of equivalent size.
+      
+      This automatic conversion may cause service disruptions. To avoid potential
+      issues, proactively migrate your Standard HDD OS disks before the deadline.
+      
+      Recommended migration targets:
+      - Standard SSD (Standard_LRS → StandardSSD_LRS): Closest price-to-performance ratio
+      - Premium SSD (Standard_LRS → Premium_LRS): For workloads requiring higher performance
+      
+      Timeline:
+      - Now: Stop creating new VMs with Standard HDD OS disks
+      - Before September 8, 2028: Migrate all existing Standard HDD OS disks
+      - September 8, 2028: RETIREMENT DATE — automatic conversion to Standard SSD
+      
+      Note: This retirement only affects OS disks. Standard HDD data disks and
+      ephemeral OS disks are NOT affected.
+      
+      Reference: https://learn.microsoft.com/en-us/azure/virtual-machines/disks-hdd-os-retirement
+    
+    resource: azure.disk
+    
+    filters:
+      # Standard HDD SKU
+      - type: value
+        key: 'sku.name'
+        value: 'Standard_LRS'
+      
+      # Is an OS disk (has osType set)
+      - type: value
+        key: 'properties.osType'
+        op: not-equal
+        value: null
+    
+    actions:
+      - type: tag
+        tag: 'leftsize-deprecation'
+        value: 'hdd-os-disk-eol-sep-2028'
+      
+      - type: tag
+        tag: 'leftsize-severity'
+        value: 'medium'
+      
+      - type: tag
+        tag: 'leftsize-action-required'
+        value: 'migrate-to-standard-ssd'
+      
+      - type: tag
+        tag: 'leftsize-retirement-date'
+        value: '2028-09-08'
+      
+      - type: tag
+        tag: 'leftsize-detected-date'
+        value: '{now:%Y-%m-%d}'
+      
+      - type: mark-for-op
+        op: notify
+        days: 1
+        tag: leftsize-hdd-os-disk-retirement-notify
+
+  # ========================================
   # 📝 TEMPLATE FOR FUTURE DEPRECATIONS
   # ========================================
   # 
