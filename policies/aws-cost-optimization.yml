@@ -1137,3 +1137,96 @@ policies:
         op: tag
         days: 7
         tag: leftsize-io1-io2-gp3-migration-review
+
+  # ========================================
+  # 💰 COST OPTIMIZATION - Phase 3 (Zombie Resources)
+  # ========================================
+
+  - name: leftsize-unused-lambda-function
+    description: "Find Lambda functions with zero invocations in 30 days (zombie functions)"
+    resource: aws.lambda
+    filters:
+      # Zero invocations over 30 days
+      - type: metrics
+        name: Invocations
+        namespace: AWS/Lambda
+        dimensions:
+          FunctionName: Name
+        op: equal
+        value: 0
+        statistics: Sum
+        days: 30
+        missing-value: 0
+      # Function is older than 30 days (avoid catching newly deployed functions)
+      - type: value
+        key: 'LastModified'
+        op: less-than
+        value_type: age
+        value: 30
+    metadata:
+      category: cost-optimization
+      severity: low
+      tier: pro
+
+  - name: leftsize-idle-dynamodb-table
+    description: "Find DynamoDB tables with zero read and write activity in 30 days"
+    resource: aws.dynamodb-table
+    filters:
+      # Zero consumed read capacity over 30 days
+      - type: metrics
+        name: ConsumedReadCapacityUnits
+        namespace: AWS/DynamoDB
+        dimensions:
+          TableName: TableName
+        op: equal
+        value: 0
+        statistics: Sum
+        days: 30
+        missing-value: 0
+      # Zero consumed write capacity over 30 days
+      - type: metrics
+        name: ConsumedWriteCapacityUnits
+        namespace: AWS/DynamoDB
+        dimensions:
+          TableName: TableName
+        op: equal
+        value: 0
+        statistics: Sum
+        days: 30
+        missing-value: 0
+      # Table is older than 30 days
+      - type: value
+        key: 'CreationDateTime'
+        op: less-than
+        value_type: age
+        value: 30
+    metadata:
+      category: cost-optimization
+      severity: medium
+      tier: pro
+
+  - name: leftsize-idle-elasticache-cluster
+    description: "Find ElastiCache clusters with zero connections in 14 days"
+    resource: aws.cache-cluster
+    filters:
+      # Zero current connections over 14 days
+      - type: metrics
+        name: CurrConnections
+        namespace: AWS/ElastiCache
+        dimensions:
+          CacheClusterId: CacheClusterId
+        op: equal
+        value: 0
+        statistics: Maximum
+        days: 14
+        missing-value: 0
+      # Cluster is older than 14 days
+      - type: value
+        key: 'CacheClusterCreateTime'
+        op: less-than
+        value_type: age
+        value: 14
+    metadata:
+      category: cost-optimization
+      severity: medium
+      tier: pro
