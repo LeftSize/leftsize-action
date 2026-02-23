@@ -501,6 +501,90 @@ policies:
         tag: leftsize-basic-lb-deprecated-notify
 
   # ========================================
+  # 💿 UNMANAGED DISKS RETIREMENT (Mar 2026)
+  # ========================================
+
+  # CRITICAL: Azure Unmanaged Disks retiring March 31, 2026
+  - name: leftsize-unmanaged-disks-retirement
+    description: |
+      CRITICAL: Azure unmanaged disks are being retired on March 31, 2026.
+      
+      Unmanaged disks are VHD page blobs stored in user-managed storage accounts.
+      They were the original disk type for Azure VMs before managed disks launched
+      in 2017. Microsoft announced the retirement on September 13, 2022.
+      
+      After March 31, 2026:
+      - You cannot start IaaS VMs that use unmanaged disks
+      - Any running or allocated VMs with unmanaged disks will be stopped and deallocated
+      
+      This retirement only affects page blobs used as virtual disks attached to VMs.
+      Page blobs accessed via HTTP/HTTPS REST APIs (not attached to VMs) are NOT affected.
+      
+      Benefits of migrating to managed disks:
+      - No storage account management overhead
+      - High availability with 99.999% uptime SLA
+      - Better scalability and disk bursting
+      - Shared disk support
+      - Improved security with RBAC and encryption at rest
+      - Snapshot and image support
+      - Azure Backup integration
+      
+      Migration path:
+      - Windows VMs: Use Convert-AzVMManagedDisk PowerShell command
+      - Linux VMs: Use az vm convert Azure CLI command
+      - Both require VM deallocation
+      
+      Timeline:
+      - September 13, 2022: Retirement announced
+      - September 30, 2025: Originally planned retirement date
+      - March 31, 2026: RETIREMENT DATE (extended) — VMs stopped and deallocated
+      
+      Reference: https://learn.microsoft.com/en-us/azure/virtual-machines/unmanaged-disks-deprecation
+    
+    resource: azure.vm
+    
+    filters:
+      # Detect VMs using unmanaged disks by checking for absence of managedDisk on OS disk
+      - type: value
+        key: 'properties.storageProfile.osDisk.managedDisk'
+        value: null
+
+      # Only flag running or stopped VMs (not already deallocated)
+      - type: value
+        key: 'properties.extended.instanceView.powerState.code'
+        op: 'in'
+        value:
+          - 'PowerState/running'
+          - 'PowerState/stopped'
+          - 'PowerState/starting'
+    
+    actions:
+      - type: tag
+        tag: 'leftsize-deprecation'
+        value: 'unmanaged-disks-eol-mar-2026'
+      
+      - type: tag
+        tag: 'leftsize-severity'
+        value: 'critical'
+      
+      - type: tag
+        tag: 'leftsize-action-required'
+        value: 'migrate-to-managed-disks'
+      
+      - type: tag
+        tag: 'leftsize-retirement-date'
+        value: '2026-03-31'
+      
+      - type: tag
+        tag: 'leftsize-detected-date'
+        value: '{now:%Y-%m-%d}'
+      
+      - type: mark-for-op
+        op: notify
+        days: 1
+        tag: leftsize-unmanaged-disks-retirement-notify
+
+  # ========================================
   # 📝 TEMPLATE FOR FUTURE DEPRECATIONS
   # ========================================
   # 
