@@ -1201,10 +1201,45 @@ def extract_resource_id(resource: Dict[str, Any], config: Dict[str, Any]) -> str
             region = resource.get('Region', os.getenv('AWS_REGION', 'us-east-1'))
             return f"arn:aws:ec2:{region}::natgateway/{nat_id}"
         
-        # Generic fallback for AWS - try common ID patterns
-        for id_field in ['Arn', 'ARN', 'ResourceId', 'ResourceARN']:
-            if resource.get(id_field):
-                return resource[id_field]
+        # Generic fallback for AWS - try common ARN/ID patterns across many c7n
+        # resource types before giving up. Ordered from most-specific to least.
+        # Values are checked for non-empty, so missing keys naturally skip.
+        arn_like_fields = [
+            # Fully-qualified ARNs (all casings c7n uses across resources)
+            'Arn', 'ARN', 'arn',
+            'LoadBalancerArn',         # app-elb, elbv2
+            'AutoScalingGroupARN',     # asg
+            'TableArn',                # dynamodb
+            'CertificateArn',          # acm-certificate
+            'serviceArn',              # ecs-service
+            'repositoryArn',           # ecr
+            'DBSnapshotArn',           # rds-snapshot (also handled earlier)
+            'ResourceARN', 'ResourceArn',
+            'ResourceId',
+        ]
+        for id_field in arn_like_fields:
+            val = resource.get(id_field)
+            if val:
+                return val
+
+        # Resources without ARNs in their payload — build one from identifier + region
+        region = resource.get('Region', os.getenv('AWS_REGION', 'us-east-1'))
+        if resource.get('AutoScalingGroupName'):
+            return f"arn:aws:autoscaling:{region}::autoScalingGroup/{resource['AutoScalingGroupName']}"
+        if resource.get('LoadBalancerName'):  # classic ELB
+            return f"arn:aws:elasticloadbalancing:{region}::loadbalancer/{resource['LoadBalancerName']}"
+        if resource.get('AllocationId'):  # EIP
+            return f"arn:aws:ec2:{region}::elastic-ip/{resource['AllocationId']}"
+        if resource.get('GroupId'):  # security group
+            return f"arn:aws:ec2:{region}::security-group/{resource['GroupId']}"
+        if resource.get('DomainName'):  # elasticsearch / opensearch
+            return f"arn:aws:es:{region}::domain/{resource['DomainName']}"
+        if resource.get('TableName'):  # dynamodb without TableArn
+            return f"arn:aws:dynamodb:{region}::table/{resource['TableName']}"
+        if resource.get('logGroupName'):  # cloudwatch logs
+            return f"arn:aws:logs:{region}::log-group/{resource['logGroupName']}"
+        if resource.get('repositoryName'):  # ecr
+            return f"arn:aws:ecr:{region}::repository/{resource['repositoryName']}"
     
     # Final fallback - generate a unique ID from available data
     resource_name = resource.get('name', '') or resource.get('Name', '') or 'unknown'
@@ -1241,8 +1276,20 @@ def convert_resource_to_finding(policy_name: str, resource: Dict[str, Any], conf
                 or resource.get('FileSystemId')
                 or resource.get('CacheClusterId')
                 or resource.get('DBSnapshotIdentifier')
+                or resource.get('DBInstanceIdentifier')
                 or resource.get('UserName')
                 or resource.get('InstanceId')
+                or resource.get('VolumeId')
+                or resource.get('SnapshotId')
+                or resource.get('LoadBalancerName')
+                or resource.get('AutoScalingGroupName')
+                or resource.get('DomainName')
+                or resource.get('TableName')
+                or resource.get('logGroupName')
+                or resource.get('repositoryName')
+                or resource.get('AllocationId')
+                or resource.get('GroupId')
+                or resource.get('NatGatewayId')
                 or ''
             )
         resource_type = resource.get('type', '') or resource.get('c7n:resource-type', '')
