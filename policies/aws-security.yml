@@ -1,0 +1,288 @@
+# ========================================
+# AWS Security (CIS-aligned) Policies
+# ========================================
+#
+# This policy file contains CIS AWS Foundations Benchmark aligned security
+# checks that complement aws-governance.yml. These rules detect configurations
+# that represent security risk rather than cost inefficiency.
+#
+# Category: security, compliance, cis
+# ========================================
+
+policies:
+  # ========================================
+  # IAM USER SECURITY
+  # ========================================
+  
+  - name: leftsize-iam-unused-access-key
+    description: |
+      Detect IAM users with access keys unused for 90+ days.
+      
+      Unused access keys represent forgotten or unnecessary credentials that
+      may be exposed in old code, documentation, or compromised systems. Keys
+      should be rotated regularly or removed if not actively used.
+      
+      Detection criteria:
+      - Access key status: Active
+      - Last used: 90+ days ago
+      
+      Security impact: HIGH - Credential exposure risk
+      Compliance: CIS AWS Foundations 1.12
+    
+    resource: aws.iam-user
+    
+    filters:
+      - type: access-key
+        key: Status
+        value: Active
+      - type: access-key
+        key: LastUsedDate
+        op: greater-than
+        value_type: age
+        value: 90
+    
+    metadata:
+      category: security
+      severity: high
+      tier: free
+  
+  - name: leftsize-iam-user-without-mfa
+    description: |
+      Detect IAM users with console login credentials but no MFA device.
+      
+      Multi-factor authentication (MFA) is critical for preventing account
+      takeover from stolen passwords. All users with console access should
+      have MFA enabled.
+      
+      Detection criteria:
+      - Password enabled: true
+      - MFA active: false
+      
+      Security impact: HIGH - Account takeover risk
+      Compliance: CIS AWS Foundations 1.10
+    
+    resource: aws.iam-user
+    
+    filters:
+      - type: credential
+        key: password_enabled
+        value: true
+      - type: credential
+        key: mfa_active
+        value: false
+    
+    metadata:
+      category: security
+      severity: high
+      tier: free
+  
+  - name: leftsize-iam-unused-user
+    description: |
+      Detect IAM users not active for 90+ days.
+      
+      Inactive user accounts may belong to former employees, contractors, or
+      testing. These orphaned accounts represent security risks if credentials
+      are later compromised.
+      
+      Detection criteria:
+      - Password not used for 90+ days (if password enabled)
+      - Access keys not used for 90+ days (if any exist)
+      
+      Security impact: MEDIUM - Orphaned credential risk
+      Compliance: CIS AWS Foundations 1.3
+    
+    resource: aws.iam-user
+    
+    filters:
+      # Both password and access keys are old or absent
+      - type: credential
+        key: password_last_used
+        op: greater-than
+        value_type: age
+        value: 90
+      - type: access-key
+        key: LastUsedDate
+        op: greater-than
+        value_type: age
+        value: 90
+    
+    metadata:
+      category: security
+      severity: medium
+      tier: free
+  
+  # ========================================
+  # NETWORK MONITORING
+  # ========================================
+  
+  - name: leftsize-vpc-flow-logs-disabled
+    description: |
+      Detect VPCs without flow logs enabled.
+      
+      VPC Flow Logs capture IP traffic metadata for security monitoring, threat
+      detection, and troubleshooting. Without flow logs, you cannot detect
+      intrusions, diagnose connectivity issues, or meet compliance requirements.
+      
+      Detection criteria:
+      - VPC does not have flow logs enabled
+      
+      Security impact: MEDIUM - Visibility blind spot
+      Compliance: CIS AWS Foundations 3.9
+    
+    resource: aws.vpc
+    
+    filters:
+      - not:
+        - type: flow-logs
+          enabled: true
+    
+    metadata:
+      category: security
+      severity: medium
+      tier: free
+  
+  # ========================================
+  # DATABASE EXPOSURE
+  # ========================================
+  
+  - name: leftsize-rds-publicly-accessible
+    description: |
+      Detect RDS instances with PubliclyAccessible: true.
+      
+      Databases should never be directly accessible from the internet. Public
+      RDS instances are immediately scanned and attacked. Use VPC-only endpoints
+      and access through application security groups or VPN.
+      
+      Detection criteria:
+      - PubliclyAccessible: true
+      - DBInstanceStatus: available
+      
+      Security impact: CRITICAL - Direct database exposure to internet attacks
+      Compliance: CIS AWS Foundations 2.3.3
+    
+    resource: aws.rds
+    
+    filters:
+      - type: value
+        key: PubliclyAccessible
+        value: true
+      - type: value
+        key: DBInstanceStatus
+        value: available
+    
+    metadata:
+      category: security
+      severity: critical
+      tier: free
+  
+  # ========================================
+  # S3 AUDIT LOGGING
+  # ========================================
+  
+  - name: leftsize-s3-bucket-logging-disabled
+    description: |
+      Detect S3 buckets without server access logging.
+      
+      S3 server access logs record all requests to a bucket, providing an
+      audit trail for security investigations, compliance, and troubleshooting.
+      Without logging, you cannot detect unauthorized access or data exfiltration.
+      
+      Detection criteria:
+      - S3 bucket without server access logging configured
+      
+      Security impact: MEDIUM - No audit trail for access
+      Compliance: CIS AWS Foundations 3.6
+    
+    resource: aws.s3
+    
+    filters:
+      - type: value
+        key: Logging
+        value: empty
+    
+    metadata:
+      category: security
+      severity: medium
+      tier: free
+  
+  # ========================================
+  # PUBLIC SNAPSHOT/IMAGE EXPOSURE
+  # ========================================
+  
+  - name: leftsize-ebs-snapshot-public
+    description: |
+      Detect EBS snapshots shared publicly (all accounts).
+      
+      Public EBS snapshots expose disk images containing application code,
+      configuration files, credentials, and data to anyone on the internet.
+      This is almost never intentional and represents critical data exposure.
+      
+      Detection criteria:
+      - CreateVolumePermission granted to 'all' (public)
+      
+      Security impact: CRITICAL - Full disk image exposure
+      Compliance: CIS AWS Foundations
+    
+    resource: aws.ebs-snapshot
+    
+    filters:
+      - type: value
+        key: "CreateVolumePermissions[].Group"
+        value: all
+        op: contains
+    
+    metadata:
+      category: security
+      severity: critical
+      tier: free
+  
+  - name: leftsize-rds-snapshot-public
+    description: |
+      Detect RDS snapshots shared publicly (all accounts).
+      
+      Public RDS snapshots expose complete database backups including all
+      data, schemas, and configurations to anyone on the internet. This
+      represents critical data breach risk.
+      
+      Detection criteria:
+      - Snapshot shared with 'all' (public)
+      
+      Security impact: CRITICAL - Full database exposure
+      Compliance: CIS AWS Foundations
+    
+    resource: aws.rds-snapshot
+    
+    filters:
+      - type: cross-account
+        whitelist: []
+    
+    metadata:
+      category: security
+      severity: critical
+      tier: free
+  
+  - name: leftsize-ami-public
+    description: |
+      Detect AMIs (Amazon Machine Images) marked as Public.
+      
+      Public AMIs expose pre-configured server images including application
+      code, configuration, credentials, and potentially customer data to anyone.
+      Marketplace AMIs are legitimate, but custom AMIs should never be public.
+      
+      Detection criteria:
+      - Public: true
+      
+      Security impact: CRITICAL - Full server image exposure
+      Compliance: Security best practices
+    
+    resource: aws.ami
+    
+    filters:
+      - type: value
+        key: Public
+        value: true
+    
+    metadata:
+      category: security
+      severity: critical
+      tier: free

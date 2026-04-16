@@ -600,3 +600,104 @@ policies:
         op: tag
         days: 14
         tag: leftsize-redis-downsize-review
+
+  # ========================================
+  # 💰 COST OPTIMIZATION - Phase 3 (New Rules)
+  # ========================================
+
+  # Z1: Disks Attached to Deallocated VMs - Review candidate list
+  # Note: This is a REVIEW rule. Cloud Custodian azure.disk does not support
+  # cross-resource joins to query VM deallocation state. This policy flags
+  # attached disks >128GB for manual correlation with deallocated VMs.
+  - name: leftsize-disk-attached-to-deallocated-vm
+    description: |
+      Find attached managed disks (>128GB) that should be reviewed for VM deallocation.
+      Disks attached to deallocated VMs still incur storage costs. This rule flags
+      larger attached disks as review candidates; correlate with your VM inventory
+      to identify disks on deallocated VMs.
+    resource: azure.disk
+    filters:
+      # Disk is attached (managedBy is not null)
+      - type: value
+        key: 'managedBy'
+        op: not-equal
+        value: null
+      # Disk state is Attached
+      - type: value
+        key: 'properties.diskState'
+        value: 'Attached'
+      # Flag larger disks (>128GB) as candidates
+      - type: value
+        key: 'properties.diskSizeGB'
+        op: greater-than
+        value: 128
+      # Disk is older than 30 days
+      - type: value
+        key: 'properties.timeCreated'
+        op: 'le'
+        value_type: age
+        value: 30
+    actions:
+      - type: mark-for-op
+        op: tag
+        days: 14
+        tag: leftsize-disk-deallocated-vm-review
+    metadata:
+      category: cost-optimization
+      severity: medium
+      tier: pro
+
+  # Z4: Overprovisioned Azure SQL Database - Low DTU utilization
+  - name: leftsize-azure-sql-overprovisioned
+    description: "Find Azure SQL Databases with low DTU/vCore consumption over 14 days"
+    resource: azure.sql-database
+    filters:
+      # Exclude system database
+      - type: value
+        key: 'name'
+        op: ne
+        value: 'master'
+      # Low DTU consumption over 14 days
+      - type: metric
+        metric: 'dtu_consumption_percent'
+        aggregation: 'average'
+        op: 'le'
+        threshold: 20.0
+        timeframe: 336  # 14 days in hours
+      # Database is in running state
+      - type: value
+        key: 'properties.status'
+        value: 'Online'
+    metadata:
+      category: cost-optimization
+      severity: medium
+      tier: pro
+
+  # Z16: Cosmos DB Overprovisioned Throughput - Low RU consumption
+  - name: leftsize-cosmos-overprovisioned-throughput
+    description: |
+      Find Cosmos DB accounts with low normalized RU consumption over 14 days.
+      Provisioned throughput accounts with consistently low usage should reduce
+      RUs or enable autoscale to optimize costs.
+    resource: azure.cosmosdb
+    filters:
+      # Low normalized RU consumption over 14 days
+      - type: metric
+        metric: 'NormalizedRUConsumption'
+        aggregation: 'average'
+        op: 'le'
+        threshold: 30.0
+        timeframe: 336  # 14 days in hours
+      # Account is in running state
+      - type: value
+        key: 'properties.provisioningState'
+        value: 'Succeeded'
+    actions:
+      - type: mark-for-op
+        op: tag
+        days: 14
+        tag: leftsize-cosmos-overprovisioned-review
+    metadata:
+      category: cost-optimization
+      severity: medium
+      tier: pro

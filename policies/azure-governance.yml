@@ -724,3 +724,86 @@ policies:
   #       tag: leftsize-[issue]-notify
   #
   # ========================================
+
+  # ========================================
+  # 🔒 SECURITY - Phase 3 (New Rules)
+  # ========================================
+
+  # ZS1: Defender for Cloud Disabled - Critical security gap
+  - name: leftsize-defender-for-cloud-disabled
+    description: |
+      Detect Azure Defender (Microsoft Defender for Cloud) plans set to Free tier.
+      The Free tier provides basic security but lacks threat protection, vulnerability
+      assessment, and advanced security features. This creates a critical visibility
+      gap for security threats.
+      
+      Security impact: HIGH - No advanced threat detection, no vulnerability scanning
+      Compliance: CIS Azure Foundations 2.1, ISO 27001, SOC2
+    resource: azure.defender-pricing
+    filters:
+      # Defender pricing tier is Free (disabled)
+      - type: value
+        key: 'properties.pricingTier'
+        value: 'Free'
+    metadata:
+      category: security
+      severity: high
+      tier: free
+
+  # ZS2: SQL Auditing Disabled - Compliance and forensics gap
+  - name: leftsize-sql-auditing-disabled
+    description: |
+      Detect Azure SQL Servers with auditing disabled.
+      SQL Server auditing tracks database events to an audit log, enabling forensic
+      analysis, compliance monitoring, and security investigation. Without auditing,
+      unauthorized access and data breaches go undetected.
+      
+      Security impact: HIGH - No forensic trail, compliance violations
+      Compliance: CIS Azure Foundations 4.1.1, PCI-DSS 10.1, SOC2, ISO 27001
+    resource: azure.sqlserver
+    filters:
+      # Server auditing is not enabled
+      - type: auditing
+        enabled: false
+    actions:
+      - type: mark-for-op
+        op: tag
+        days: 7
+        tag: leftsize-sql-auditing-disabled-review
+    metadata:
+      category: security
+      severity: high
+      tier: free
+
+  # ZS5: Key Vault Soft Delete Disabled - Data loss risk
+  - name: leftsize-keyvault-soft-delete-disabled
+    description: |
+      Detect Azure Key Vaults without soft delete enabled.
+      Soft delete provides a recovery window for deleted secrets, keys, and certificates,
+      protecting against accidental or malicious deletion. Without it, deletion is
+      immediate and permanent, leading to catastrophic data loss and application outages.
+      
+      Note: Azure enforced soft delete by default for new vaults from Feb 2025, but
+      older vaults may still have it disabled.
+      
+      Security impact: CRITICAL - Permanent data loss risk, no recovery window
+      Compliance: CIS Azure Foundations 8.1
+    resource: azure.keyvault
+    filters:
+      # Soft delete is not enabled
+      - or:
+        - type: value
+          key: 'properties.enableSoftDelete'
+          value: false
+        - type: value
+          key: 'properties.enableSoftDelete'
+          value: absent
+    actions:
+      - type: mark-for-op
+        op: tag
+        days: 3
+        tag: leftsize-keyvault-soft-delete-disabled-review
+    metadata:
+      category: security
+      severity: critical
+      tier: free

@@ -1230,3 +1230,179 @@ policies:
       category: cost-optimization
       severity: medium
       tier: pro
+
+  # ========================================
+  # 💰 COST OPTIMIZATION - Batch 3 (New Rules)
+  # ========================================
+
+  # A1 - Inactive EKS clusters with no nodegroups
+  # Detects EKS clusters with no attached nodegroups consuming $73/mo in control plane costs
+  - name: leftsize-inactive-eks-cluster
+    description: "Find active EKS clusters with no nodegroups attached (control plane costs with zero workloads)"
+    resource: aws.eks
+    filters:
+      # Cluster is active
+      - type: value
+        key: status
+        value: ACTIVE
+      # No nodegroups attached
+      - type: value
+        key: 'nodegroups'
+        value: empty
+    actions:
+      - type: tag
+        key: leftsize-inactive-eks
+        value: 'no-nodegroups-review'
+
+  # A3 - RDS read replicas with no read load
+  # Detects read replicas with no database connections consuming full instance + storage costs
+  - name: leftsize-inactive-rds-read-replica
+    description: "Find RDS read replicas with no read load (zero connections in 14 days)"
+    resource: aws.rds
+    filters:
+      # Instance is available
+      - type: value
+        key: DBInstanceStatus
+        value: available
+      # Is a read replica
+      - type: value
+        key: ReadReplicaSourceDBInstanceIdentifier
+        op: ne
+        value: null
+      # No database connections in 14 days
+      - type: metrics
+        name: DatabaseConnections
+        statistics: Maximum
+        days: 14
+        value: 1
+        op: less-than
+    actions:
+      - type: tag
+        key: leftsize-inactive-replica
+        value: 'no-read-load-review'
+
+  # A4 - Inactive EFS filesystems with no IO
+  # Detects EFS filesystems with no client connections over 14 days
+  - name: leftsize-inactive-efs-filesystem
+    description: "Find EFS filesystems with no client connections in 14 days (low usage, $0.30/GB-month waste)"
+    resource: aws.efs
+    filters:
+      # Filesystem is available
+      - type: value
+        key: LifeCycleState
+        value: available
+      # No client connections in 14 days
+      - type: metrics
+        name: ClientConnections
+        statistics: Sum
+        days: 14
+        value: 0
+        op: eq
+        missing-value: 0
+    actions:
+      - type: tag
+        key: leftsize-inactive-efs
+        value: 'no-io-review'
+
+  # A5 - Network Load Balancers with no active flows
+  # Detects NLBs with zero traffic consuming $16-20/mo fixed + LCU costs
+  - name: leftsize-inactive-nlb
+    description: "Find Network Load Balancers with no active flows in 14 days ($16+/mo waste)"
+    resource: aws.app-elb
+    filters:
+      # Network Load Balancer type only
+      - type: value
+        key: Type
+        value: network
+      # Load balancer is active
+      - type: value
+        key: State.Code
+        value: active
+      # No active flows in 14 days
+      - type: metrics
+        name: ActiveFlowCount
+        namespace: AWS/NetworkELB
+        statistics: Sum
+        days: 14
+        value: 0
+        op: eq
+        missing-value: 0
+    actions:
+      - type: tag
+        key: leftsize-inactive-nlb
+        value: 'no-traffic-review'
+
+  # A8 - Inactive VPC endpoints (interface type)
+  # Detects interface VPC endpoints with no traffic ($7.30/mo/AZ waste)
+  - name: leftsize-inactive-vpc-endpoint
+    description: "Find interface VPC endpoints with no traffic (gateway endpoints are free, $7.30/mo/AZ for interface)"
+    resource: aws.vpc-endpoint
+    filters:
+      # Interface type only (gateway endpoints are free)
+      - type: value
+        key: VpcEndpointType
+        value: Interface
+      # Endpoint is available
+      - type: value
+        key: State
+        value: available
+      # No packets dropped metric as proxy for zero traffic
+      # Note: PacketsDropped is one signal; missing-value: 0 ensures endpoints with zero metrics emitted still match
+      - type: metrics
+        name: PacketsDropped
+        namespace: AWS/PrivateLinkEndpoints
+        statistics: Sum
+        days: 14
+        value: 0
+        op: eq
+        missing-value: 0
+    actions:
+      - type: tag
+        key: leftsize-inactive-vpc-endpoint
+        value: 'no-traffic-review'
+
+  # A12 - Lambda functions with oversized memory and low invocation
+  # Detects functions with >1024MB memory but low usage (likely over-provisioned)
+  - name: leftsize-lambda-oversized-memory
+    description: "Find Lambda functions with >1024MB memory and low invocations (rightsizing candidates, not definitive)"
+    resource: aws.lambda
+    filters:
+      # Memory size > 1024MB
+      - type: value
+        key: MemorySize
+        op: greater-than
+        value: 1024
+      # Low invocations (< 1000 in 14 days)
+      - type: metrics
+        name: Invocations
+        statistics: Sum
+        days: 14
+        value: 1000
+        op: less-than
+        missing-value: 0
+    actions:
+      - type: tag
+        key: leftsize-lambda-oversized
+        value: 'rightsizing-candidate'
+
+  # A18 - ElastiCache clusters with low CPU utilization
+  # Detects Redis/Memcached clusters with low CPU over 14 days (rightsizing candidates)
+  - name: leftsize-elasticache-underutilized
+    description: "Find ElastiCache clusters with low CPU (<5% avg over 14 days, rightsizing candidates)"
+    resource: aws.cache-cluster
+    filters:
+      # Cluster is available
+      - type: value
+        key: CacheClusterStatus
+        value: available
+      # Low CPU utilization
+      - type: metrics
+        name: CPUUtilization
+        statistics: Average
+        days: 14
+        value: 5
+        op: less-than
+    actions:
+      - type: tag
+        key: leftsize-elasticache-underutilized
+        value: 'rightsizing-candidate'
