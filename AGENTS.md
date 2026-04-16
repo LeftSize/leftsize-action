@@ -48,6 +48,35 @@ For regional resources (EC2, RDS, etc.), the region is extracted from the ARN. F
 - `convert_resource_to_finding(policy_name, resource, config)` - Convert C7N resource to LeftSize finding format
 - `extract_resource_metadata(resource, resource_id)` - Extract metadata for template rendering
 
+### ⚠️ Adding a new Cloud Custodian rule — mandatory ARN checklist
+
+**Before merging ANY new policy, verify `extract_resource_id()` in `run.py` can build a proper ARN for the resource type it targets.** If it cannot, the backend's `ExtractResourceName()` and `ExtractAwsRegion()` will both fail, and the generated GitHub issue will show `• unknown ()` and `--region ` (empty) — see bug playground-flux-prod#10 / commits `85fedae` and `4c61a2f` for history.
+
+Every Cloud Custodian resource type exposes its identifier fields via `resource_type.id` / `resource_type.arn`. Inspect them before writing the rule:
+
+```python
+from c7n.resources import load_resources
+from c7n.manager import resources
+load_resources(("aws.*",))
+cls = resources.get("vpc-endpoint")
+print(cls.resource_type.id, cls.resource_type.arn)  # VpcEndpointId, None
+```
+
+Then ensure one of these three paths applies in `extract_resource_id()`:
+
+1. **Resource already returns a full ARN** (field name is any of `Arn`, `ARN`, `arn`, `LoadBalancerArn`, `AutoScalingGroupARN`, `TableArn`, `CertificateArn`, `serviceArn`, `repositoryArn`, `DBSnapshotArn`, `ResourceARN`, `ResourceArn`, `ResourceId`) — the generic passthrough list picks it up automatically. If the new resource type uses a new casing, **add it to the list**.
+2. **Resource has a typed identifier but no ARN** (e.g. `VpcId`, `FileSystemId`, `CacheClusterId`, `AllocationId`, `GroupId`) — add an explicit ARN builder:
+   ```python
+   if resource.get('MyNewId'):
+       return f"arn:aws:SERVICE:{region}::RESOURCE-PATH/{resource['MyNewId']}"
+   ```
+   Match the canonical AWS ARN shape for that service — the backend parses `arn:aws:<svc>:<region>:<account>:<resource>` with region at index 3.
+3. **Resource is name-only** — build an ARN from the name field (e.g. classic ELB → `LoadBalancerName`).
+
+Also update the `resourceName` fallback chain in `convert_resource_to_finding()` with the same identifier, so UI/search shows meaningful labels even without a `Name` tag.
+
+**Test coverage is mandatory**: add a case to `tests/test_resource_id_extraction.py` for every new branch. The suite must never fall through to the `aws:/unknown` path for a supported resource.
+
 ## Architecture
 
 ### Action Type
