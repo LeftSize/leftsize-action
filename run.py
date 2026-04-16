@@ -1133,6 +1133,53 @@ def extract_resource_id(resource: Dict[str, Any], config: Dict[str, Any]) -> str
             snapshot_id = resource['SnapshotId']
             region = resource.get('Region', os.getenv('AWS_REGION', 'us-east-1'))
             return f"arn:aws:ec2:{region}::snapshot/{snapshot_id}"
+
+        # VPCs use 'VpcId'
+        if resource.get('VpcId') and not resource.get('VpcEndpointId'):
+            vpc_id = resource['VpcId']
+            region = resource.get('Region', os.getenv('AWS_REGION', 'us-east-1'))
+            return f"arn:aws:ec2:{region}::vpc/{vpc_id}"
+
+        # VPC Endpoints use 'VpcEndpointId'
+        if resource.get('VpcEndpointId'):
+            endpoint_id = resource['VpcEndpointId']
+            region = resource.get('Region', os.getenv('AWS_REGION', 'us-east-1'))
+            return f"arn:aws:ec2:{region}::vpc-endpoint/{endpoint_id}"
+
+        # AMIs use 'ImageId'
+        if resource.get('ImageId'):
+            image_id = resource['ImageId']
+            region = resource.get('Region', os.getenv('AWS_REGION', 'us-east-1'))
+            return f"arn:aws:ec2:{region}::image/{image_id}"
+
+        # EFS filesystems
+        if resource.get('FileSystemId'):
+            fs_id = resource['FileSystemId']
+            region = resource.get('Region', os.getenv('AWS_REGION', 'us-east-1'))
+            return f"arn:aws:elasticfilesystem:{region}::file-system/{fs_id}"
+
+        # ElastiCache cache clusters
+        if resource.get('CacheClusterId'):
+            cache_id = resource['CacheClusterId']
+            region = resource.get('Region', os.getenv('AWS_REGION', 'us-east-1'))
+            return f"arn:aws:elasticache:{region}::cluster/{cache_id}"
+
+        # RDS snapshots
+        if resource.get('DBSnapshotArn'):
+            return resource['DBSnapshotArn']
+        if resource.get('DBSnapshotIdentifier'):
+            snap_id = resource['DBSnapshotIdentifier']
+            region = resource.get('Region', os.getenv('AWS_REGION', 'us-east-1'))
+            return f"arn:aws:rds:{region}::snapshot/{snap_id}"
+
+        # EKS clusters (c7n returns 'name' + 'arn')
+        if resource.get('arn') and 'eks' in str(resource.get('arn', '')):
+            return resource['arn']
+
+        # IAM users expose 'UserName' and 'Arn' (fallback Arn handles it, but ensure UserName path works)
+        if resource.get('UserName') and not resource.get('Arn'):
+            user_name = resource['UserName']
+            return f"arn:aws:iam:::user/{user_name}"
         
         # RDS instances use 'DBInstanceIdentifier'
         if resource.get('DBInstanceIdentifier'):
@@ -1176,6 +1223,28 @@ def convert_resource_to_finding(policy_name: str, resource: Dict[str, Any], conf
         # Azure uses 'id', AWS uses various fields depending on resource type
         resource_id = extract_resource_id(resource, config)
         resource_name = resource.get('name', '') or resource.get('Name', '')
+        # For AWS resources that have tag-based names (e.g. VPCs, subnets),
+        # try extracting Name from the tag list so UI/search shows friendly names.
+        if not resource_name:
+            aws_tags = resource.get('Tags')
+            if isinstance(aws_tags, list):
+                for tag in aws_tags:
+                    if isinstance(tag, dict) and tag.get('Key') == 'Name' and tag.get('Value'):
+                        resource_name = tag['Value']
+                        break
+        # Fall back to the AWS resource identifier fields when no tag Name present
+        if not resource_name:
+            resource_name = (
+                resource.get('VpcId')
+                or resource.get('VpcEndpointId')
+                or resource.get('ImageId')
+                or resource.get('FileSystemId')
+                or resource.get('CacheClusterId')
+                or resource.get('DBSnapshotIdentifier')
+                or resource.get('UserName')
+                or resource.get('InstanceId')
+                or ''
+            )
         resource_type = resource.get('type', '') or resource.get('c7n:resource-type', '')
         
         # Build scope from resource ID
