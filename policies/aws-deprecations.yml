@@ -81,7 +81,7 @@ policies:
       Find ElastiCache Redis clusters running EOL or deprecated versions.
       
       Redis version support:
-      - Redis 6.x: Standard support ending, upgrade to 7.x recommended
+      - Redis 6.x: Still in standard support (flag only 5.x and older)
       - Redis 5.x: Legacy, should upgrade
       - Redis 4.x and below: Very old, critical to upgrade
       
@@ -94,11 +94,11 @@ policies:
       - type: value
         key: 'Engine'
         value: 'redis'
-      # Match older Redis versions
+      # Match older Redis versions (5.x and below; Redis 6.x still supported)
       - type: value
         key: 'EngineVersion'
         op: regex
-        value: '^[456]\.'
+        value: '^[1-5]\.'
     actions:
       - type: mark-for-op
         op: tag

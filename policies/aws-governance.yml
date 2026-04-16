@@ -31,7 +31,7 @@ policies:
       Security impact: HIGH - Data breach risk, compliance violations
       Compliance: CIS AWS Foundations, ISO 27001, SOC2, GDPR
     
-    resource: s3
+    resource: aws.s3
     
     filters:
       # Check for public access configurations
@@ -97,7 +97,7 @@ policies:
       Security impact: HIGH - Data exposure risk
       Compliance: CIS AWS Foundations, ISO 27001, SOC2, PCI-DSS
     
-    resource: s3
+    resource: aws.s3
     
     filters:
       # No encryption configuration
@@ -150,7 +150,7 @@ policies:
       Security impact: CRITICAL - Direct intrusion risk
       Compliance: CIS AWS Foundations, PCI-DSS, NIST
     
-    resource: security-group
+    resource: aws.security-group
     
     filters:
       # Has ingress rules
@@ -242,7 +242,7 @@ policies:
       Security impact: HIGH - Data exposure risk
       Compliance: CIS AWS Foundations, ISO 27001, PCI-DSS
     
-    resource: ebs
+    resource: aws.ebs
     
     filters:
       # Encryption is not enabled
@@ -290,7 +290,7 @@ policies:
       Security impact: HIGH - Data exposure risk, compliance violation
       Compliance: CIS AWS Foundations, ISO 27001, PCI-DSS, HIPAA
     
-    resource: rds
+    resource: aws.rds
     
     filters:
       # Storage encryption is not enabled
