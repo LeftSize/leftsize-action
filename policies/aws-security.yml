@@ -134,7 +134,8 @@ policies:
     filters:
       - not:
         - type: flow-logs
-          enabled: true
+          attrs:
+            - FlowLogStatus: ACTIVE
     
     metadata:
       category: security
