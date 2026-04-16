@@ -54,6 +54,14 @@ jobs:
 ### AWS Usage
 
 ```yaml
+permissions:
+  id-token: write        # Required for OIDC
+  contents: read
+
+jobs:
+  leftsize-scan:
+    runs-on: ubuntu-latest
+    steps:
       - name: AWS Login (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -97,52 +105,84 @@ jobs:
 ### Multi-Subscription Azure Scan
 
 ```yaml
-- uses: leftsize/leftsize-action@v1
-  with:
-    installation-id: ${{ secrets.LEFTSIZE_INSTALLATION_ID }}
-    repository-token: ${{ secrets.LEFTSIZE_REPOSITORY_TOKEN }}
-    azure-subscription-ids: "sub-id-1,sub-id-2,sub-id-3"
+permissions:
+  id-token: write        # Required for OIDC
+  contents: read
+
+jobs:
+  leftsize-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: leftsize/leftsize-action@v1
+        with:
+          installation-id: ${{ secrets.LEFTSIZE_INSTALLATION_ID }}
+          repository-token: ${{ secrets.LEFTSIZE_REPOSITORY_TOKEN }}
+          azure-subscription-ids: "sub-id-1,sub-id-2,sub-id-3"
 ```
 
 ### AWS Multi-Region Scan
 
 ```yaml
-- uses: leftsize/leftsize-action@v1
-  with:
-    installation-id: ${{ secrets.LEFTSIZE_INSTALLATION_ID }}
-    repository-token: ${{ secrets.LEFTSIZE_REPOSITORY_TOKEN }}
-    cloud-provider: aws
-    aws-regions: "us-east-1,eu-west-1,ap-southeast-1"
+permissions:
+  id-token: write        # Required for OIDC
+  contents: read
+
+jobs:
+  leftsize-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: leftsize/leftsize-action@v1
+        with:
+          installation-id: ${{ secrets.LEFTSIZE_INSTALLATION_ID }}
+          repository-token: ${{ secrets.LEFTSIZE_REPOSITORY_TOKEN }}
+          cloud-provider: aws
+          aws-regions: "us-east-1,eu-west-1,ap-southeast-1"
 ```
 
 ### Filter Policies
 
 ```yaml
-- uses: leftsize/leftsize-action@v1
-  with:
-    installation-id: ${{ secrets.LEFTSIZE_INSTALLATION_ID }}
-    repository-token: ${{ secrets.LEFTSIZE_REPOSITORY_TOKEN }}
-    include-policies: cost-optimization,governance  # Only cost and governance policies
-    exclude-policies: leftsize-idle-vm              # Skip specific rule
+permissions:
+  id-token: write        # Required for OIDC
+  contents: read
+
+jobs:
+  leftsize-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: leftsize/leftsize-action@v1
+        with:
+          installation-id: ${{ secrets.LEFTSIZE_INSTALLATION_ID }}
+          repository-token: ${{ secrets.LEFTSIZE_REPOSITORY_TOKEN }}
+          include-policies: cost-optimization,governance  # Only cost and governance policies
+          exclude-policies: leftsize-idle-vm              # Skip specific rule
 ```
 
 ### Custom Processing of Findings
 
 ```yaml
-- name: Run LeftSize Scan
-  id: leftsize
-  uses: leftsize/leftsize-action@v1
-  with:
-    installation-id: ${{ secrets.LEFTSIZE_INSTALLATION_ID }}
-    repository-token: ${{ secrets.LEFTSIZE_REPOSITORY_TOKEN }}
+permissions:
+  id-token: write        # Required for OIDC
+  contents: read
 
-- name: Process Findings
-  run: |
-    echo "Found ${{ steps.leftsize.outputs.findings-count }} findings"
-    echo "Submitted: ${{ steps.leftsize.outputs.findings-submitted }}"
-    
-    # Custom processing
-    echo '${{ steps.leftsize.outputs.findings-json }}' | jq '.[] | select(.severity == "high")'
+jobs:
+  leftsize-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run LeftSize Scan
+        id: leftsize
+        uses: leftsize/leftsize-action@v1
+        with:
+          installation-id: ${{ secrets.LEFTSIZE_INSTALLATION_ID }}
+          repository-token: ${{ secrets.LEFTSIZE_REPOSITORY_TOKEN }}
+
+      - name: Process Findings
+        run: |
+          echo "Found ${{ steps.leftsize.outputs.findings-count }} findings"
+          echo "Submitted: ${{ steps.leftsize.outputs.findings-submitted }}"
+          
+          # Custom processing
+          echo '${{ steps.leftsize.outputs.findings-json }}' | jq '.[] | select(.severity == "high")'
 ```
 
 ## Azure Setup (OIDC)

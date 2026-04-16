@@ -41,6 +41,40 @@ structlog.configure(
 logger = structlog.get_logger()
 
 
+def _build_custodian_env() -> dict[str, str]:
+    """Build filtered subprocess environment for Cloud Custodian.
+    
+    Only allows cloud provider credentials and essential system env vars.
+    Explicitly excludes GitHub Actions, LeftSize, and other action-specific secrets.
+    """
+    allow_prefixes = (
+        "AZURE_", "AWS_", "GOOGLE_", "GCP_",
+        "PATH", "HOME", "USER", "LANG", "LC_", "TZ",
+        "PYTHONPATH",
+        "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY",
+        "http_proxy", "https_proxy", "no_proxy",
+        "SSL_CERT_", "REQUESTS_CA_BUNDLE"
+    )
+    exclude_prefixes = ("LEFTSIZE_", "GITHUB_", "INPUT_", "RUNNER_", "ACTIONS_")
+    
+    filtered = {}
+    for k, v in os.environ.items():
+        # Skip if it matches an exclude prefix
+        if any(k.startswith(p) for p in exclude_prefixes):
+            continue
+        # Include if it matches an allow prefix
+        if any(k == p or k.startswith(p) for p in allow_prefixes):
+            filtered[k] = v
+    
+    # Ensure critical keys exist even if not in allow_prefixes
+    for key in ("PATH", "HOME", "USER"):
+        if key in os.environ and key not in filtered:
+            filtered[key] = os.environ[key]
+    
+    logger.info("Filtered subprocess environment", env_var_count=len(filtered))
+    return filtered
+
+
 class RepositoryLimitExceeded(Exception):
     """Raised when the free tier repository limit is exceeded"""
     def __init__(self, message: str, context: Dict[str, Any]):
@@ -913,17 +947,21 @@ def execute_single_policy_file(policies_file: str, config: Dict[str, Any]) -> Li
                 capture_output=True,
                 text=True,
                 timeout=config.get('execution', {}).get('timeout_minutes', 30) * 60,
-                env=os.environ
+                env=_build_custodian_env()
             )
             
             if result.returncode != 0:
-                logger.error("Custodian execution failed", 
-                           returncode=result.returncode,
-                           stdout=result.stdout,
-                           stderr=result.stderr)
+                logger.error("Custodian execution failed", returncode=result.returncode)
+                # Only log stdout/stderr when LEFTSIZE_DEBUG is enabled
+                if os.environ.get("LEFTSIZE_DEBUG", "").lower() in ("1", "true", "yes"):
+                    logger.debug("Custodian stdout", stdout=result.stdout)
+                    logger.debug("Custodian stderr", stderr=result.stderr)
                 return []
             
-            logger.info("Custodian execution completed", stdout=result.stdout)
+            logger.info("Custodian execution completed")
+            # Only log stdout when LEFTSIZE_DEBUG is enabled
+            if os.environ.get("LEFTSIZE_DEBUG", "").lower() in ("1", "true", "yes"):
+                logger.debug("Custodian output", stdout=result.stdout)
             
             # Parse Custodian output
             findings = parse_custodian_output(output_dir, config)
@@ -1359,9 +1397,10 @@ def submit_findings(findings: List[Dict[str, Any]], config: Dict[str, Any]) -> D
         response.raise_for_status()
         
         response_data = response.json()
-        logger.info("Findings submitted successfully", 
-                   response_status=response.status_code,
-                   response_data=response_data)
+        logger.info("Findings submitted successfully", response_status=response.status_code)
+        # Only log response data when LEFTSIZE_DEBUG is enabled
+        if os.environ.get("LEFTSIZE_DEBUG", "").lower() in ("1", "true", "yes"):
+            logger.debug("Backend response", response_data=response_data)
         
         result['submitted'] = True
         # Extract plan info from response if available
