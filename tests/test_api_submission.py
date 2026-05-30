@@ -279,18 +279,19 @@ class TestGroupFindings:
         assert len(groups) == 3  # 3 unique (ruleId, scope) combinations
         
         # Find group for rule1/scope1
-        rule1_scope1 = next(g for g in groups if g["RuleId"] == "rule1" and g["Scope"] == "scope1")
-        assert len(rule1_scope1["Findings"]) == 2
+        rule1_scope1 = next(g for g in groups if g["policy"] == "rule1" and g["scope"] == "scope1")
+        assert len(rule1_scope1["resources"]) == 2
     
-    def test_uses_pascal_case(self):
-        """Output should use PascalCase for backend compatibility"""
+    def test_uses_snake_case(self):
+        """Output should use snake_case to match the Cloudflare worker schema"""
         findings = [{"ruleId": "test", "scope": "test", "resourceId": "/test", "metadata": {}}]
         
         groups = group_findings(findings)
         
-        assert "RuleId" in groups[0]
-        assert "Scope" in groups[0]
-        assert "Findings" in groups[0]
+        assert "policy" in groups[0]
+        assert "scope" in groups[0]
+        assert "resources" in groups[0]
+        assert "cloud_provider" in groups[0]
     
     def test_empty_findings(self):
         """Empty findings list should return empty groups"""

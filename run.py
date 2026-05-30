@@ -922,9 +922,12 @@ def execute_single_policy_file(policies_file: str, config: Dict[str, Any]) -> Li
         output_dir = os.path.join(temp_dir, 'custodian-output')
         os.makedirs(output_dir, exist_ok=True)
         
-        # Build Custodian command
+        # Build Custodian command - use the custodian from the same Python environment
+        custodian_bin = os.path.join(os.path.dirname(sys.executable), 'custodian')
+        if not os.path.isfile(custodian_bin):
+            custodian_bin = 'custodian'  # Fall back to PATH
         cmd = [
-            'custodian', 'run',
+            custodian_bin, 'run',
             '--output-dir', output_dir,
             '--cache-period', '0',  # Disable caching for fresh results
             policies_file
@@ -1492,7 +1495,8 @@ def submit_findings(findings: List[Dict[str, Any]], config: Dict[str, Any]) -> D
                    total_findings=len(findings),
                    currency=currency)
         
-        response = requests.post(url, json=finding_groups, headers=headers, timeout=30)
+        payload = {"FindingGroups": finding_groups, "Currency": currency}
+        response = requests.post(url, json=payload, headers=headers, timeout=30)
         
         # Handle 402 Payment Required (repository limit exceeded)
         if response.status_code == 402:
@@ -1538,31 +1542,29 @@ def group_findings(findings: List[Dict[str, Any]], currency: str = 'USD') -> Lis
     groups = {}
     
     for finding in findings:
-        key = (finding['ruleId'], finding['scope'])
+        rule_id = finding['ruleId']
+        scope = finding['scope']
+        key = (rule_id, scope)
         
         if key not in groups:
+            # Determine cloud_provider from scope string
+            cloud_provider = 'azure' if scope.startswith('azure:') else 'aws'
             groups[key] = {
-                'RuleId': finding['ruleId'],  # Use PascalCase to match backend expectation
-                'Scope': finding['scope'],
-                'Currency': currency,  # Include currency in the group
-                'Findings': []
+                'policy': rule_id,
+                'scope': scope,
+                'cloud_provider': cloud_provider,
+                'resources': []
             }
         
-        # Determine severity for each individual finding
-        severity = determine_severity(finding['ruleId'], finding.get('metadata', {}))
-        
-        # Convert to backend expected format (PascalCase)
-        # Each finding needs: RuleId, ResourceId, Scope, EstSavings, Severity, Metadata
-        backend_finding = {
-            'RuleId': finding['ruleId'],
-            'ResourceId': finding['resourceId'],
-            'Scope': finding['scope'],
-            'EstSavings': finding.get('estimatedSavings', 0),
-            'Severity': severity,
-            'Metadata': finding.get('metadata')
+        resource = {
+            'resource_id': finding['resourceId'],
+            'policy': rule_id,
+            'metadata': finding.get('metadata') or {},
+            'estimated_savings': finding.get('estimatedSavings', 0),
+            'currency': currency,
         }
         
-        groups[key]['Findings'].append(backend_finding)
+        groups[key]['resources'].append(resource)
     
     return list(groups.values())
 
