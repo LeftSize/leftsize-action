@@ -692,3 +692,98 @@ policies:
       category: cost-optimization
       severity: medium
       tier: pro
+
+  # ========================================
+  # 💶 REGIONAL PRICE CHANGES
+  # ========================================
+  # Microsoft announced (Oct 2026) that from 1 February 2027 prices for
+  # specific VM series and Storage services increase by 8-17% in seven
+  # regions. Region → ARM name → increase:
+  #   EU West (Amsterdam)        westeurope      +9%
+  #   EU North (Dublin)          northeurope     +17%
+  #   France Central             francecentral   +11%
+  #   France South               francesouth     +11%
+  #   Norway East                norwayeast      +9%
+  #   Norway West                norwaywest      +9%
+  #   Southeast Asia (Singapore) southeastasia   +8%
+
+  - name: leftsize-vm-regional-price-increase-2027
+    description: |
+      Find VMs in regions with a price increase on 1 February 2027 (8-17%)
+      whose size is NOT in one of the series Microsoft excluded from the update.
+
+      Excluded series (not flagged):
+      - v1: Bv1, D, Ds, F, Fs, G, Gs, L, NP, HC
+      - v2: Av2, Amv2, Dv2, Dsv2, Fsv2, Lsv2
+      - v7 (Intel only): Dsv7, Ddsv7, Dlsv7, Dldsv7, Esv7, Edsv7
+
+      AMD/Arm v7 sizes (e.g. Dasv7, Eadsv7) are NOT excluded and are flagged.
+      The size regex was checked against `az vm list-skus` output for the
+      affected regions. It's case-insensitive and allows constrained-core
+      (-N) and _Promo suffixes.
+    resource: azure.vm
+    filters:
+      - type: value
+        key: 'location'
+        value_type: normalize
+        op: 'in'
+        value:
+          - 'westeurope'
+          - 'northeurope'
+          - 'francecentral'
+          - 'francesouth'
+          - 'norwayeast'
+          - 'norwaywest'
+          - 'southeastasia'
+      # Only VMs that are billed for compute (deallocated VMs are not)
+      - type: value
+        key: 'properties.extended.instanceView.powerState.code'
+        op: 'in'
+        value:
+          - 'PowerState/running'
+          - 'PowerState/stopped'
+          - 'PowerState/starting'
+      # Skip the series that Microsoft excluded from the price update
+      - not:
+          - type: value
+            key: 'properties.hardwareProfile.vmSize'
+            op: 'regex'
+            value: '^Standard_(B\d+(ls|s|ms)|DS?\d+|F\d+s?|GS?\d+(-\d+)?|L\d+s|NP\d+s|HC\d+(-\d+)?rs|A\d+m?_v2|DS?\d+(-\d+)?_v2(_Promo)?|F\d+s_v2|L\d+s_v2|D\d+(s|ds|ls|lds)_v7|E\d+(-\d+)?(s|ds)_v7)$'
+    metadata:
+      category: cost-optimization
+      severity: medium
+      tier: free
+
+  - name: leftsize-storage-regional-price-increase-2027
+    description: |
+      Find storage accounts in regions with a price increase on 1 February 2027.
+
+      Microsoft excluded legacy and transaction-based meters (General Block
+      Blob, Standard Page Blob, Queues, Tables, Transaction Optimized Files,
+      Change Feed, Blob Features, bandwidth, etc.). The capacity meters of
+      GPv2 / Blob / Premium block blob / Premium files accounts are not on the
+      exclusion list, so these account kinds are flagged. GPv1 ('Storage')
+      accounts are skipped because their block blob and page blob meters are
+      excluded.
+    resource: azure.storage
+    filters:
+      - type: value
+        key: 'location'
+        value_type: normalize
+        op: 'in'
+        value:
+          - 'westeurope'
+          - 'northeurope'
+          - 'francecentral'
+          - 'francesouth'
+          - 'norwayeast'
+          - 'norwaywest'
+          - 'southeastasia'
+      - type: value
+        key: 'kind'
+        op: 'in'
+        value: ['StorageV2', 'BlobStorage', 'BlockBlobStorage', 'FileStorage']
+    metadata:
+      category: cost-optimization
+      severity: low
+      tier: free
