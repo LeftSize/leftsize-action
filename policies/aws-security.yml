@@ -95,16 +95,21 @@ policies:
     
     filters:
       # Both password and access keys are old or absent
-      - type: credential
-        key: password_last_used
-        op: greater-than
-        value_type: age
-        value: 90
-      - type: access-key
-        key: LastUsedDate
-        op: greater-than
-        value_type: age
-        value: 90
+      - type: value
+        key: 'UserName'
+        op: ne
+        value: 'root'
+      - or:
+        - type: credential
+          key: password_last_used
+          op: greater-than
+          value_type: age
+          value: 90
+        - type: access-key
+          key: LastUsedDate
+          op: greater-than
+          value_type: age
+          value: 90
     
     metadata:
       category: security

@@ -45,41 +45,18 @@ policies:
     description: "Find ECS services using regular Fargate that could use Fargate Spot for 70% savings"
     resource: aws.ecs-service
     filters:
-      # Only active services
       - type: value
-        key: 'status'
-        value: 'ACTIVE'
-      # Services using Fargate launch type (not EC2)
+        key: 'LaunchType'
+        value: 'FARGATE'
       - or:
         - type: value
-          key: 'launchType'
-          value: 'FARGATE'
-        # Or using FARGATE capacity provider (but not SPOT)
-        - and:
-          - type: value
-            key: 'capacityProviderStrategy[].capacityProvider'
-            op: contains
-            value: 'FARGATE'
-          - not:
-            - type: value
-              key: 'capacityProviderStrategy[].capacityProvider'
-              op: contains
-              value: 'FARGATE_SPOT'
-      # Exclude production services (unless tagged as Spot-eligible)
-      - or:
-        # Non-production environments
-        - type: value
-          key: 'tags'
-          value: present
+          key: 'tag:Environment'
+          value: absent
         - not:
           - type: value
             key: 'tag:Environment'
             op: in
             value: ['prod', 'production', 'prd']
-        # Or explicitly tagged as Spot-eligible
-        - type: value
-          key: 'tag:SpotEligible'
-          value: 'true'
       # Services with multiple tasks (better for handling interruptions)
       - type: value
         key: 'desiredCount'
@@ -119,7 +96,7 @@ policies:
           InstanceId: instance-id
         op: less-than
         value: 5
-        percent-attr: Average
+        statistics: Average
         days: 7
       # Low network output (minimal activity)
       - type: metrics
@@ -128,14 +105,13 @@ policies:
         dimensions:
           InstanceId: instance-id
         op: less-than
-        value: 1000000  # 1MB total over 7 days
+        value: 1073741824  # 1GB total over 7 days
         statistics: Sum
         days: 7
     actions:
-      - type: mark-for-op
-        op: stop
-        days: 3
-        tag: leftsize-inactive-ec2-stop
+      - type: tag
+        key: leftsize-inactive-ec2-stop
+        value: 'leftsize-flagged'
 
   - name: leftsize-underutilized-ec2-instance
     description: "Find underutilized EC2 instances with low but non-zero CPU usage (right-sizing candidates)"
@@ -181,10 +157,9 @@ policies:
           key: 'tag:RightSized'
           value: present
     actions:
-      - type: mark-for-op
-        op: tag
-        days: 7
-        tag: leftsize-underutilized-ec2-review
+      - type: tag
+        key: leftsize-underutilized-ec2-review
+        value: 'leftsize-flagged'
 
   - name: leftsize-multi-az-nonprod-ec2
     description: "Find non-production EC2 instances spread across multiple AZs (unnecessary HA)"
@@ -213,10 +188,9 @@ policies:
         days: 7
     # Note: The policy will flag instances. Manual review needed to identify which AZs to consolidate.
     actions:
-      - type: mark-for-op
-        op: tag
-        days: 14
-        tag: leftsize-multi-az-review
+      - type: tag
+        key: leftsize-multi-az-review
+        value: 'leftsize-flagged'
 
   # ========================================
   # 💾 EBS VOLUMES
@@ -241,10 +215,9 @@ policies:
           key: 'SnapshotId'
           value: present
     actions:
-      - type: mark-for-op
-        op: delete
-        days: 30
-        tag: leftsize-unattached-ebs-delete
+      - type: tag
+        key: leftsize-unattached-ebs-delete
+        value: 'leftsize-flagged'
 
   # ========================================
   # 🌐 ELASTIC IPs
@@ -258,10 +231,9 @@ policies:
         key: 'AssociationId'
         value: absent
     actions:
-      - type: mark-for-op
-        op: release
-        days: 7
-        tag: leftsize-unused-eip-release
+      - type: tag
+        key: leftsize-unused-eip-release
+        value: 'leftsize-flagged'
 
   # ========================================
   # 🗄️ RDS INSTANCES
@@ -282,19 +254,18 @@ policies:
         value: 10
         percent-attr: Average
         days: 7
-      # Low database connections (≤2 average over 7 days)
+      # Low database connections (≤1 average over 7 days)
       - type: metrics
         name: DatabaseConnections
         namespace: AWS/RDS
         op: less-than
-        value: 2
+        value: 1
         statistics: Average
         days: 7
     actions:
-      - type: mark-for-op
-        op: stop
-        days: 7
-        tag: leftsize-idle-rds-stop
+      - type: tag
+        key: leftsize-idle-rds-stop
+        value: 'leftsize-flagged'
 
   # ========================================
   # 🔄 LOAD BALANCERS
@@ -314,10 +285,9 @@ policies:
         value_type: age
         value: 3
     actions:
-      - type: mark-for-op
-        op: delete
-        days: 14
-        tag: leftsize-unused-elb-delete
+      - type: tag
+        key: leftsize-unused-elb-delete
+        value: 'leftsize-flagged'
 
   - name: leftsize-unused-alb
     description: "Find Application Load Balancers with no active target groups"
@@ -338,10 +308,9 @@ policies:
         statistics: Sum
         days: 7
     actions:
-      - type: mark-for-op
-        op: delete
-        days: 14
-        tag: leftsize-unused-alb-delete
+      - type: tag
+        key: leftsize-unused-alb-delete
+        value: 'leftsize-flagged'
 
   # ========================================
   # 💰 COST OPTIMIZATION - Advanced Rules
@@ -363,10 +332,9 @@ policies:
       # so we cannot reliably detect true orphans via filters alone.
       # Template instructs users to verify source volume before deleting.
     actions:
-      - type: mark-for-op
-        op: delete
-        days: 14
-        tag: leftsize-orphaned-snapshot-delete
+      - type: tag
+        key: leftsize-orphaned-snapshot-delete
+        value: 'leftsize-flagged'
 
   - name: leftsize-ec2-outdated-generation
     description: "Find EC2 instances on older generations (4th gen or earlier) - 10-40% savings available"
@@ -386,10 +354,9 @@ policies:
         op: gte
         days: 7
     actions:
-      - type: mark-for-op
-        op: tag
-        days: 7
-        tag: leftsize-outdated-generation-review
+      - type: tag
+        key: leftsize-outdated-generation-review
+        value: 'leftsize-flagged'
 
   - name: leftsize-ec2-scheduled-shutdown-missing
     description: "Find non-production EC2 instances running 24/7 without scheduled shutdown (30-70% savings)"
@@ -430,10 +397,9 @@ policies:
         op: gte
         days: 7
     actions:
-      - type: mark-for-op
-        op: tag
-        days: 7
-        tag: leftsize-schedule-review
+      - type: tag
+        key: leftsize-schedule-review
+        value: 'leftsize-flagged'
 
   - name: leftsize-s3-intelligent-tiering-missing
     description: "Find S3 buckets not using Intelligent-Tiering (40-70% savings on infrequent data)"
@@ -448,10 +414,9 @@ policies:
         count: 0
         count_op: eq
     actions:
-      - type: mark-for-op
-        op: tag
-        days: 7
-        tag: leftsize-intelligent-tiering-review
+      - type: tag
+        key: leftsize-intelligent-tiering-review
+        value: 'leftsize-flagged'
 
   - name: leftsize-s3-missing-bucket-key
     description: "Find S3 buckets using SSE-KMS without Bucket Key enabled (reduces KMS API costs by 99%)"
@@ -464,10 +429,9 @@ policies:
       - type: bucket-encryption
         bucket_key_enabled: false
     actions:
-      - type: mark-for-op
-        op: tag
-        days: 7
-        tag: leftsize-bucket-key-review
+      - type: tag
+        key: leftsize-bucket-key-review
+        value: 'leftsize-flagged'
 
   - name: leftsize-s3-missing-lifecycle-policy
     description: "Find S3 buckets without lifecycle policies (30-70% storage savings possible)"
@@ -489,10 +453,9 @@ policies:
         value_type: age
         value: 30
     actions:
-      - type: mark-for-op
-        op: tag
-        days: 14
-        tag: leftsize-lifecycle-policy-review
+      - type: tag
+        key: leftsize-lifecycle-policy-review
+        value: 'leftsize-flagged'
 
   - name: leftsize-gp2-to-gp3-migration
     description: "Find EBS volumes still using gp2 - migrate to gp3 for 20% savings and better performance"
@@ -513,10 +476,9 @@ policies:
         value_type: age
         value: 7
     actions:
-      - type: mark-for-op
-        op: tag
-        days: 7
-        tag: leftsize-gp3-migration-review
+      - type: tag
+        key: leftsize-gp3-migration-review
+        value: 'leftsize-flagged'
 
   # ========================================
   # 💰 COST OPTIMIZATION - Batch 2
@@ -549,10 +511,9 @@ policies:
             op: regex
             value: '^11\.'
     actions:
-      - type: mark-for-op
-        op: tag
-        days: 14
-        tag: leftsize-rds-version-upgrade
+      - type: tag
+        key: leftsize-rds-version-upgrade
+        value: 'leftsize-flagged'
 
   - name: leftsize-rds-multiaz-nonprod
     description: "Find non-production RDS instances with unnecessary Multi-AZ (2x cost)"
@@ -586,10 +547,9 @@ policies:
           op: regex
           value: '(dev|test|staging|qa|sandbox)'
     actions:
-      - type: mark-for-op
-        op: tag
-        days: 7
-        tag: leftsize-multiaz-review
+      - type: tag
+        key: leftsize-multiaz-review
+        value: 'leftsize-flagged'
 
   - name: leftsize-rds-non-graviton
     description: "Find RDS instances using x86 instead of Graviton (20-40% savings)"
@@ -616,10 +576,9 @@ policies:
         op: regex
         value: 'db\.(m[56]i?|r[56]i?|t3)\.'
     actions:
-      - type: mark-for-op
-        op: tag
-        days: 14
-        tag: leftsize-graviton-review
+      - type: tag
+        key: leftsize-graviton-review
+        value: 'leftsize-flagged'
 
   - name: leftsize-rds-excessive-backup-retention
     description: "Find non-production RDS instances with backup retention exceeding 14 days"
@@ -654,10 +613,9 @@ policies:
           op: regex
           value: '(dev|test|staging|qa|sandbox)'
     actions:
-      - type: mark-for-op
-        op: tag
-        days: 7
-        tag: leftsize-backup-retention-review
+      - type: tag
+        key: leftsize-backup-retention-review
+        value: 'leftsize-flagged'
 
   - name: leftsize-rds-suboptimal-storage-type
     description: "Find RDS instances using io1/io2 when gp3 would provide sufficient IOPS at lower cost"
@@ -684,10 +642,9 @@ policies:
         value_type: age
         value: 14
     actions:
-      - type: mark-for-op
-        op: tag
-        days: 14
-        tag: leftsize-rds-storage-review
+      - type: tag
+        key: leftsize-rds-storage-review
+        value: 'leftsize-flagged'
 
   - name: leftsize-lambda-x86-architecture
     description: "Find Lambda functions using x86 instead of ARM (20% savings)"
@@ -718,10 +675,9 @@ policies:
         statistics: Sum
         days: 7
     actions:
-      - type: mark-for-op
-        op: tag
-        days: 7
-        tag: leftsize-lambda-arm-review
+      - type: tag
+        key: leftsize-lambda-arm-review
+        value: 'leftsize-flagged'
 
   - name: leftsize-inactive-nat-gateway
     description: "Find NAT Gateways with no traffic (pure waste)"
@@ -748,10 +704,9 @@ policies:
         value_type: age
         value: 7
     actions:
-      - type: mark-for-op
-        op: delete
-        days: 14
-        tag: leftsize-inactive-nat-delete
+      - type: tag
+        key: leftsize-inactive-nat-delete
+        value: 'leftsize-flagged'
 
   - name: leftsize-ebs-delete-on-termination-disabled
     description: "Find EBS volumes with DeleteOnTermination disabled that will orphan"
@@ -771,10 +726,9 @@ policies:
         op: gte
         days: 7
     actions:
-      - type: mark-for-op
-        op: tag
-        days: 7
-        tag: leftsize-delete-on-termination-review
+      - type: tag
+        key: leftsize-delete-on-termination-review
+        value: 'leftsize-flagged'
 
   - name: leftsize-ebs-attached-to-stopped-ec2
     description: "Find EBS volumes attached to stopped EC2 instances (still incurring full storage costs)"
@@ -799,10 +753,9 @@ policies:
         value_type: age
         value: 7
     actions:
-      - type: mark-for-op
-        op: tag
-        days: 7
-        tag: leftsize-stopped-instance-storage-review
+      - type: tag
+        key: leftsize-stopped-instance-storage-review
+        value: 'leftsize-flagged'
 
   - name: leftsize-ec2-non-graviton
     description: "Find EC2 instances not using Graviton processors (20-40% cost savings available)"
@@ -829,10 +782,9 @@ policies:
           op: regex
           value: '^(m[67]g|c[67]g|r[67]g|t4g)\.'
     actions:
-      - type: mark-for-op
-        op: tag
-        days: 14
-        tag: leftsize-graviton-migration-review
+      - type: tag
+        key: leftsize-graviton-migration-review
+        value: 'leftsize-flagged'
 
   - name: leftsize-io1-to-io2-migration
     description: "Find EBS volumes using io1 - migrate to io2 for better durability at the same price"
@@ -853,10 +805,9 @@ policies:
         value_type: age
         value: 7
     actions:
-      - type: mark-for-op
-        op: tag
-        days: 7
-        tag: leftsize-io2-migration-review
+      - type: tag
+        key: leftsize-io2-migration-review
+        value: 'leftsize-flagged'
 
   # ========================================
   # 💰 COST OPTIMIZATION - PointFive Inspired
@@ -902,10 +853,9 @@ policies:
           key: 'tag:SpotIneligible'
           value: present
     actions:
-      - type: mark-for-op
-        op: tag
-        days: 7
-        tag: leftsize-spot-eligible-review
+      - type: tag
+        key: leftsize-spot-eligible-review
+        value: 'leftsize-flagged'
 
   - name: leftsize-s3-incomplete-multipart-uploads
     description: "Find S3 buckets without lifecycle rule to abort incomplete multipart uploads"
@@ -934,10 +884,9 @@ policies:
         value_type: age
         value: 30
     actions:
-      - type: mark-for-op
-        op: tag
-        days: 14
-        tag: leftsize-multipart-cleanup-review
+      - type: tag
+        key: leftsize-multipart-cleanup-review
+        value: 'leftsize-flagged'
 
   - name: leftsize-s3-non-current-versions
     description: "Find versioned S3 buckets without lifecycle rule to expire old versions"
@@ -965,10 +914,9 @@ policies:
         value_type: age
         value: 30
     actions:
-      - type: mark-for-op
-        op: tag
-        days: 14
-        tag: leftsize-version-cleanup-review
+      - type: tag
+        key: leftsize-version-cleanup-review
+        value: 'leftsize-flagged'
 
   - name: leftsize-missing-vpc-endpoint-s3
     description: "Find VPCs without S3 Gateway Endpoint (causes unnecessary data transfer costs)"
@@ -989,10 +937,9 @@ policies:
           op: regex
           value: '.*\.s3$'
     actions:
-      - type: mark-for-op
-        op: tag
-        days: 14
-        tag: leftsize-s3-endpoint-review
+      - type: tag
+        key: leftsize-s3-endpoint-review
+        value: 'leftsize-flagged'
 
   - name: leftsize-rds-auto-restart-pending
     description: "Find stopped RDS instances approaching 7-day auto-restart limit"
@@ -1002,14 +949,19 @@ policies:
       - type: value
         key: 'DBInstanceStatus'
         value: 'stopped'
-      # RDS auto-restarts after 7 days. Flag instances stopped for 5+ days
-      # Note: We check instance creation time as a proxy (actual stop time not directly available)
-      # This will catch instances that have been stopped long enough to be at risk
+      # No database connections in the last 5 days (confirms truly idle, not just temporarily stopped)
+      - type: metrics
+        name: DatabaseConnections
+        namespace: AWS/RDS
+        statistics: Sum
+        days: 5
+        value: 1
+        op: less-than
+        missing-value: 0
     actions:
-      - type: mark-for-op
-        op: tag
-        days: 1
-        tag: leftsize-rds-auto-restart-warning
+      - type: tag
+        key: leftsize-rds-auto-restart-warning
+        value: 'leftsize-flagged'
 
   - name: leftsize-orphaned-rds-snapshots
     description: "Find manual RDS snapshots where the source database no longer exists"
@@ -1019,20 +971,18 @@ policies:
       - type: value
         key: 'SnapshotType'
         value: 'manual'
-      # Snapshot is older than 30 days
+      # Snapshot is available
+      - type: value
+        key: 'Status'
+        value: 'available'
+      # Snapshot is older than 30 days (proxy for orphan detection)
       - type: age
         days: 30
-        op: gte
-      # Source database no longer exists
-      - type: instance
-        value: 0
-        value_type: resource_count
-        op: eq
+        op: greater-than
     actions:
-      - type: mark-for-op
-        op: delete
-        days: 14
-        tag: leftsize-orphaned-rds-snapshot-delete
+      - type: tag
+        key: leftsize-orphaned-rds-snapshot-delete
+        value: 'leftsize-flagged'
 
   # ========================================
   # 🐳 CONTAINER REGISTRY OPTIMIZATION
@@ -1133,10 +1083,9 @@ policies:
         value_type: age
         value: 7
     actions:
-      - type: mark-for-op
-        op: tag
-        days: 7
-        tag: leftsize-io1-io2-gp3-migration-review
+      - type: tag
+        key: leftsize-io1-io2-gp3-migration-review
+        value: 'leftsize-flagged'
 
   # ========================================
   # 💰 COST OPTIMIZATION - Phase 3 (Zombie Resources)
@@ -1272,6 +1221,9 @@ policies:
       # No database connections in 14 days
       - type: metrics
         name: DatabaseConnections
+        namespace: AWS/RDS
+        dimensions:
+          DBInstanceIdentifier: DBInstanceIdentifier
         statistics: Maximum
         days: 14
         value: 1
@@ -1346,15 +1298,14 @@ policies:
       - type: value
         key: State
         value: available
-      # No packets dropped metric as proxy for zero traffic
-      # Note: PacketsDropped is one signal; missing-value: 0 ensures endpoints with zero metrics emitted still match
+      # No traffic through the endpoint in 14 days
       - type: metrics
-        name: PacketsDropped
+        name: BytesProcessed
         namespace: AWS/PrivateLinkEndpoints
         statistics: Sum
         days: 14
         value: 0
-        op: eq
+        op: equal
         missing-value: 0
     actions:
       - type: tag
@@ -1398,6 +1349,9 @@ policies:
       # Low CPU utilization
       - type: metrics
         name: CPUUtilization
+        namespace: AWS/ElastiCache
+        dimensions:
+          CacheClusterId: CacheClusterId
         statistics: Average
         days: 14
         value: 5

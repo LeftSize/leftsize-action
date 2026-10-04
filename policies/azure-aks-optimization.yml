@@ -15,7 +15,7 @@ policies:
         value: 'Running'
       # Cluster has been running for at least 7 days (mature deployment)
       - type: value
-        key: 'properties.creationTime'
+        key: 'createdOn'
         op: 'le'
         value_type: age
         value: 7
@@ -41,7 +41,7 @@ policies:
         value: 'Running'
       # Cluster has been stable for at least 14 days
       - type: value
-        key: 'properties.creationTime'
+        key: 'createdOn'
         op: 'le'
         value_type: age
         value: 14
@@ -82,7 +82,7 @@ policies:
         value: 3
       # Cluster has been running for a while
       - type: value
-        key: 'properties.creationTime'
+        key: 'createdOn'
         op: 'le'
         value_type: age
         value: 14
@@ -141,7 +141,7 @@ policies:
           value: ['dev', 'development', 'test', 'testing', 'staging', 'qa', 'sandbox']
       # Cluster has been running for at least 7 days
       - type: value
-        key: 'properties.creationTime'
+        key: 'createdOn'
         op: 'le'
         value_type: age
         value: 7

@@ -17,10 +17,9 @@ policies:
         key: 'properties.extended.instanceView.powerState.displayStatus'
         value: 'VM running'
     actions:
-      - type: mark-for-op
-        op: stop
-        days: 1
+      - type: tag
         tag: leftsize-idle-vm-stop
+        value: 'leftsize-flagged'
 
   # ========================================
   # 🌐 APP SERVICE PLANS  
@@ -45,10 +44,9 @@ policies:
         value_type: age
         value: 2
     actions:
-      - type: mark-for-op
-        op: delete
-        days: 7
+      - type: tag
         tag: leftsize-empty-asp-delete
+        value: 'leftsize-flagged'
 
   - name: leftsize-idle-app-service-plan
     description: "Find underutilized App Service Plans with low resource usage"
@@ -81,20 +79,19 @@ policies:
         op: 'not-in'
         value: ['Free', 'Shared']
     actions:
-      - type: mark-for-op
-        op: tag
-        days: 3
+      - type: tag
         tag: leftsize-idle-asp-review
+        value: 'leftsize-flagged'
 
   - name: leftsize-outdated-app-service-plan
-    description: "Find App Service Plans using outdated or inefficient SKUs"
+    description: "App Service Plan is using a legacy Basic or Standard SKU. Migrate to Premium v3 (P1v3/P2v3/P3v3) for better performance and cost."
     resource: azure.appserviceplan
     filters:
       # Target legacy SKUs that should be upgraded
       - type: value
         key: 'sku.name'
         op: 'in'
-        value: ['S1', 'S2', 'S3', 'P1v2', 'P2v2', 'P3v2', 'B1', 'B2', 'B3']  # Legacy SKUs
+        value: ['B1', 'B2', 'B3', 'S1', 'S2', 'S3', 'D1', 'F1']  # Legacy Basic/Standard SKUs
       # Only include plans that have been running for more than 30 days
       - type: value
         key: 'properties.dateCreated'
@@ -107,10 +104,9 @@ policies:
         op: 'gt'
         value: 0
     actions:
-      - type: mark-for-op
-        op: tag
-        days: 14
+      - type: tag
         tag: leftsize-outdated-asp-upgrade
+        value: 'leftsize-flagged'
 
   # ========================================
   # 💾 STORAGE & DISKS
@@ -133,10 +129,9 @@ policies:
         key: 'properties.osType'
         value: null
     actions:
-      - type: mark-for-op
-        op: delete
-        days: 30
+      - type: tag
         tag: leftsize-unattached-disk-delete
+        value: 'leftsize-flagged'
 
   # ========================================
   # 🌐 NETWORKING
@@ -161,10 +156,9 @@ policies:
         value_type: age
         value: 3
     actions:
-      - type: mark-for-op
-        op: delete
-        days: 14
+      - type: tag
         tag: leftsize-unused-ip-delete
+        value: 'leftsize-flagged'
 
   # ========================================
   # ⚖️ LOAD BALANCERS
@@ -194,10 +188,9 @@ policies:
         op: 'not-in'
         value: ['prod', 'production']
     actions:
-      - type: mark-for-op
-        op: delete
-        days: 14
+      - type: tag
         tag: leftsize-inactive-lb-delete
+        value: 'leftsize-flagged'
 
   # ========================================
   # 💰 COST OPTIMIZATION - Advanced Rules
@@ -226,10 +219,9 @@ policies:
           op: 'not-in'
           value: ['Windows_Server', 'Windows_Client']
     actions:
-      - type: mark-for-op
-        op: tag
-        days: 7
+      - type: tag
         tag: leftsize-hybrid-benefit-review
+        value: 'leftsize-flagged'
 
   # VM Outdated Series - 10-20% savings + better performance
   - name: leftsize-vm-outdated-series
@@ -246,10 +238,9 @@ policies:
         op: 'regex'
         value: 'Standard_(D|E|F|L|M)[0-9]+[a-z]*s?_v[234]$'
     actions:
-      - type: mark-for-op
-        op: tag
-        days: 14
+      - type: tag
         tag: leftsize-vm-series-upgrade
+        value: 'leftsize-flagged'
 
   # VM Scheduled Shutdown - 30-70% savings for non-prod
   # Note: Only checks for non-prod tags on running VMs. Cannot verify auto-shutdown
@@ -278,10 +269,9 @@ policies:
           op: 'in'
           value: ['dev', 'development', 'test', 'testing', 'staging', 'qa', 'sandbox']
     actions:
-      - type: mark-for-op
-        op: tag
-        days: 7
+      - type: tag
         tag: leftsize-auto-shutdown-review
+        value: 'leftsize-flagged'
 
   # Old Snapshots - review for cleanup
   # Note: Only checks age >30 days. Cannot verify whether source disk still exists
@@ -297,10 +287,9 @@ policies:
         value_type: age
         value: 30
     actions:
-      - type: mark-for-op
-        op: delete
-        days: 30
+      - type: tag
         tag: leftsize-snapshot-cleanup
+        value: 'leftsize-flagged'
 
   # Storage Suboptimal Tier - 50%+ storage savings
   - name: leftsize-storage-suboptimal-tier
@@ -322,11 +311,18 @@ policies:
         key: 'kind'
         op: 'in'
         value: ['StorageV2', 'BlobStorage']
+      # Low transaction volume over 30 days (infrequently accessed)
+      - type: metric
+        metric: 'Transactions'
+        aggregation: 'total'
+        timeframe: 30
+        interval: 'P1D'
+        op: 'le'
+        threshold: 100.0
     actions:
-      - type: mark-for-op
-        op: tag
-        days: 14
+      - type: tag
         tag: leftsize-storage-tier-review
+        value: 'leftsize-flagged'
 
   # VM ARM Architecture - 30-50% savings with ARM-based VMs
   - name: leftsize-vm-arm-architecture
@@ -350,10 +346,9 @@ policies:
           op: 'regex'
           value: 'Standard_(D|E)p[ld]*s_v5'
     actions:
-      - type: mark-for-op
-        op: tag
-        days: 14
+      - type: tag
         tag: leftsize-arm-architecture-review
+        value: 'leftsize-flagged'
 
   # SQL Business Critical Tier in Non-Prod - 60%+ savings
   - name: leftsize-sql-business-critical-nonprod
@@ -384,6 +379,13 @@ policies:
         op: 'le'
         value_type: age
         value: 7
+    # NOTE: azure.sql-database does not support the 'tag' action in c7n.
+    # LeftSize runs custodian in --dry-run mode and reports matched resources,
+    # so this detection policy intentionally has no actions block.
+    metadata:
+      category: cost-optimization
+      severity: medium
+      tier: pro
 
   # Stopped VMs with Storage Costs - Often overlooked costs
   - name: leftsize-stopped-vm-storage-costs
@@ -402,47 +404,33 @@ policies:
         value_type: age
         value: 30
     actions:
-      - type: mark-for-op
-        op: tag
-        days: 7
+      - type: tag
         tag: leftsize-stopped-vm-review
+        value: 'leftsize-flagged'
 
   # ========================================
   # 💾 DISK & STORAGE OPTIMIZATION
   # ========================================
 
-  # Disk Performance Plus - Free 2x IOPS/throughput boost
-  - name: leftsize-disk-performance-plus-missing
-    description: "Find Premium/Standard SSD disks 513+ GiB not using Performance Plus (free 2x boost)"
+  # Standard HDD Attached Disk - upgrade candidate
+  - name: leftsize-standard-lrs-attached-disk
+    description: "Managed disk using Standard HDD (Standard_LRS) is attached to a running VM. Consider upgrading to Standard SSD (StandardSSD_LRS) for better reliability and similar cost, or Premium SSD for performance-critical workloads."
     resource: azure.disk
     filters:
-      # Only attached disks (in-use)
       - type: value
-        key: 'properties.diskState'
+        key: properties.diskState
         value: 'Attached'
-      # Premium SSD or Standard SSD
       - type: value
-        key: 'sku.name'
-        op: 'in'
-        value: ['Premium_LRS', 'Premium_ZRS', 'StandardSSD_LRS', 'StandardSSD_ZRS']
-      # Disk size >= 513 GiB (Performance Plus eligible)
+        key: sku.name
+        value: 'Standard_LRS'
       - type: value
-        key: 'properties.diskSizeGB'
-        op: 'gte'
-        value: 513
-      # Performance Plus not enabled (burstingEnabled is false or absent)
-      - or:
-        - type: value
-          key: 'properties.burstingEnabled'
-          value: false
-        - type: value
-          key: 'properties.burstingEnabled'
-          value: null
+        key: properties.diskSizeGB
+        op: greater-than
+        value: 32
     actions:
-      - type: mark-for-op
-        op: tag
-        days: 7
-        tag: leftsize-performance-plus-review
+      - type: tag
+        tag: leftsize-standard-lrs-attached-disk
+        value: 'leftsize-flagged'
 
   # ========================================
   # 🗄️ SQL DATABASE OPTIMIZATION
@@ -466,10 +454,9 @@ policies:
         value_type: age
         value: 7
     actions:
-      - type: mark-for-op
-        op: delete
-        days: 14
+      - type: tag
         tag: leftsize-empty-elastic-pool-delete
+        value: 'leftsize-flagged'
 
   # SQL Hybrid Benefit Missing - Up to 40% savings
   # Note: azure.sql-database doesn't support tag/mark-for-op, using notify action
@@ -495,6 +482,12 @@ policies:
         key: 'name'
         op: 'ne'
         value: 'master'
+    # NOTE: azure.sql-database does not support the 'tag' action in c7n.
+    # Detection-only policy; runner reports matched resources in --dry-run mode.
+    metadata:
+      category: cost-optimization
+      severity: medium
+      tier: pro
 
   # ========================================
   # 🐳 CONTAINER REGISTRY OPTIMIZATION
@@ -547,10 +540,9 @@ policies:
         key: 'properties.provisioningState'
         value: 'Succeeded'
     actions:
-      - type: mark-for-op
-        op: tag
-        days: 14
+      - type: tag
         tag: leftsize-app-gateway-idle-review
+        value: 'leftsize-flagged'
 
   # Underutilized SQL Elastic Pools - 50%+ savings by downsizing
   # DISABLED: azure.sql-elasticpool is not a registered Cloud Custodian resource type.
@@ -596,10 +588,9 @@ policies:
         key: 'properties.provisioningState'
         value: 'Succeeded'
     actions:
-      - type: mark-for-op
-        op: tag
-        days: 14
+      - type: tag
         tag: leftsize-redis-downsize-review
+        value: 'leftsize-flagged'
 
   # ========================================
   # 💰 COST OPTIMIZATION - Phase 3 (New Rules)
@@ -638,10 +629,9 @@ policies:
         value_type: age
         value: 30
     actions:
-      - type: mark-for-op
-        op: tag
-        days: 14
+      - type: tag
         tag: leftsize-disk-deallocated-vm-review
+        value: 'leftsize-flagged'
     metadata:
       category: cost-optimization
       severity: medium
@@ -663,7 +653,8 @@ policies:
         aggregation: 'average'
         op: 'le'
         threshold: 20.0
-        timeframe: 336  # 14 days in hours
+        timeframe: 14
+        interval: 'P1D'
       # Database is in running state
       - type: value
         key: 'properties.status'
@@ -687,16 +678,16 @@ policies:
         aggregation: 'average'
         op: 'le'
         threshold: 30.0
-        timeframe: 336  # 14 days in hours
+        timeframe: 14
+        interval: 'P1D'
       # Account is in running state
       - type: value
         key: 'properties.provisioningState'
         value: 'Succeeded'
     actions:
-      - type: mark-for-op
-        op: tag
-        days: 14
+      - type: tag
         tag: leftsize-cosmos-overprovisioned-review
+        value: 'leftsize-flagged'
     metadata:
       category: cost-optimization
       severity: medium

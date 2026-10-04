@@ -67,10 +67,9 @@ policies:
           - 'go1.x'
           - 'ruby2.7'
     actions:
-      - type: mark-for-op
-        op: tag
-        days: 7
-        tag: leftsize-lambda-runtime-upgrade
+      - type: tag
+        key: leftsize-lambda-runtime-upgrade
+        value: 'leftsize-flagged'
 
   # ========================================
   # 🗄️ ELASTICACHE VERSION DEPRECATIONS
@@ -100,10 +99,9 @@ policies:
         op: regex
         value: '^[1-5]\.'
     actions:
-      - type: mark-for-op
-        op: tag
-        days: 14
-        tag: leftsize-elasticache-upgrade
+      - type: tag
+        key: leftsize-elasticache-upgrade
+        value: 'leftsize-flagged'
 
   # ========================================
   # 🔍 OPENSEARCH/ELASTICSEARCH DEPRECATIONS
@@ -136,10 +134,9 @@ policies:
           op: regex
           value: '^OpenSearch_1\.'
     actions:
-      - type: mark-for-op
-        op: tag
-        days: 14
-        tag: leftsize-opensearch-upgrade
+      - type: tag
+        key: leftsize-opensearch-upgrade
+        value: 'leftsize-flagged'
 
   # ========================================
   # ☸️ EKS KUBERNETES VERSION DEPRECATIONS
@@ -191,10 +188,9 @@ policies:
           # Standard support ending Mar 2026
           - '1.32'
     actions:
-      - type: mark-for-op
-        op: tag
-        days: 14
-        tag: leftsize-eks-upgrade
+      - type: tag
+        key: leftsize-eks-upgrade
+        value: 'leftsize-flagged'
 
   # ========================================
   # 📌 AMAZON PINPOINT DEPRECATION
@@ -230,10 +226,9 @@ policies:
         op: not-equal
         value: ''
     actions:
-      - type: mark-for-op
-        op: tag
-        days: 30
-        tag: leftsize-pinpoint-migration
+      - type: tag
+        key: leftsize-pinpoint-migration
+        value: 'leftsize-flagged'
 
   # ========================================
   # ⏱️ AMAZON TIMESTREAM LIVEANALYTICS DEPRECATION
@@ -268,10 +263,9 @@ policies:
         op: not-equal
         value: ''
     actions:
-      - type: mark-for-op
-        op: tag
-        days: 30
-        tag: leftsize-timestream-migration
+      - type: tag
+        key: leftsize-timestream-migration
+        value: 'leftsize-flagged'
 
   # ========================================
   # 📝 TEMPLATE FOR FUTURE DEPRECATIONS

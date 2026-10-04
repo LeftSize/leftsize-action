@@ -78,10 +78,9 @@ policies:
         key: 'leftsize-detected-date'
         value: '{now:%Y-%m-%d}'
       
-      - type: mark-for-op
-        op: notify
-        days: 0
-        tag: leftsize-public-s3-notify
+      - type: tag
+        key: leftsize-public-s3-notify
+        value: 'leftsize-flagged'
 
   - name: leftsize-unencrypted-s3-buckets
     description: |
@@ -126,10 +125,9 @@ policies:
         key: 'leftsize-detected-date'
         value: '{now:%Y-%m-%d}'
       
-      - type: mark-for-op
-        op: notify
-        days: 0
-        tag: leftsize-unencrypted-s3-notify
+      - type: tag
+        key: leftsize-unencrypted-s3-notify
+        value: 'leftsize-flagged'
 
   # ========================================
   # 🔒 NETWORK SECURITY (SECURITY GROUPS)
@@ -219,10 +217,9 @@ policies:
         key: 'leftsize-detected-date'
         value: '{now:%Y-%m-%d}'
       
-      - type: mark-for-op
-        op: notify
-        days: 0
-        tag: leftsize-open-sg-notify
+      - type: tag
+        key: leftsize-open-sg-notify
+        value: 'leftsize-flagged'
 
   # ========================================
   # 💿 EBS VOLUME ENCRYPTION
@@ -267,10 +264,9 @@ policies:
         key: 'leftsize-detected-date'
         value: '{now:%Y-%m-%d}'
       
-      - type: mark-for-op
-        op: notify
-        days: 0
-        tag: leftsize-unencrypted-ebs-notify
+      - type: tag
+        key: leftsize-unencrypted-ebs-notify
+        value: 'leftsize-flagged'
 
   # ========================================
   # 🗄️ RDS DATABASE ENCRYPTION
@@ -315,10 +311,9 @@ policies:
         key: 'leftsize-detected-date'
         value: '{now:%Y-%m-%d}'
       
-      - type: mark-for-op
-        op: notify
-        days: 0
-        tag: leftsize-unencrypted-rds-notify
+      - type: tag
+        key: leftsize-unencrypted-rds-notify
+        value: 'leftsize-flagged'
 
   # ========================================
   # 🏷️ OWNERSHIP TAG COMPLIANCE
@@ -376,10 +371,9 @@ policies:
         key: 'leftsize-detected-date'
         value: '{now:%Y-%m-%d}'
       
-      - type: mark-for-op
-        op: notify
-        days: 0
-        tag: leftsize-ownership-tags-notify
+      - type: tag
+        key: leftsize-ownership-tags-notify
+        value: 'leftsize-flagged'
 
   # Apply same ownership tag check to RDS instances
   - name: leftsize-missing-ownership-tags-rds
@@ -409,10 +403,9 @@ policies:
         key: 'leftsize-severity'
         value: 'medium'
       
-      - type: mark-for-op
-        op: notify
-        days: 0
-        tag: leftsize-ownership-tags-notify
+      - type: tag
+        key: leftsize-ownership-tags-notify
+        value: 'leftsize-flagged'
 
   # Apply same ownership tag check to S3 buckets
   - name: leftsize-missing-ownership-tags-s3
@@ -442,10 +435,9 @@ policies:
         key: 'leftsize-severity'
         value: 'medium'
       
-      - type: mark-for-op
-        op: notify
-        days: 0
-        tag: leftsize-ownership-tags-notify
+      - type: tag
+        key: leftsize-ownership-tags-notify
+        value: 'leftsize-flagged'
 
   # Apply same ownership tag check to EBS volumes
   - name: leftsize-missing-ownership-tags-ebs
@@ -475,10 +467,9 @@ policies:
         key: 'leftsize-severity'
         value: 'medium'
       
-      - type: mark-for-op
-        op: notify
-        days: 0
-        tag: leftsize-ownership-tags-notify
+      - type: tag
+        key: leftsize-ownership-tags-notify
+        value: 'leftsize-flagged'
 
   # Apply same ownership tag check to Load Balancers
   - name: leftsize-missing-ownership-tags-elb
@@ -509,10 +500,9 @@ policies:
         key: 'leftsize-severity'
         value: 'medium'
       
-      - type: mark-for-op
-        op: notify
-        days: 0
-        tag: leftsize-ownership-tags-notify
+      - type: tag
+        key: leftsize-ownership-tags-notify
+        value: 'leftsize-flagged'
 
   # ========================================
   # 📜 CERTIFICATE MANAGEMENT

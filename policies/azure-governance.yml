@@ -57,10 +57,9 @@ policies:
         tag: 'leftsize-detected-date'
         value: '{now:%Y-%m-%d}'
       
-      - type: mark-for-op
-        op: notify
-        days: 1
+      - type: tag
         tag: leftsize-anonymous-blob-access-notify
+        value: 'leftsize-flagged'
 
   # HIGH: HTTP traffic allowed creates man-in-the-middle attack risk
   - name: leftsize-storage-http-allowed
@@ -102,10 +101,9 @@ policies:
         tag: 'leftsize-detected-date'
         value: '{now:%Y-%m-%d}'
       
-      - type: mark-for-op
-        op: notify
-        days: 1
+      - type: tag
         tag: leftsize-storage-http-allowed-notify
+        value: 'leftsize-flagged'
 
   # CRITICAL: Storage accounts using deprecated TLS versions (TLS 1.0/1.1)
   - name: leftsize-storage-outdated-tls
@@ -154,10 +152,9 @@ policies:
         tag: 'leftsize-detected-date'
         value: '{now:%Y-%m-%d}'
       
-      - type: mark-for-op
-        op: notify
-        days: 1
+      - type: tag
         tag: leftsize-storage-outdated-tls-notify
+        value: 'leftsize-flagged'
 
   # MEDIUM: Public network access without restrictions (defense-in-depth recommendation)
   - name: leftsize-storage-public-network-access
@@ -208,10 +205,9 @@ policies:
         tag: 'leftsize-detected-date'
         value: '{now:%Y-%m-%d}'
       
-      - type: mark-for-op
-        op: notify
-        days: 1
+      - type: tag
         tag: leftsize-storage-public-network-notify
+        value: 'leftsize-flagged'
 
   # MEDIUM: Public storage access enabled - allows anonymous container access configuration
   - name: leftsize-public-storage-access
@@ -264,10 +260,9 @@ policies:
         tag: 'leftsize-detected-date'
         value: '{now:%Y-%m-%d}'
       
-      - type: mark-for-op
-        op: notify
-        days: 1
+      - type: tag
         tag: leftsize-public-storage-access-notify
+        value: 'leftsize-flagged'
 
   - name: leftsize-unencrypted-storage
     description: |
@@ -315,10 +310,9 @@ policies:
         tag: 'leftsize-detected-date'
         value: '{now:%Y-%m-%d}'
       
-      - type: mark-for-op
-        op: notify
-        days: 1
+      - type: tag
         tag: leftsize-unencrypted-storage-notify
+        value: 'leftsize-flagged'
 
   # ========================================
   # 🔒 NETWORK SECURITY
@@ -389,10 +383,9 @@ policies:
         tag: 'leftsize-detected-date'
         value: '{now:%Y-%m-%d}'
       
-      - type: mark-for-op
-        op: notify
-        days: 1
+      - type: tag
         tag: leftsize-open-ports-notify
+        value: 'leftsize-flagged'
 
   # ========================================
   # 💿 DISK ENCRYPTION
@@ -415,21 +408,14 @@ policies:
     resource: azure.disk
     
     filters:
-      # Encryption is not enabled
+      # Flag attached disks not using Customer-Managed Keys (CMK)
       - type: value
         key: properties.encryption.type
         op: ne
-        value: 'EncryptionAtRestWithPlatformKey'
-      
-      # Also catch disks with no encryption property set
-      - or:
-        - type: value
-          key: properties.encryption
-          value: null
-        
-        - type: value
-          key: properties.encryption.type
-          value: null
+        value: 'EncryptionAtRestWithCustomerKey'
+      - type: value
+        key: properties.diskState
+        value: 'Attached'
     
     actions:
       - type: tag
@@ -448,10 +434,9 @@ policies:
         tag: 'leftsize-detected-date'
         value: '{now:%Y-%m-%d}'
       
-      - type: mark-for-op
-        op: notify
-        days: 1
+      - type: tag
         tag: leftsize-unencrypted-disk-notify
+        value: 'leftsize-flagged'
 
   # ========================================
   # 🏷️ OWNERSHIP TAG COMPLIANCE
@@ -503,10 +488,9 @@ policies:
         tag: 'leftsize-detected-date'
         value: '{now:%Y-%m-%d}'
       
-      - type: mark-for-op
-        op: notify
-        days: 1
+      - type: tag
         tag: leftsize-ownership-tags-notify
+        value: 'leftsize-flagged'
 
   # Apply same ownership tag check to Storage Accounts
   - name: leftsize-missing-ownership-tags-storage
@@ -533,10 +517,9 @@ policies:
         tag: 'leftsize-severity'
         value: 'medium'
       
-      - type: mark-for-op
-        op: notify
-        days: 1
+      - type: tag
         tag: leftsize-ownership-tags-notify
+        value: 'leftsize-flagged'
 
   # Apply same ownership tag check to SQL Databases
   - name: leftsize-missing-ownership-tags-sql
@@ -563,10 +546,9 @@ policies:
         tag: 'leftsize-severity'
         value: 'medium'
       
-      - type: mark-for-op
-        op: notify
-        days: 1
+      - type: tag
         tag: leftsize-ownership-tags-notify
+        value: 'leftsize-flagged'
 
   # Apply same ownership tag check to Managed Disks
   - name: leftsize-missing-ownership-tags-disk
@@ -593,10 +575,9 @@ policies:
         tag: 'leftsize-severity'
         value: 'medium'
       
-      - type: mark-for-op
-        op: notify
-        days: 1
+      - type: tag
         tag: leftsize-ownership-tags-notify
+        value: 'leftsize-flagged'
 
   # Apply same ownership tag check to AKS Clusters
   - name: leftsize-missing-ownership-tags-aks
@@ -623,10 +604,9 @@ policies:
         tag: 'leftsize-severity'
         value: 'medium'
       
-      - type: mark-for-op
-        op: notify
-        days: 1
+      - type: tag
         tag: leftsize-ownership-tags-notify
+        value: 'leftsize-flagged'
 
   # Apply same ownership tag check to Resource Groups
   - name: leftsize-missing-ownership-tags-resourcegroup
@@ -654,10 +634,9 @@ policies:
         tag: 'leftsize-severity'
         value: 'medium'
       
-      - type: mark-for-op
-        op: notify
-        days: 1
+      - type: tag
         tag: leftsize-ownership-tags-notify
+        value: 'leftsize-flagged'
 
   # ========================================
   # 📜 CERTIFICATE MANAGEMENT
@@ -766,10 +745,9 @@ policies:
       - type: auditing
         enabled: false
     actions:
-      - type: mark-for-op
-        op: tag
-        days: 7
+      - type: tag
         tag: leftsize-sql-auditing-disabled-review
+        value: 'leftsize-flagged'
     metadata:
       category: security
       severity: high
@@ -799,10 +777,9 @@ policies:
           key: 'properties.enableSoftDelete'
           value: absent
     actions:
-      - type: mark-for-op
-        op: tag
-        days: 3
+      - type: tag
         tag: leftsize-keyvault-soft-delete-disabled-review
+        value: 'leftsize-flagged'
     metadata:
       category: security
       severity: critical

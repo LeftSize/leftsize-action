@@ -79,10 +79,9 @@ policies:
         value: '{now:%Y-%m-%d}'
       
       # Mark for GitHub issue creation
-      - type: mark-for-op
-        op: notify
-        days: 1  # Notify after 1 day
+      - type: tag
         tag: leftsize-nvv4-retirement-notify
+        value: 'leftsize-flagged'
 
   # ========================================
   # ⚡ AZURE FUNCTIONS DEPRECATIONS
@@ -150,10 +149,9 @@ policies:
         value: '{now:%Y-%m-%d}'
       
       # Mark for GitHub issue creation
-      - type: mark-for-op
-        op: notify
-        days: 1  # Notify after 1 day
+      - type: tag
         tag: leftsize-functions-linux-consumption-notify
+        value: 'leftsize-flagged'
 
   # ========================================
   # ☸️ AKS KUBERNETES VERSION DEPRECATIONS
@@ -200,10 +198,9 @@ policies:
         tag: 'leftsize-migration-required'
         value: 'aks-version-upgrade'
       
-      - type: mark-for-op
-        op: notify
-        days: 7
+      - type: tag
         tag: leftsize-aks-upgrade-notify
+        value: 'leftsize-flagged'
 
   # ========================================
   # 🗄️ SQL DATABASE DTU MODEL (Legacy)
@@ -317,10 +314,9 @@ policies:
         tag: 'leftsize-detected-date'
         value: '{now:%Y-%m-%d}'
       
-      - type: mark-for-op
-        op: notify
-        days: 1
+      - type: tag
         tag: leftsize-appgateway-v1-deprecated-notify
+        value: 'leftsize-flagged'
 
   # ========================================
   # 💿 STANDARD HDD OS DISK RETIREMENT
@@ -386,10 +382,9 @@ policies:
         tag: 'leftsize-detected-date'
         value: '{now:%Y-%m-%d}'
       
-      - type: mark-for-op
-        op: notify
-        days: 1
+      - type: tag
         tag: leftsize-hdd-os-disk-retirement-notify
+        value: 'leftsize-flagged'
 
   # ========================================
   # 🗄️ SERVICE DEPRECATIONS (Sep 2025)
@@ -441,10 +436,9 @@ policies:
         tag: 'leftsize-detected-date'
         value: '{now:%Y-%m-%d}'
       
-      - type: mark-for-op
-        op: notify
-        days: 1
+      - type: tag
         tag: leftsize-mariadb-deprecated-notify
+        value: 'leftsize-flagged'
 
   # HIGH: Azure Basic Load Balancer retiring September 30, 2025
   - name: leftsize-basic-loadbalancer-deprecated
@@ -495,10 +489,9 @@ policies:
         tag: 'leftsize-detected-date'
         value: '{now:%Y-%m-%d}'
       
-      - type: mark-for-op
-        op: notify
-        days: 1
+      - type: tag
         tag: leftsize-basic-lb-deprecated-notify
+        value: 'leftsize-flagged'
 
   # ========================================
   # 💿 UNMANAGED DISKS RETIREMENT (Mar 2026)
@@ -579,10 +572,9 @@ policies:
         tag: 'leftsize-detected-date'
         value: '{now:%Y-%m-%d}'
       
-      - type: mark-for-op
-        op: notify
-        days: 1
+      - type: tag
         tag: leftsize-unmanaged-disks-retirement-notify
+        value: 'leftsize-flagged'
 
   # ========================================
   # 📝 TEMPLATE FOR FUTURE DEPRECATIONS
