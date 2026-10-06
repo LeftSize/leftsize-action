@@ -953,15 +953,24 @@ def execute_single_policy_file(policies_file: str, config: Dict[str, Any]) -> Li
                 env=_build_custodian_env()
             )
             
-            if result.returncode != 0:
+            # Exit code 2 means some policies in the file raised (throttling, access
+            # denied, retired service endpoint) while the rest ran and wrote their
+            # resources.json. Keep those results instead of dropping the whole file.
+            if result.returncode == 2:
+                failed = re.findall(r'^\s*-\s*(leftsize-[\w-]+)', result.stderr or '', re.M)
+                logger.warning("Some policies failed; keeping results of the others",
+                               failed_policies=failed or 'see custodian log')
+                if os.environ.get("LEFTSIZE_DEBUG", "").lower() in ("1", "true", "yes"):
+                    logger.debug("Custodian stderr", stderr=result.stderr)
+            elif result.returncode != 0:
                 logger.error("Custodian execution failed", returncode=result.returncode)
                 # Only log stdout/stderr when LEFTSIZE_DEBUG is enabled
                 if os.environ.get("LEFTSIZE_DEBUG", "").lower() in ("1", "true", "yes"):
                     logger.debug("Custodian stdout", stdout=result.stdout)
                     logger.debug("Custodian stderr", stderr=result.stderr)
                 return []
-            
-            logger.info("Custodian execution completed")
+            else:
+                logger.info("Custodian execution completed")
             # Only log stdout when LEFTSIZE_DEBUG is enabled
             if os.environ.get("LEFTSIZE_DEBUG", "").lower() in ("1", "true", "yes"):
                 logger.debug("Custodian output", stdout=result.stdout)
@@ -1059,6 +1068,29 @@ def get_subscription_id(config: Dict[str, Any]) -> str:
     return 'unknown'
 
 
+VALID_SEVERITIES = ('critical', 'high', 'medium', 'low')
+
+
+def read_policy_info(policy_dir: Path) -> Dict[str, Optional[str]]:
+    """Read severity and resource type from the policy definition Custodian saved next to resources.json."""
+    info: Dict[str, Optional[str]] = {'severity': None, 'resource_type': None}
+    metadata_file = policy_dir / 'metadata.json'
+    if not metadata_file.exists():
+        return info
+    try:
+        with open(metadata_file) as f:
+            policy = json.load(f).get('policy') or {}
+        severity = str((policy.get('metadata') or {}).get('severity', '')).lower()
+        info['severity'] = severity if severity in VALID_SEVERITIES else None
+        resource_type = policy.get('resource')
+        if isinstance(resource_type, str):
+            # Custodian accepts both "azure.vm" and bare AWS names like "ec2"
+            info['resource_type'] = resource_type if '.' in resource_type else f'aws.{resource_type}'
+    except (OSError, ValueError, AttributeError) as e:
+        logger.debug("Could not read policy metadata", policy_dir=str(policy_dir), error=str(e))
+    return info
+
+
 def parse_custodian_output(output_dir: str, config: Dict[str, Any]) -> List[Dict[str, Any]]:
     """Parse Cloud Custodian output and convert to LeftSize findings"""
     logger.info("Parsing Custodian output", output_dir=output_dir)
@@ -1086,11 +1118,17 @@ def parse_custodian_output(output_dir: str, config: Dict[str, Any]) -> List[Dict
                 continue
                 
             logger.info("Found resources for policy", policy=policy_name, count=len(resources))
-            
+
+            policy_info = read_policy_info(policy_dir)
+
             # Convert Custodian resources to LeftSize findings
             for resource in resources:
-                finding = convert_resource_to_finding(policy_name, resource, config)
+                finding = convert_resource_to_finding(policy_name, resource, config,
+                                                      policy_info['resource_type'])
                 if finding:
+                    if policy_info['severity']:
+                        finding['metadata'] = finding.get('metadata') or {}
+                        finding['metadata'].setdefault('severity', policy_info['severity'])
                     findings.append(finding)
                     
         except Exception as e:
@@ -1112,8 +1150,10 @@ def extract_resource_id(resource: Dict[str, Any], config: Dict[str, Any]) -> str
     
     # AWS resources use different ID fields depending on resource type
     if cloud_provider == 'aws':
-        # S3 buckets use 'Name'
-        if resource.get('Name'):
+        # S3 buckets use 'Name' (ListBuckets only returns Name + CreationDate, no ARN).
+        # Other resource types also have a 'Name', so require the S3 shape.
+        if (resource.get('Name') and 'CreationDate' in resource
+                and not any(resource.get(k) for k in ('Arn', 'ARN', 'arn'))):
             bucket_name = resource['Name']
             # Construct ARN-style ID for S3 buckets
             return f"arn:aws:s3:::{bucket_name}"
@@ -1179,6 +1219,11 @@ def extract_resource_id(resource: Dict[str, Any], config: Dict[str, Any]) -> str
         if resource.get('arn') and 'eks' in str(resource.get('arn', '')):
             return resource['arn']
 
+        # WorkSpaces carry a 'UserName' too, so handle them before the IAM user branch
+        if resource.get('WorkspaceId'):
+            region = resource.get('Region', os.getenv('AWS_REGION', 'us-east-1'))
+            return f"arn:aws:workspaces:{region}::workspace/{resource['WorkspaceId']}"
+
         # IAM users expose 'UserName' and 'Arn' (fallback Arn handles it, but ensure UserName path works)
         if resource.get('UserName') and not resource.get('Arn'):
             user_name = resource['UserName']
@@ -1218,6 +1263,14 @@ def extract_resource_id(resource: Dict[str, Any], config: Dict[str, Any]) -> str
             'repositoryArn',           # ecr
             'DBSnapshotArn',           # rds-snapshot (also handled earlier)
             'ResourceARN', 'ResourceArn',
+            'DBClusterArn',            # rds-cluster
+            'ClusterArn',              # kafka, emr
+            'ReplicationInstanceArn',  # dms-instance
+            'ReadinessCheckArn',       # readiness-check
+            'DirectoryArn',            # cloud-directory
+            'nodegroupArn',            # eks-nodegroup
+            'computeEnvironmentArn',   # batch-compute
+            'EnvironmentArn',          # elasticbeanstalk-environment
             'ResourceId',
         ]
         for id_field in arn_like_fields:
@@ -1243,6 +1296,12 @@ def extract_resource_id(resource: Dict[str, Any], config: Dict[str, Any]) -> str
             return f"arn:aws:logs:{region}::log-group/{resource['logGroupName']}"
         if resource.get('repositoryName'):  # ecr
             return f"arn:aws:ecr:{region}::repository/{resource['repositoryName']}"
+        if resource.get('Name') and isinstance(resource.get('Command'), dict):  # glue job
+            return f"arn:aws:glue:{region}::job/{resource['Name']}"
+        if resource.get('Id') and resource.get('Edition'):  # kendra index
+            return f"arn:aws:kendra:{region}::index/{resource['Id']}"
+        if resource.get('DirectoryId'):  # directory service
+            return f"arn:aws:ds:{region}::directory/{resource['DirectoryId']}"
     
     # Final fallback - generate a unique ID from available data
     resource_name = resource.get('name', '') or resource.get('Name', '') or 'unknown'
@@ -1250,7 +1309,8 @@ def extract_resource_id(resource: Dict[str, Any], config: Dict[str, Any]) -> str
     return f"{cloud_provider}:{resource_type}/{resource_name}"
 
 
-def convert_resource_to_finding(policy_name: str, resource: Dict[str, Any], config: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+def convert_resource_to_finding(policy_name: str, resource: Dict[str, Any], config: Dict[str, Any],
+                                policy_resource_type: Optional[str] = None) -> Optional[Dict[str, Any]]:
     """Convert a Cloud Custodian resource to a LeftSize finding"""
     
     try:
@@ -1301,7 +1361,7 @@ def convert_resource_to_finding(policy_name: str, resource: Dict[str, Any], conf
         scope = build_scope_from_resource_id(resource_id, config)
         
         # Extract metadata from resource - only include what Cloud Custodian provides
-        metadata = extract_resource_metadata(resource, resource_id)
+        metadata = extract_resource_metadata(resource, resource_id, policy_resource_type)
         
         # Add environment override if specified in config
         # This allows users to manually specify environment when auto-detection doesn't work
@@ -1331,7 +1391,154 @@ def convert_resource_to_finding(policy_name: str, resource: Dict[str, Any], conf
         return None
 
 
-def extract_resource_metadata(resource: Dict[str, Any], resource_id: str) -> Dict[str, Any]:
+# Resource fields exposed to issue templates as {{Metadata.<key>}}, per Cloud
+# Custodian resource type. Each key maps to dotted paths into the raw resource;
+# the first path that resolves wins. A `[]` segment collects values from a list
+# and joins them as "a, b, c". Keys set by the resource-specific extraction in
+# extract_resource_metadata are never overwritten.
+RESOURCE_FIELD_PATHS: Dict[str, Dict[str, List[str]]] = {
+    # --- AWS ---
+    'aws.rds': {'engine': ['Engine'], 'engineVersion': ['EngineVersion'],
+                'instanceClass': ['DBInstanceClass'], 'dbClusterIdentifier': ['DBClusterIdentifier']},
+    'aws.cache-cluster': {'engineVersion': ['EngineVersion'], 'cacheNodeType': ['CacheNodeType'],
+                          'replicationGroupId': ['ReplicationGroupId']},
+    'aws.elasticsearch': {'engineVersion': ['ElasticsearchVersion'],
+                          'instanceType': ['ElasticsearchClusterConfig.InstanceType'],
+                          'instanceCount': ['ElasticsearchClusterConfig.InstanceCount']},
+    'aws.eks': {'kubernetesVersion': ['version'], 'supportType': ['upgradePolicy.supportType']},
+    'aws.eks-nodegroup': {'kubernetesVersion': ['version'], 'nodegroupName': ['nodegroupName'],
+                          'clusterName': ['clusterName'], 'amiType': ['amiType'],
+                          'releaseVersion': ['releaseVersion']},
+    'aws.lambda': {'runtime': ['Runtime'], 'functionName': ['FunctionName']},
+    'aws.batch-compute': {'imageType': ['computeResources.ec2Configuration[].imageType'],
+                          'allocationStrategy': ['computeResources.allocationStrategy'],
+                          'orchestrationType': ['containerOrchestrationType']},
+    'aws.ec2': {'imageId': ['ImageId'], 'instanceType': ['InstanceType']},
+    'aws.elasticbeanstalk-environment': {'applicationName': ['ApplicationName'],
+                                         'solutionStackName': ['SolutionStackName']},
+    'aws.workspaces': {'userName': ['UserName'],
+                       'operatingSystem': ['WorkspaceProperties.OperatingSystemName'],
+                       'protocol': ['WorkspaceProperties.Protocols[]'], 'bundleId': ['BundleId'],
+                       'directoryId': ['DirectoryId']},
+    'aws.glue-job': {'glueVersion': ['GlueVersion'], 'jobCommand': ['Command.Name'],
+                     'pythonVersion': ['Command.PythonVersion']},
+    'aws.emr': {'releaseLabel': ['ReleaseLabel'], 'runningAmiVersion': ['RunningAmiVersion'],
+                'clusterName': ['Name']},
+    'aws.kafka': {'clusterName': ['ClusterName'],
+                  'kafkaVersion': ['Provisioned.CurrentBrokerSoftwareInfo.KafkaVersion']},
+    'aws.dms-instance': {'engineVersion': ['EngineVersion'], 'instanceClass': ['ReplicationInstanceClass'],
+                         'replicationInstanceIdentifier': ['ReplicationInstanceIdentifier']},
+    'aws.airflow': {'airflowVersion': ['AirflowVersion'], 'environmentClass': ['EnvironmentClass']},
+    'aws.cloud-directory': {'directoryName': ['Name']},
+    'aws.directory': {'directoryName': ['Name'], 'directorySize': ['Size']},
+    'aws.kendra': {'indexName': ['Name'], 'edition': ['Edition']},
+    'aws.cloudsearch': {'searchInstanceType': ['SearchInstanceType']},
+    'aws.readiness-check': {'resourceSet': ['ResourceSet']},
+    # --- Azure ---
+    'azure.storage': {'kind': ['kind']},
+    'azure.disk': {'osType': ['properties.osType']},
+    'azure.aks': {'kubernetesVersion': ['properties.kubernetesVersion'],
+                  'networkPolicy': ['properties.networkProfile.networkPolicy'],
+                  'identityType': ['identity.type']},
+    'azure.webapp': {'runtime': ['c7n:configuration.linuxFxVersion']},
+    'azure.cognitiveservice': {'kind': ['kind'], 'skuName': ['sku.name']},
+    'azure.spring-service-instance': {'skuName': ['sku.name'], 'skuTier': ['sku.tier']},
+    'azure.appserviceplan': {'numberOfSites': ['properties.numberOfSites']},
+    'azure.publicip': {'ipAddress': ['properties.ipAddress'],
+                       'publicIpAllocationMethod': ['properties.publicIPAllocationMethod'],
+                       'ipVersion': ['properties.publicIPAddressVersion'],
+                       'ipConfigurationId': ['properties.ipConfiguration.id']},
+    'azure.application-gateway': {
+        'skuName': ['properties.sku.name'], 'operationalState': ['properties.operationalState'],
+        'wafMode': ['properties.webApplicationFirewallConfiguration.firewallMode'],
+        'wafRuleSetType': ['properties.webApplicationFirewallConfiguration.ruleSetType'],
+        'wafRuleSetVersion': ['properties.webApplicationFirewallConfiguration.ruleSetVersion'],
+        'firewallPolicyId': ['properties.firewallPolicy.id']},
+    'azure.front-door': {'enabledState': ['properties.enabledState'],
+                         'frontendHostNames': ['properties.frontendEndpoints[].properties.hostName'],
+                         'resourceState': ['properties.resourceState']},
+    'azure.cdnprofile': {'skuName': ['sku.name'], 'resourceState': ['properties.resourceState']},
+    'azure.networksecuritygroup': {'flowLogIds': ['properties.flowLogs[].id']},
+    'azure.postgresql-flexibleserver': {
+        'skuName': ['sku.name'], 'skuTier': ['sku.tier'], 'engineVersion': ['properties.version'],
+        'state': ['properties.state'], 'replicationRole': ['properties.replicationRole'],
+        'highAvailabilityMode': ['properties.highAvailability.mode']},
+    'azure.mysql-flexibleserver': {
+        'skuName': ['sku.name'], 'skuTier': ['sku.tier'], 'engineVersion': ['properties.version'],
+        'state': ['properties.state'], 'replicationRole': ['properties.replicationRole'],
+        'highAvailabilityMode': ['properties.highAvailability.mode']},
+    'azure.mariadb-server': {'skuName': ['sku.name'], 'engineVersion': ['properties.version']},
+    'azure.loadbalancer': {'skuName': ['sku.name']},
+    'azure.redis': {'skuName': ['properties.sku.name'], 'skuCapacity': ['properties.sku.capacity'],
+                    'skuFamily': ['properties.sku.family'], 'redisVersion': ['properties.redisVersion']},
+    'azure.armresource': {'skuName': ['sku.name'], 'skuCapacity': ['sku.capacity']},
+    'azure.hdinsight': {'clusterVersion': ['properties.clusterVersion'],
+                        'clusterState': ['properties.clusterState'],
+                        'clusterKind': ['properties.clusterDefinition.kind']},
+}
+
+
+def _aks_node_pools(resource: Dict[str, Any]) -> Optional[List[str]]:
+    """One line per AKS node pool, e.g. 'pool1: Linux/Ubuntu, k8s 1.31.9, image AKSUbuntu-2204...'."""
+    pools = (resource.get('properties') or {}).get('agentPoolProfiles') or []
+    lines = [
+        f"{p.get('name') or '-'}: {p.get('osType') or '-'}/{p.get('osSKU') or '-'}, "
+        f"k8s {p.get('orchestratorVersion') or '-'}, image {p.get('nodeImageVersion') or '-'}"
+        for p in pools if isinstance(p, dict)
+    ]
+    return lines or None
+
+
+# Fields that need more than a path lookup (templates iterate over lists).
+RESOURCE_FIELD_BUILDERS: Dict[str, Dict[str, Any]] = {
+    'azure.aks': {'nodePools': _aks_node_pools},
+}
+
+
+def _resolve_field_path(resource: Any, path: str) -> Any:
+    """Resolve a dotted path (with optional `[]` list segments) in a resource dict."""
+    current: List[Any] = [resource]
+    for segment in path.split('.'):
+        collect = segment.endswith('[]')
+        key = segment[:-2] if collect else segment
+        next_values: List[Any] = []
+        for value in current:
+            if not isinstance(value, dict) or value.get(key) is None:
+                continue
+            item = value[key]
+            if collect and isinstance(item, list):
+                next_values.extend(i for i in item if i is not None)
+            else:
+                next_values.append(item)
+        current = next_values
+        if not current:
+            return None
+    scalars = [v for v in current if isinstance(v, (str, int, float, bool))]
+    if not scalars:
+        return None
+    if '[]' in path:
+        return ', '.join(str(v) for v in scalars)
+    return scalars[0]
+
+
+def extract_resource_fields(resource: Dict[str, Any], resource_type: Optional[str]) -> Dict[str, Any]:
+    """Extract the template fields declared for this resource type."""
+    fields: Dict[str, Any] = {}
+    for key, paths in RESOURCE_FIELD_PATHS.get(resource_type or '', {}).items():
+        for path in paths:
+            value = _resolve_field_path(resource, path)
+            if value is not None and value != '':
+                fields[key] = value
+                break
+    for key, builder in RESOURCE_FIELD_BUILDERS.get(resource_type or '', {}).items():
+        value = builder(resource)
+        if value:
+            fields[key] = value
+    return fields
+
+
+def extract_resource_metadata(resource: Dict[str, Any], resource_id: str,
+                              resource_type: Optional[str] = None) -> Dict[str, Any]:
     """Extract relevant metadata from Cloud Custodian resource"""
     metadata = {}
     
@@ -1434,6 +1641,10 @@ def extract_resource_metadata(resource: Dict[str, Any], resource_id: str) -> Dic
                 metadata['associated'] = True
             else:
                 metadata['associated'] = False
+
+        # Generic template fields (engine versions, runtimes, OS SKUs, ...)
+        for key, value in extract_resource_fields(resource, resource_type).items():
+            metadata.setdefault(key, value)
         
     except Exception as e:
         logger.warning("Failed to extract metadata from resource", 

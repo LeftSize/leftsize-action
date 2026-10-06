@@ -111,3 +111,58 @@ class TestExtractResourceIdBuiltFromName:
         r = {"AutoScalingGroupName": "web-asg", "Region": "us-east-1"}
         assert extract_resource_id(r, AWS_CFG) == "arn:aws:autoscaling:us-east-1::autoScalingGroup/web-asg"
 
+
+
+class TestExtractResourceIdDeprecationRuleTypes:
+    """Resource types used by the deprecation rules (Oct 2026). Several of them
+    carry a 'Name' field and used to be mistaken for S3 buckets."""
+
+    def test_s3_bucket_still_uses_name(self):
+        r = {"Name": "my-bucket", "CreationDate": "2020-01-01T00:00:00Z"}
+        assert extract_resource_id(r, AWS_CFG) == "arn:aws:s3:::my-bucket"
+
+    def test_glue_job_is_not_an_s3_bucket(self):
+        r = {"Name": "nightly-etl", "Command": {"Name": "glueetl"}, "CreatedOn": "x", "Region": "eu-west-1"}
+        assert extract_resource_id(r, AWS_CFG) == "arn:aws:glue:eu-west-1::job/nightly-etl"
+
+    def test_emr_cluster_uses_cluster_arn(self):
+        arn = "arn:aws:elasticmapreduce:eu-west-1:123456789012:cluster/j-ABC"
+        r = {"Name": "spark", "Id": "j-ABC", "ClusterArn": arn}
+        assert extract_resource_id(r, AWS_CFG) == arn
+
+    def test_mwaa_environment_arn_wins_over_name(self):
+        arn = "arn:aws:airflow:eu-west-1:123456789012:environment/prod"
+        r = {"Name": "prod", "Arn": arn, "CreatedAt": "x"}
+        assert extract_resource_id(r, AWS_CFG) == arn
+
+    def test_cloud_directory_uses_directory_arn(self):
+        arn = "arn:aws:clouddirectory:eu-west-1:123456789012:directory/AXQ"
+        r = {"Name": "people", "DirectoryArn": arn, "CreationDateTime": "x"}
+        assert extract_resource_id(r, AWS_CFG) == arn
+
+    def test_kendra_index_builds_arn(self):
+        r = {"Name": "docs", "Id": "abc-123", "Edition": "ENTERPRISE_EDITION", "Region": "eu-west-1"}
+        assert extract_resource_id(r, AWS_CFG) == "arn:aws:kendra:eu-west-1::index/abc-123"
+
+    def test_directory_service_builds_arn(self):
+        r = {"Name": "corp.example.com", "DirectoryId": "d-1234567890", "Type": "SimpleAD", "Region": "eu-west-1"}
+        assert extract_resource_id(r, AWS_CFG) == "arn:aws:ds:eu-west-1::directory/d-1234567890"
+
+    def test_workspace_is_not_an_iam_user(self):
+        r = {"WorkspaceId": "ws-abc", "UserName": "jdoe", "DirectoryId": "d-1", "Region": "eu-west-1"}
+        assert extract_resource_id(r, AWS_CFG) == "arn:aws:workspaces:eu-west-1::workspace/ws-abc"
+
+    def test_iam_user_still_builds_user_arn(self):
+        assert extract_resource_id({"UserName": "bob"}, AWS_CFG) == "arn:aws:iam:::user/bob"
+
+    @pytest.mark.parametrize("field,arn", [
+        ("ClusterArn", "arn:aws:kafka:eu-west-1:123456789012:cluster/k/uuid"),
+        ("ReplicationInstanceArn", "arn:aws:dms:eu-west-1:123456789012:rep:ABC"),
+        ("ReadinessCheckArn", "arn:aws:route53-recovery-readiness::123456789012:readiness-check/r"),
+        ("nodegroupArn", "arn:aws:eks:eu-west-1:123456789012:nodegroup/c/n/uuid"),
+        ("computeEnvironmentArn", "arn:aws:batch:eu-west-1:123456789012:compute-environment/ce"),
+        ("EnvironmentArn", "arn:aws:elasticbeanstalk:eu-west-1:123456789012:environment/app/env"),
+        ("DBClusterArn", "arn:aws:rds:eu-west-1:123456789012:cluster:aurora"),
+    ])
+    def test_arn_passthrough_fields(self, field, arn):
+        assert extract_resource_id({field: arn}, AWS_CFG) == arn

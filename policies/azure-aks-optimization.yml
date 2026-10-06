@@ -16,7 +16,7 @@ policies:
       # Cluster has been running for at least 7 days (mature deployment)
       - type: value
         key: 'createdOn'
-        op: 'le'
+        op: 'ge'
         value_type: age
         value: 7
     # Note: This policy identifies AKS clusters for review
@@ -42,7 +42,7 @@ policies:
       # Cluster has been stable for at least 14 days
       - type: value
         key: 'createdOn'
-        op: 'le'
+        op: 'ge'
         value_type: age
         value: 14
       # Has at least one agent pool
@@ -83,7 +83,7 @@ policies:
       # Cluster has been running for a while
       - type: value
         key: 'createdOn'
-        op: 'le'
+        op: 'ge'
         value_type: age
         value: 14
     actions:
@@ -142,7 +142,7 @@ policies:
       # Cluster has been running for at least 7 days
       - type: value
         key: 'createdOn'
-        op: 'le'
+        op: 'ge'
         value_type: age
         value: 7
     actions:

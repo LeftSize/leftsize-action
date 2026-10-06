@@ -33,7 +33,7 @@ policies:
       # ASG has been active for at least 14 days
       - type: value
         key: 'CreatedTime'
-        op: less-than
+        op: greater-than
         value_type: age
         value: 14
     actions:
@@ -65,7 +65,7 @@ policies:
       # Service has been running for at least 7 days
       - type: value
         key: 'createdAt'
-        op: less-than
+        op: greater-than
         value_type: age
         value: 7
     actions:
@@ -206,7 +206,7 @@ policies:
       # Volume is older than 7 days (avoid temporary detachments)
       - type: value
         key: 'CreateTime'
-        op: less-than
+        op: greater-than
         value_type: age
         value: 7
       # Not a snapshot (those are handled separately)
@@ -281,7 +281,7 @@ policies:
       # Load balancer is older than 3 days
       - type: value
         key: 'CreatedTime'
-        op: less-than
+        op: greater-than
         value_type: age
         value: 3
     actions:
@@ -296,7 +296,7 @@ policies:
       # Load balancer is older than 3 days
       - type: value
         key: 'CreatedTime'
-        op: less-than
+        op: greater-than
         value_type: age
         value: 3
       # Very low request count (effectively unused)
@@ -449,7 +449,7 @@ policies:
       # Bucket is older than 30 days (established bucket)
       - type: value
         key: 'CreationDate'
-        op: less-than
+        op: greater-than
         value_type: age
         value: 30
     actions:
@@ -472,7 +472,7 @@ policies:
       # Volume is older than 7 days
       - type: value
         key: 'CreateTime'
-        op: less-than
+        op: greater-than
         value_type: age
         value: 7
     actions:
@@ -638,7 +638,7 @@ policies:
       # Instance has been running for at least 14 days
       - type: value
         key: 'InstanceCreateTime'
-        op: less-than
+        op: greater-than
         value_type: age
         value: 14
     actions:
@@ -700,7 +700,7 @@ policies:
       # Gateway is older than 7 days
       - type: value
         key: 'CreateTime'
-        op: less-than
+        op: greater-than
         value_type: age
         value: 7
     actions:
@@ -749,7 +749,7 @@ policies:
       # Volume has been attached to stopped instance for at least 7 days
       - type: value
         key: 'CreateTime'
-        op: less-than
+        op: greater-than
         value_type: age
         value: 7
     actions:
@@ -801,7 +801,7 @@ policies:
       # Volume is older than 7 days
       - type: value
         key: 'CreateTime'
-        op: less-than
+        op: greater-than
         value_type: age
         value: 7
     actions:
@@ -880,7 +880,7 @@ policies:
       # Bucket is older than 30 days
       - type: value
         key: 'CreationDate'
-        op: less-than
+        op: greater-than
         value_type: age
         value: 30
     actions:
@@ -910,7 +910,7 @@ policies:
       # Bucket is older than 30 days
       - type: value
         key: 'CreationDate'
-        op: less-than
+        op: greater-than
         value_type: age
         value: 30
     actions:
@@ -1079,7 +1079,7 @@ policies:
       # Volume is older than 7 days (avoid catching new provisioning)
       - type: value
         key: 'CreateTime'
-        op: less-than
+        op: greater-than
         value_type: age
         value: 7
     actions:
@@ -1109,7 +1109,7 @@ policies:
       # Function is older than 30 days (avoid catching newly deployed functions)
       - type: value
         key: 'LastModified'
-        op: less-than
+        op: greater-than
         value_type: age
         value: 30
     metadata:
@@ -1146,7 +1146,7 @@ policies:
       # Table is older than 30 days
       - type: value
         key: 'CreationDateTime'
-        op: less-than
+        op: greater-than
         value_type: age
         value: 30
     metadata:
@@ -1172,7 +1172,7 @@ policies:
       # Cluster is older than 14 days
       - type: value
         key: 'CacheClusterCreateTime'
-        op: less-than
+        op: greater-than
         value_type: age
         value: 14
     metadata:

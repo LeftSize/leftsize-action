@@ -13,9 +13,11 @@ policies:
         interval: 'P1D'  # Daily intervals
         op: 'le' 
         threshold: 5.0  # CPU usage <= 5%
-      - type: value
-        key: 'properties.extended.instanceView.powerState.displayStatus'
-        value: 'VM running'
+      # Power state needs the instance view (one GET per remaining VM, so it runs last)
+      - type: instance-view
+        key: 'statuses[].code'
+        op: intersect
+        value: ['PowerState/running']
     actions:
       - type: tag
         tag: leftsize-idle-vm-stop
@@ -40,7 +42,7 @@ policies:
       # Only include plans created more than 2 days ago (avoid catching temporary deployments)
       - type: value
         key: 'properties.dateCreated'
-        op: 'le'
+        op: 'ge'
         value_type: age
         value: 2
     actions:
@@ -95,7 +97,7 @@ policies:
       # Only include plans that have been running for more than 30 days
       - type: value
         key: 'properties.dateCreated'
-        op: 'le'
+        op: 'ge'
         value_type: age
         value: 30
       # Must have apps deployed (active workloads to migrate)
@@ -121,7 +123,7 @@ policies:
       # Only flag disks older than 7 days (avoid catching temporary detachments)
       - type: value
         key: 'properties.timeCreated'
-        op: 'le'
+        op: 'ge'
         value_type: age
         value: 7  # Older than 7 days
       # Exclude OS disks (higher risk)
@@ -152,7 +154,7 @@ policies:
       # Only flag IPs older than 3 days
       - type: value
         key: 'properties.timeCreated'
-        op: 'le'
+        op: 'ge'
         value_type: age
         value: 3
     actions:
@@ -179,7 +181,7 @@ policies:
       # Load balancer is older than 7 days (avoid catching temporary deployments)
       - type: value
         key: 'properties.timeCreated'
-        op: 'le'
+        op: 'ge'
         value_type: age
         value: 7
       # Exclude Basic SKU if in production (often used for testing)
@@ -205,10 +207,6 @@ policies:
       - type: value
         key: 'properties.storageProfile.osDisk.osType'
         value: 'Windows'
-      # Running VMs only
-      - type: value
-        key: 'properties.extended.instanceView.powerState.displayStatus'
-        value: 'VM running'
       # No Hybrid Benefit configured
       - or:
         - type: value
@@ -218,6 +216,11 @@ policies:
           key: 'properties.licenseType'
           op: 'not-in'
           value: ['Windows_Server', 'Windows_Client']
+      # Power state needs the instance view (one GET per remaining VM, so it runs last)
+      - type: instance-view
+        key: 'statuses[].code'
+        op: intersect
+        value: ['PowerState/running']
     actions:
       - type: tag
         tag: leftsize-hybrid-benefit-review
@@ -228,15 +231,16 @@ policies:
     description: "Find VMs using outdated series (v2/v3/v4) when v5/v6 available"
     resource: azure.vm
     filters:
-      # Running VMs only
-      - type: value
-        key: 'properties.extended.instanceView.powerState.displayStatus'
-        value: 'VM running'
       # Match older VM series (v2, v3, v4)
       - type: value
         key: 'properties.hardwareProfile.vmSize'
         op: 'regex'
         value: 'Standard_(D|E|F|L|M)[0-9]+[a-z]*s?_v[234]$'
+      # Power state needs the instance view (one GET per remaining VM, so it runs last)
+      - type: instance-view
+        key: 'statuses[].code'
+        op: intersect
+        value: ['PowerState/running']
     actions:
       - type: tag
         tag: leftsize-vm-series-upgrade
@@ -250,10 +254,6 @@ policies:
     description: "Find running non-production VMs that should have auto-shutdown configured"
     resource: azure.vm
     filters:
-      # Running VMs only
-      - type: value
-        key: 'properties.extended.instanceView.powerState.displayStatus'
-        value: 'VM running'
       # Non-production environments (by tag)
       - or:
         - type: value
@@ -268,6 +268,11 @@ policies:
           key: 'tags.env'
           op: 'in'
           value: ['dev', 'development', 'test', 'testing', 'staging', 'qa', 'sandbox']
+      # Power state needs the instance view (one GET per remaining VM, so it runs last)
+      - type: instance-view
+        key: 'statuses[].code'
+        op: intersect
+        value: ['PowerState/running']
     actions:
       - type: tag
         tag: leftsize-auto-shutdown-review
@@ -283,7 +288,7 @@ policies:
       # Snapshots older than 30 days
       - type: value
         key: 'properties.timeCreated'
-        op: 'le'
+        op: 'ge'
         value_type: age
         value: 30
     actions:
@@ -303,7 +308,7 @@ policies:
       # Account older than 90 days (established usage patterns)
       - type: value
         key: 'properties.creationTime'
-        op: 'le'
+        op: 'ge'
         value_type: age
         value: 90
       # Only GPv2 accounts (support tiering)
@@ -329,10 +334,6 @@ policies:
     description: "Find VMs not using ARM-based sizes (Dpsv5/Epsv5) for cost savings"
     resource: azure.vm
     filters:
-      # Running VMs only
-      - type: value
-        key: 'properties.extended.instanceView.powerState.displayStatus'
-        value: 'VM running'
       # Target x86 D/E-series VMs (v3/v4/v5) that could use ARM alternatives
       # These are VMs like Standard_D4s_v5, Standard_E8s_v4, etc.
       - type: value
@@ -345,6 +346,11 @@ policies:
           key: 'properties.hardwareProfile.vmSize'
           op: 'regex'
           value: 'Standard_(D|E)p[ld]*s_v5'
+      # Power state needs the instance view (one GET per remaining VM, so it runs last)
+      - type: instance-view
+        key: 'statuses[].code'
+        op: intersect
+        value: ['PowerState/running']
     actions:
       - type: tag
         tag: leftsize-arm-architecture-review
@@ -376,7 +382,7 @@ policies:
       # Database older than 7 days (not a new deployment)
       - type: value
         key: 'properties.creationDate'
-        op: 'le'
+        op: 'ge'
         value_type: age
         value: 7
     # NOTE: azure.sql-database does not support the 'tag' action in c7n.
@@ -392,15 +398,16 @@ policies:
     description: "Find stopped/deallocated VMs still incurring storage costs for premium disks"
     resource: azure.vm
     filters:
-      # VM is deallocated (not running, not charged for compute)
-      - type: value
-        key: 'properties.extended.instanceView.powerState.displayStatus'
-        op: 'in'
-        value: ['VM deallocated', 'VM stopped']
-      # VM has been stopped for more than 30 days
-      - type: value
-        key: 'properties.extended.instanceView.powerState.time'
-        op: 'le'
+      # Power state needs the instance view (one GET per remaining VM, so it runs last)
+      - type: instance-view
+        key: 'statuses[].code'
+        op: intersect
+        value: ['PowerState/deallocated', 'PowerState/stopped']
+      # Approximation: the instance view has no power-state timestamp, so use the time of the
+      # last successful provisioning operation (the stop/deallocate) as 'stopped since'
+      - type: instance-view
+        key: "statuses[?starts_with(code, 'ProvisioningState/')].time | [0]"
+        op: 'ge'
         value_type: age
         value: 30
     actions:
@@ -450,7 +457,7 @@ policies:
       # Pool has been running for more than 7 days (not newly created)
       - type: value
         key: 'properties.creationDate'
-        op: 'le'
+        op: 'ge'
         value_type: age
         value: 7
     actions:
@@ -625,7 +632,7 @@ policies:
       # Disk is older than 30 days
       - type: value
         key: 'properties.timeCreated'
-        op: 'le'
+        op: 'ge'
         value_type: age
         value: 30
     actions:
@@ -735,20 +742,17 @@ policies:
           - 'norwayeast'
           - 'norwaywest'
           - 'southeastasia'
-      # Only VMs that are billed for compute (deallocated VMs are not)
-      - type: value
-        key: 'properties.extended.instanceView.powerState.code'
-        op: 'in'
-        value:
-          - 'PowerState/running'
-          - 'PowerState/stopped'
-          - 'PowerState/starting'
       # Skip the series that Microsoft excluded from the price update
       - not:
           - type: value
             key: 'properties.hardwareProfile.vmSize'
             op: 'regex'
             value: '^Standard_(B\d+(ls|s|ms)|DS?\d+|F\d+s?|GS?\d+(-\d+)?|L\d+s|NP\d+s|HC\d+(-\d+)?rs|A\d+m?_v2|DS?\d+(-\d+)?_v2(_Promo)?|F\d+s_v2|L\d+s_v2|D\d+(s|ds|ls|lds)_v7|E\d+(-\d+)?(s|ds)_v7)$'
+      # Power state needs the instance view (one GET per remaining VM, so it runs last)
+      - type: instance-view
+        key: 'statuses[].code'
+        op: intersect
+        value: ['PowerState/running', 'PowerState/stopped', 'PowerState/starting']
     metadata:
       category: cost-optimization
       severity: medium
