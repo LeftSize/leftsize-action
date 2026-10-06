@@ -39,12 +39,6 @@ policies:
         key: 'sku.tier'
         op: 'not-in'
         value: ['Free', 'Shared']
-      # Only include plans created more than 2 days ago (avoid catching temporary deployments)
-      - type: value
-        key: 'properties.dateCreated'
-        op: 'ge'
-        value_type: age
-        value: 2
     actions:
       - type: tag
         tag: leftsize-empty-asp-delete
@@ -94,12 +88,6 @@ policies:
         key: 'sku.name'
         op: 'in'
         value: ['B1', 'B2', 'B3', 'S1', 'S2', 'S3', 'D1', 'F1']  # Legacy Basic/Standard SKUs
-      # Only include plans that have been running for more than 30 days
-      - type: value
-        key: 'properties.dateCreated'
-        op: 'ge'
-        value_type: age
-        value: 30
       # Must have apps deployed (active workloads to migrate)
       - type: value
         key: 'properties.numberOfSites'
@@ -151,12 +139,6 @@ policies:
         key: 'properties.publicIPAllocationMethod'
         op: 'eq'
         value: 'Static'
-      # Only flag IPs older than 3 days
-      - type: value
-        key: 'properties.timeCreated'
-        op: 'ge'
-        value_type: age
-        value: 3
     actions:
       - type: tag
         tag: leftsize-unused-ip-delete
@@ -169,26 +151,37 @@ policies:
     description: "Find Azure Load Balancers with no active backend pools or targets"
     resource: azure.loadbalancer
     filters:
-      # Load balancer has no backend pools configured
-      - or:
-        - type: value
-          key: 'properties.backendAddressPools'
-          value: []
-        # Or backend pools exist but have no IP configurations (no VMs/resources attached)
-        - type: value
-          key: 'properties.backendAddressPools[].properties.backendIPConfigurations'
-          value: []
-      # Load balancer is older than 7 days (avoid catching temporary deployments)
+      # No backend members at all: neither NIC-based (backendIPConfigurations) nor
+      # IP-based (loadBalancerBackendAddresses) pool members. Also matches an LB without pools.
       - type: value
-        key: 'properties.timeCreated'
-        op: 'ge'
-        value_type: age
-        value: 7
-      # Exclude Basic SKU if in production (often used for testing)
+        key: "length(properties.backendAddressPools[].properties.backendIPConfigurations[] || `[]`)"
+        value: 0
       - type: value
-        key: 'tags.environment'
-        op: 'not-in'
-        value: ['prod', 'production']
+        key: "length(properties.backendAddressPools[].properties.loadBalancerBackendAddresses[] || `[]`)"
+        value: 0
+      # Not tagged as production (tag values compared case-insensitively)
+      - not:
+          - or:
+            - type: value
+              key: 'tags.Environment'
+              value_type: normalize
+              op: 'in'
+              value: ['prod', 'production', 'prd']
+            - type: value
+              key: 'tags.environment'
+              value_type: normalize
+              op: 'in'
+              value: ['prod', 'production', 'prd']
+            - type: value
+              key: 'tags.Env'
+              value_type: normalize
+              op: 'in'
+              value: ['prod', 'production', 'prd']
+            - type: value
+              key: 'tags.env'
+              value_type: normalize
+              op: 'in'
+              value: ['prod', 'production', 'prd']
     actions:
       - type: tag
         tag: leftsize-inactive-lb-delete

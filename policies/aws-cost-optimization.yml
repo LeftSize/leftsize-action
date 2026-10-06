@@ -3,29 +3,20 @@ policies:
   # 📦 ECS / FARGATE
   # ========================================
   - name: leftsize-idle-ecs-container-instances
-    description: "Find ECS clusters with idle container instances due to high ASG minimum capacity"
+    description: |
+      Find ECS capacity-provider Auto Scaling groups with a minimum of 3 or more
+      instances. A high minimum keeps container instances running even when no
+      tasks need them. This flags the configuration for review; it does not
+      measure ECS utilization.
     resource: aws.asg
     filters:
-      # ASG must be associated with an ECS cluster (has specific tag)
+      # ECS adds the AmazonECSManaged tag when the group backs a capacity provider
+      # (https://docs.aws.amazon.com/AmazonECS/latest/developerguide/cluster-auto-scaling.html).
+      # Customers can't create aws:-prefixed tags, so there is no cluster-name tag to match on.
       - type: value
-        key: 'Tags'
+        key: 'tag:AmazonECSManaged'
         value: present
-      - or:
-        - type: value
-          key: 'tag:aws:ecs:cluster-name'
-          value: present
-        # Or tagged as ECS capacity provider
-        - type: value
-          key: 'tag:AmazonECSManaged'
-          value: present
-      # ASG has minimum capacity > 1
-      - type: value
-        key: 'MinSize'
-        op: greater-than
-        value: 1
-      # Check if actual instances exceed what's needed
-      # (Custom filter would check ECS container instance utilization)
-      # For now, flag ASGs with high minimum for manual review
+      # Minimum capacity of 3 or more instances
       - type: value
         key: 'MinSize'
         op: gte
@@ -134,7 +125,7 @@ policies:
             InstanceId: instance-id
           op: greater-than
           value: 10
-          percent-attr: Average
+          statistics: Average
           days: 14
         - type: metrics
           name: CPUUtilization
@@ -143,14 +134,14 @@ policies:
             InstanceId: instance-id
           op: less-than
           value: 40
-          percent-attr: Average
+          statistics: Average
           days: 14
-      # Exclude t2/t3/t4g burstable instances (they're designed for variable loads)
+      # Exclude burstable T-family instances (t2, t3, t3a, t4g, ...; designed for variable loads)
       - not:
         - type: value
           key: 'InstanceType'
           op: regex
-          value: '^(t2|t3|t4g)\.'
+          value: '^t[0-9][a-z]*\.'
       # Exclude instances already tagged as optimized
       - not:
         - type: value
@@ -242,6 +233,11 @@ policies:
     description: "Find RDS instances with low connection and CPU utilization"
     resource: aws.rds
     filters:
+      # aws.rds also returns DocumentDB and Neptune instances; this advice is for RDS/Aurora only
+      - type: value
+        key: 'Engine'
+        op: not-in
+        value: ['docdb', 'neptune']
       # Only check available (running) instances
       - type: value
         key: 'DBInstanceStatus'
@@ -252,7 +248,7 @@ policies:
         namespace: AWS/RDS
         op: less-than
         value: 10
-        percent-attr: Average
+        statistics: Average
         days: 7
       # Low database connections (≤1 average over 7 days)
       - type: metrics
@@ -569,6 +565,11 @@ policies:
     description: "Find non-production RDS instances with unnecessary Multi-AZ (2x cost)"
     resource: aws.rds
     filters:
+      # aws.rds also returns DocumentDB and Neptune instances; this advice is for RDS/Aurora only
+      - type: value
+        key: 'Engine'
+        op: not-in
+        value: ['docdb', 'neptune']
       # Only available (running) instances
       - type: value
         key: 'DBInstanceStatus'
@@ -634,6 +635,11 @@ policies:
     description: "Find non-production RDS instances with backup retention exceeding 14 days"
     resource: aws.rds
     filters:
+      # aws.rds also returns DocumentDB and Neptune instances; this advice is for RDS/Aurora only
+      - type: value
+        key: 'Engine'
+        op: not-in
+        value: ['docdb', 'neptune']
       # Only available (running) instances
       - type: value
         key: 'DBInstanceStatus'
@@ -671,6 +677,11 @@ policies:
     description: "Find RDS instances using io1/io2 when gp3 would provide sufficient IOPS at lower cost"
     resource: aws.rds
     filters:
+      # aws.rds also returns DocumentDB and Neptune instances; this advice is for RDS/Aurora only
+      - type: value
+        key: 'Engine'
+        op: not-in
+        value: ['docdb', 'neptune']
       # Only available (running) instances
       - type: value
         key: 'DBInstanceStatus'
@@ -995,6 +1006,11 @@ policies:
     description: "Find stopped RDS instances approaching 7-day auto-restart limit"
     resource: aws.rds
     filters:
+      # aws.rds also returns DocumentDB and Neptune instances; this advice is for RDS/Aurora only
+      - type: value
+        key: 'Engine'
+        op: not-in
+        value: ['docdb', 'neptune']
       # Instance is stopped
       - type: value
         key: 'DBInstanceStatus'
@@ -1259,6 +1275,11 @@ policies:
     description: "Find RDS read replicas with no read load (zero connections in 14 days)"
     resource: aws.rds
     filters:
+      # aws.rds also returns DocumentDB and Neptune instances; this advice is for RDS/Aurora only
+      - type: value
+        key: 'Engine'
+        op: not-in
+        value: ['docdb', 'neptune']
       # Instance is available
       - type: value
         key: DBInstanceStatus

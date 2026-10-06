@@ -1611,3 +1611,156 @@ policies:
       category: deprecation
       severity: critical
       tier: free
+
+  # ========================================
+  # 📉 VM SIZE RETIREMENTS: SCALE SETS AND AKS NODE POOLS
+  # ========================================
+  # The leftsize-vm-* size retirement rules only scan azure.vm. Uniform scale
+  # set instances and AKS nodes aren't azure.vm resources, so these two rules
+  # cover the same five retirement groups on scale-set models and AKS node
+  # pools. The five size regexes are identical to the azure.vm rules (M192i_v2
+  # written as a regex instead of an 'in' list):
+  #   M192i_v2                             2027-03-31
+  #   NP / HC / HBv2                       2027-05-31
+  #   D / Ds / Dv2 / Dsv2 / Ls             2028-05-01
+  #   Av2 / Amv2 / Bv1 / F / Fs / Fsv2 /
+  #   G / Gs / Lsv2                        2028-11-15
+  #   Dv3 / Dsv3 / Ev3 / Esv3              2029-11-15
+  # https://learn.microsoft.com/en-us/azure/virtual-machines/sizes/lifecycle/retirements-and-capacity-restrictions
+
+  - name: leftsize-vmss-retiring-size
+    description: |
+      Find Virtual Machine Scale Sets whose model (sku.name) uses a VM size
+      that Microsoft retires between 2027 and 2029.
+
+      Retirement dates (remaining VMs are deallocated, no SLA, no support):
+      - Standard_M192is_v2 / M192ims_v2 / M192ids_v2 / M192idms_v2: March 31, 2027
+      - NP, HC, HBv2: May 31, 2027
+      - D, Ds, Dv2, Dsv2, Ls: May 1, 2028
+      - Av2, Amv2, B (v1), F, Fs, Fsv2, G, Gs, Lsv2: November 15, 2028
+      - Dv3, Dsv3, Ev3, Esv3: November 15, 2029
+      Since July 2026 most of these series are under capacity growth
+      restrictions (no extra quota, new subscriptions can't deploy them), so
+      scale-out can fail before the retirement date.
+
+      The fix is a scale-set model change (sku.name) followed by an instance
+      upgrade/reimage according to the upgrade policy.
+
+      Excluded: AKS-managed scale sets (any tag key starting with
+      'aks-managed-', or the AKS naming pattern aks-<pool>-<number>-vmss).
+      AKS node pools must be changed through the AKS API; they're covered by
+      leftsize-aks-node-pool-retiring-size.
+      Flexible scale sets without a VM profile have no sku and never match;
+      their VMs are regular Microsoft.Compute/virtualMachines resources and are
+      covered by the leftsize-vm-* rules. Scale sets with capacity 0 are
+      reported: the model still points at the retiring size, so the next
+      scale-out (or autoscale) would use it.
+
+      References:
+      - https://learn.microsoft.com/en-us/azure/virtual-machines/sizes/lifecycle/retirements-and-capacity-restrictions
+      - https://learn.microsoft.com/en-us/azure/virtual-machine-scale-sets/virtual-machine-scale-sets-upgrade-scale-set
+      - https://learn.microsoft.com/en-us/azure/virtual-machine-scale-sets/virtual-machine-scale-sets-upgrade-policy
+    resource: azure.vmss
+    filters:
+      - type: value
+        key: properties.provisioningState
+        op: ne
+        value_type: normalize
+        value: deleting
+      # Scale-set model size in any of the five retirement groups
+      - or:
+          - type: value
+            key: sku.name
+            op: regex
+            value: '^Standard_M192id?m?s_v2$'
+          - type: value
+            key: sku.name
+            op: regex
+            value: '^Standard_(NP\d+s|HC44(-\d+)?rs|HB120(-\d+)?rs_v2)$'
+          - type: value
+            key: sku.name
+            op: regex
+            value: '^Standard_(DS?\d+(-\d+)?|DS?\d+(-\d+)?_v2(_Promo)?|L\d+s)$'
+          - type: value
+            key: sku.name
+            op: regex
+            value: '^Standard_(A\d+m?_v2|B\d+(ls|s|ms)|F\d+s?|F\d+s_v2|GS?\d+(-\d+)?|L\d+s_v2)$'
+          - type: value
+            key: sku.name
+            op: regex
+            value: '^Standard_(D\d+s?_v3|E\d+(-\d+)?i?s?_v3)$'
+      # Not an AKS node pool scale set (AKS sets Azure-created 'aks-managed-*'
+      # tags on resources in the node resource group; name pattern as fallback)
+      - not:
+          - or:
+              - type: value
+                key: "keys(tags || `{}`)[?starts_with(@, 'aks-managed-')]"
+                value: not-null
+              - type: value
+                key: name
+                op: regex
+                value: '^aks-[a-z0-9]+-\d+-vmss$'
+    metadata:
+      category: deprecation
+      severity: high
+      tier: free
+
+  - name: leftsize-aks-node-pool-retiring-size
+    description: |
+      Find AKS clusters with at least one node pool (agentPoolProfiles[].vmSize)
+      on a VM size that Microsoft retires between 2027 and 2029.
+
+      Retirement dates (remaining VMs are deallocated, no SLA, no support):
+      - Standard_M192is_v2 / M192ims_v2 / M192ids_v2 / M192idms_v2: March 31, 2027
+      - NP, HC, HBv2: May 31, 2027
+      - D, Ds, Dv2, Dsv2, Ls: May 1, 2028 (Standard_DS2_v2 was the AKS default)
+      - Av2, Amv2, B (v1), F, Fs, Fsv2, G, Gs, Lsv2: November 15, 2028
+      - Dv3, Dsv3, Ev3, Esv3: November 15, 2029
+      Since July 2026 most of these series are under capacity growth
+      restrictions, so node pool scale-out and upgrades (surge nodes) can fail
+      before the retirement date.
+
+      Remediation: add a node pool on a current size, cordon and drain the old
+      pool, delete it (in-place resize of VMSS node pools is preview only).
+
+      Limitation: Virtual Machines-type node pools list their sizes in
+      virtualMachinesProfile.scale, which this rule doesn't check.
+
+      References:
+      - https://learn.microsoft.com/en-us/azure/virtual-machines/sizes/lifecycle/retirements-and-capacity-restrictions
+      - https://learn.microsoft.com/en-us/azure/aks/resize-node-pool
+    resource: azure.aks
+    filters:
+      - type: value
+        key: properties.provisioningState
+        op: ne
+        value_type: normalize
+        value: deleting
+      - type: list-item
+        key: properties.agentPoolProfiles
+        attrs:
+          - or:
+              - type: value
+                key: vmSize
+                op: regex
+                value: '^Standard_M192id?m?s_v2$'
+              - type: value
+                key: vmSize
+                op: regex
+                value: '^Standard_(NP\d+s|HC44(-\d+)?rs|HB120(-\d+)?rs_v2)$'
+              - type: value
+                key: vmSize
+                op: regex
+                value: '^Standard_(DS?\d+(-\d+)?|DS?\d+(-\d+)?_v2(_Promo)?|L\d+s)$'
+              - type: value
+                key: vmSize
+                op: regex
+                value: '^Standard_(A\d+m?_v2|B\d+(ls|s|ms)|F\d+s?|F\d+s_v2|GS?\d+(-\d+)?|L\d+s_v2)$'
+              - type: value
+                key: vmSize
+                op: regex
+                value: '^Standard_(D\d+s?_v3|E\d+(-\d+)?i?s?_v3)$'
+    metadata:
+      category: deprecation
+      severity: high
+      tier: free

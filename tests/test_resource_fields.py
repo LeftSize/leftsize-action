@@ -93,3 +93,84 @@ class TestPartialCustodianFailure:
         findings, parse = self._run(tmp_path, 1)
         assert not parse.called
         assert findings == []
+
+
+class TestDerivedFields:
+
+    def test_aks_counts_sizes_and_retiring_pools(self):
+        r = {"properties": {"agentPoolProfiles": [
+            {"name": "sys", "vmSize": "Standard_DS2_v2", "count": 3, "mode": "System"},
+            {"name": "work", "vmSize": "Standard_D4s_v5", "count": 2, "mode": "User"},
+            {"name": "old", "vmSize": "Standard_D8s_v3", "count": 1, "mode": "User"},
+        ]}}
+        f = extract_resource_fields(r, "azure.aks")
+        assert f["nodeCount"] == 6
+        assert f["vmSizes"] == "Standard_D4s_v5, Standard_D8s_v3, Standard_DS2_v2"
+        assert f["retiringNodePools"] == [
+            "sys: Standard_DS2_v2 × 3 nodes (System) — D/Ds/Dv2/Dsv2/Ls retires 2028-05-01",
+            "old: Standard_D8s_v3 × 1 nodes (User) — Dv3/Dsv3/Ev3/Esv3 retires 2029-11-15",
+        ]
+        assert f["retirementDate"] == "2028-05-01"
+
+    def test_aks_without_retiring_pools(self):
+        r = {"properties": {"agentPoolProfiles": [{"name": "a", "vmSize": "Standard_D4s_v5", "count": 2}]}}
+        f = extract_resource_fields(r, "azure.aks")
+        assert "retiringNodePools" not in f and "retirementDate" not in f
+
+    def test_vmss_retirement(self):
+        r = {"sku": {"name": "Standard_F4s_v2", "capacity": 4},
+             "properties": {"orchestrationMode": "Uniform", "upgradePolicy": {"mode": "Manual"}}}
+        assert extract_resource_fields(r, "azure.vmss") == {
+            "vmSize": "Standard_F4s_v2", "capacity": 4, "orchestrationMode": "Uniform",
+            "upgradePolicyMode": "Manual", "retiringSeries": "Av2/Amv2/Bv1/F/Fs/Fsv2/G/Gs/Lsv2",
+            "retirementDate": "2028-11-15"}
+
+    def test_load_balancer_counts_keep_zero(self):
+        r = {"properties": {"backendAddressPools": [], "frontendIPConfigurations": [
+            {"properties": {"publicIPAddress": {"id": "pip"}}}, {"properties": {"privateIPAddress": "10.0.0.4"}}]}}
+        assert extract_resource_fields(r, "azure.loadbalancer") == {"backendPoolCount": 0, "publicIpCount": 1}
+
+    def test_asg_fields(self):
+        r = {"MinSize": 3, "MaxSize": 10, "DesiredCapacity": 4,
+             "Instances": [{"InstanceType": "m5.large"}, {"InstanceType": "m5.xlarge"}]}
+        assert extract_resource_fields(r, "aws.asg") == {
+            "minSize": 3, "maxSize": 10, "desiredCapacity": 4,
+            "instanceTypes": "m5.large, m5.xlarge"}
+
+    def test_average_cpu_from_metrics_annotation(self):
+        r = {"c7n.metrics": {"AWS/EC2.CPUUtilization.Average.14": [{"Average": 20.0}, {"Average": 30.0}]}}
+        assert extract_resource_fields(r, "aws.ec2") == {"avgCpuPercent": 25.0}
+        assert extract_resource_fields({}, "aws.ec2") == {}
+
+    def test_vm_size_retirement_matches_policy_groups(self):
+        assert run.vm_size_retirement("Standard_M192ims_v2") == ("M192i_v2", "2027-03-31")
+        assert run.vm_size_retirement("Standard_HB120-96rs_v2") == ("NP/HC/HBv2", "2027-05-31")
+        assert run.vm_size_retirement("Standard_DS11-1_v2") == ("D/Ds/Dv2/Dsv2/Ls", "2028-05-01")
+        assert run.vm_size_retirement("Standard_B2ms") == ("Av2/Amv2/Bv1/F/Fs/Fsv2/G/Gs/Lsv2", "2028-11-15")
+        assert run.vm_size_retirement("Standard_E4-2s_v3") == ("Dv3/Dsv3/Ev3/Esv3", "2029-11-15")
+        for current in ("Standard_D4s_v5", "Standard_B2s_v2", "Standard_D4s_v7", None):
+            assert run.vm_size_retirement(current) is None
+
+
+def test_vm_retirement_table_matches_policies():
+    """VM_SIZE_RETIREMENTS must classify sizes exactly like the leftsize-vm-*-retirement* policies."""
+    import re
+    from pathlib import Path
+    import yaml
+    policies = {p["name"]: p for p in yaml.safe_load(
+        (Path(run.__file__).parent / "policies" / "azure-deprecations.yml").read_text())["policies"]}
+    by_label = {label: pattern for label, pattern, _ in run.VM_SIZE_RETIREMENTS}
+    pairs = {
+        "leftsize-vm-hpc-fpga-retirement-2027": "NP/HC/HBv2",
+        "leftsize-vm-series-retirement-2028-05": "D/Ds/Dv2/Dsv2/Ls",
+        "leftsize-vm-series-retirement-2028-11": "Av2/Amv2/Bv1/F/Fs/Fsv2/G/Gs/Lsv2",
+        "leftsize-vm-v3-series-retirement-2029": "Dv3/Dsv3/Ev3/Esv3",
+    }
+    for name, label in pairs.items():
+        size_filter = next(f for f in policies[name]["filters"]
+                           if isinstance(f, dict) and f.get("key") == "properties.hardwareProfile.vmSize")
+        assert by_label[label].pattern.replace("\\\\", "\\") == size_filter["value"], name
+    m192 = next(f for f in policies["leftsize-vm-m192i-v2-retirement"]["filters"]
+                if isinstance(f, dict) and f.get("key") == "properties.hardwareProfile.vmSize")["value"]
+    assert all(by_label["M192i_v2"].match(size) for size in m192)
+    assert not by_label["M192i_v2"].match("standard_m192is_v3")

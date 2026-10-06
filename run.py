@@ -1437,6 +1437,10 @@ RESOURCE_FIELD_PATHS: Dict[str, Dict[str, List[str]]] = {
     # --- Azure ---
     'azure.storage': {'kind': ['kind']},
     'azure.disk': {'osType': ['properties.osType']},
+    'azure.vmss': {'vmSize': ['sku.name'], 'capacity': ['sku.capacity'],
+                   'orchestrationMode': ['properties.orchestrationMode'],
+                   'upgradePolicyMode': ['properties.upgradePolicy.mode']},
+    'aws.asg': {'minSize': ['MinSize'], 'maxSize': ['MaxSize'], 'desiredCapacity': ['DesiredCapacity']},
     'azure.aks': {'kubernetesVersion': ['properties.kubernetesVersion'],
                   'networkPolicy': ['properties.networkProfile.networkPolicy'],
                   'identityType': ['identity.type']},
@@ -1489,9 +1493,102 @@ def _aks_node_pools(resource: Dict[str, Any]) -> Optional[List[str]]:
     return lines or None
 
 
-# Fields that need more than a path lookup (templates iterate over lists).
+def _aks_node_count(resource: Dict[str, Any]) -> Optional[int]:
+    pools = (resource.get('properties') or {}).get('agentPoolProfiles') or []
+    counts = [p.get('count') for p in pools if isinstance(p, dict) and isinstance(p.get('count'), int)]
+    return sum(counts) if counts else None
+
+
+def _aks_vm_sizes(resource: Dict[str, Any]) -> Optional[str]:
+    pools = (resource.get('properties') or {}).get('agentPoolProfiles') or []
+    sizes = sorted({p.get('vmSize') for p in pools if isinstance(p, dict) and p.get('vmSize')})
+    return ', '.join(sizes) or None
+
+
+# Azure VM sizes with an announced retirement, in the same groups and with the same
+# patterns as the leftsize-vm-*-retirement* policies (azure-deprecations.yml).
+# (label, regex, retirement date)
+VM_SIZE_RETIREMENTS = [
+    ('M192i_v2', re.compile(r'^Standard_M192i(d)?(m)?s_v2$', re.I), '2027-03-31'),
+    ('NP/HC/HBv2', re.compile(r'^Standard_(NP\d+s|HC44(-\d+)?rs|HB120(-\d+)?rs_v2)$', re.I), '2027-05-31'),
+    ('D/Ds/Dv2/Dsv2/Ls', re.compile(r'^Standard_(DS?\d+(-\d+)?|DS?\d+(-\d+)?_v2(_Promo)?|L\d+s)$', re.I), '2028-05-01'),
+    ('Av2/Amv2/Bv1/F/Fs/Fsv2/G/Gs/Lsv2',
+     re.compile(r'^Standard_(A\d+m?_v2|B\d+(ls|s|ms)|F\d+s?|F\d+s_v2|GS?\d+(-\d+)?|L\d+s_v2)$', re.I), '2028-11-15'),
+    ('Dv3/Dsv3/Ev3/Esv3', re.compile(r'^Standard_(D\d+s?_v3|E\d+(-\d+)?i?s?_v3)$', re.I), '2029-11-15'),
+]
+
+
+def vm_size_retirement(vm_size: Optional[str]) -> Optional[tuple]:
+    """Return (series label, retirement date) when the VM size is scheduled for retirement."""
+    for label, pattern, date in VM_SIZE_RETIREMENTS:
+        if vm_size and pattern.match(vm_size):
+            return label, date
+    return None
+
+
+def _aks_retiring_pools(resource: Dict[str, Any]) -> Optional[List[str]]:
+    lines = []
+    for p in (resource.get('properties') or {}).get('agentPoolProfiles') or []:
+        if not isinstance(p, dict):
+            continue
+        retirement = vm_size_retirement(p.get('vmSize'))
+        if retirement:
+            lines.append(f"{p.get('name') or '-'}: {p.get('vmSize')} × {p.get('count', '?')} nodes "
+                         f"({p.get('mode') or '-'}) — {retirement[0]} retires {retirement[1]}")
+    return lines or None
+
+
+def _aks_retirement_date(resource: Dict[str, Any]) -> Optional[str]:
+    dates = [r[1] for p in (resource.get('properties') or {}).get('agentPoolProfiles') or []
+             if isinstance(p, dict) and (r := vm_size_retirement(p.get('vmSize')))]
+    return min(dates) if dates else None
+
+
+def _vmss_retiring_series(resource: Dict[str, Any]) -> Optional[str]:
+    r = vm_size_retirement((resource.get('sku') or {}).get('name'))
+    return r[0] if r else None
+
+
+def _vmss_retirement_date(resource: Dict[str, Any]) -> Optional[str]:
+    r = vm_size_retirement((resource.get('sku') or {}).get('name'))
+    return r[1] if r else None
+
+
+def _lb_backend_pool_count(resource: Dict[str, Any]) -> int:
+    return len((resource.get('properties') or {}).get('backendAddressPools') or [])
+
+
+def _lb_public_ip_count(resource: Dict[str, Any]) -> int:
+    frontends = (resource.get('properties') or {}).get('frontendIPConfigurations') or []
+    return sum(1 for f in frontends
+               if isinstance(f, dict) and ((f.get('properties') or {}).get('publicIPAddress')))
+
+
+def _asg_instance_types(resource: Dict[str, Any]) -> Optional[str]:
+    types = sorted({i.get('InstanceType') for i in resource.get('Instances') or []
+                    if isinstance(i, dict) and i.get('InstanceType')})
+    return ', '.join(types) or None
+
+
+def _avg_cpu_percent(resource: Dict[str, Any]) -> Optional[float]:
+    """Average CPUUtilization over the datapoints a `metrics` filter fetched (c7n.metrics annotation)."""
+    for key, datapoints in (resource.get('c7n.metrics') or {}).items():
+        if '.CPUUtilization.Average.' in key and datapoints:
+            values = [d['Average'] for d in datapoints if isinstance(d, dict) and 'Average' in d]
+            if values:
+                return round(sum(values) / len(values), 1)
+    return None
+
+
+# Fields that need more than a path lookup (counts, lists, derived values).
 RESOURCE_FIELD_BUILDERS: Dict[str, Dict[str, Any]] = {
-    'azure.aks': {'nodePools': _aks_node_pools},
+    'azure.aks': {'nodePools': _aks_node_pools, 'nodeCount': _aks_node_count, 'vmSizes': _aks_vm_sizes,
+                  'retiringNodePools': _aks_retiring_pools, 'retirementDate': _aks_retirement_date},
+    'azure.vmss': {'retiringSeries': _vmss_retiring_series, 'retirementDate': _vmss_retirement_date},
+    'azure.loadbalancer': {'backendPoolCount': _lb_backend_pool_count, 'publicIpCount': _lb_public_ip_count},
+    'aws.asg': {'instanceTypes': _asg_instance_types},
+    'aws.ec2': {'avgCpuPercent': _avg_cpu_percent},
+    'aws.rds': {'avgCpuPercent': _avg_cpu_percent},
 }
 
 
@@ -1532,7 +1629,7 @@ def extract_resource_fields(resource: Dict[str, Any], resource_type: Optional[st
                 break
     for key, builder in RESOURCE_FIELD_BUILDERS.get(resource_type or '', {}).items():
         value = builder(resource)
-        if value:
+        if value is not None and value != '' and value != []:
             fields[key] = value
     return fields
 
