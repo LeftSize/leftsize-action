@@ -1580,6 +1580,15 @@ def _avg_cpu_percent(resource: Dict[str, Any]) -> Optional[float]:
     return None
 
 
+def _s3_bucket_region(resource: Dict[str, Any]) -> Optional[str]:
+    """S3 ARNs carry no region; use the bucket location Custodian adds (same mapping as c7n's get_region)."""
+    location = resource.get('Location')
+    if not isinstance(location, dict):
+        return None
+    constraint = location.get('LocationConstraint')
+    return {None: 'us-east-1', '': 'us-east-1', 'EU': 'eu-west-1'}.get(constraint, constraint)
+
+
 # Fields that need more than a path lookup (counts, lists, derived values).
 RESOURCE_FIELD_BUILDERS: Dict[str, Dict[str, Any]] = {
     'azure.aks': {'nodePools': _aks_node_pools, 'nodeCount': _aks_node_count, 'vmSizes': _aks_vm_sizes,
@@ -1589,6 +1598,7 @@ RESOURCE_FIELD_BUILDERS: Dict[str, Dict[str, Any]] = {
     'aws.asg': {'instanceTypes': _asg_instance_types},
     'aws.ec2': {'avgCpuPercent': _avg_cpu_percent},
     'aws.rds': {'avgCpuPercent': _avg_cpu_percent},
+    'aws.s3': {'region': _s3_bucket_region},
 }
 
 

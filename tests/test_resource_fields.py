@@ -174,3 +174,17 @@ def test_vm_retirement_table_matches_policies():
                 if isinstance(f, dict) and f.get("key") == "properties.hardwareProfile.vmSize")["value"]
     assert all(by_label["M192i_v2"].match(size) for size in m192)
     assert not by_label["M192i_v2"].match("standard_m192is_v3")
+
+
+class TestS3Region:
+
+    def test_bucket_region_from_location_constraint(self):
+        assert extract_resource_fields({"Location": {"LocationConstraint": "eu-central-1"}}, "aws.s3") == {"region": "eu-central-1"}
+        assert extract_resource_fields({"Location": {"LocationConstraint": None}}, "aws.s3") == {"region": "us-east-1"}
+        assert extract_resource_fields({"Location": {"LocationConstraint": "EU"}}, "aws.s3") == {"region": "eu-west-1"}
+        assert extract_resource_fields({"Name": "b"}, "aws.s3") == {}
+
+    def test_s3_metadata_region(self):
+        md = extract_resource_metadata({"Name": "b", "CreationDate": "x", "Location": {"LocationConstraint": "eu-west-1"}},
+                                       "arn:aws:s3:::b", "aws.s3")
+        assert md["region"] == "eu-west-1"
