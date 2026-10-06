@@ -18,58 +18,80 @@ policies:
 
   - name: leftsize-lambda-deprecated-runtime
     description: |
-      Find Lambda functions using deprecated or soon-to-be-deprecated runtimes.
-      
-      Fully blocked (Phase 2 — can't create or update):
-      - Python 3.8: Blocked Feb 2025
-      - Node.js 16.x: Blocked Sep 2024
-      - .NET 6: Blocked Feb 2025
-      - Java 11: Blocked Feb 2025
-      - Node.js 18.x: Blocked Nov 2025
-      - Python 3.9: Blocked Nov 2025
-      
-      Deprecating soon (Phase 1 approaching):
-      - Ruby 3.2: Phase 1 Apr 2026, Phase 2 May 2026
-      - Node.js 20.x: Phase 1 May 2026, Phase 2 Jun 2026
-      - Python 3.10: Phase 1 Nov 2026, Phase 2 Dec 2026
-      - Java 17: Phase 1 Nov 2026, Phase 2 Dec 2026
-      
+      Find Lambda functions on a runtime that is deprecated, or will be deprecated
+      within ~6 months (verified 2026-10-04).
+
+      Lambda lifecycle: at the deprecation date AWS stops security patches and
+      technical support. Later, Lambda blocks function create, then function update.
+      For all runtimes below (except the long-retired ones) AWS publishes:
+      block create 2027-07-29, block update 2027-08-31.
+      You can always update a blocked function's configuration TO a supported runtime.
+
+      Already deprecated:
+      - provided.al2 (2026-07-31), nodejs20.x (2026-04-30), ruby3.2 (2026-03-31)
+      - python3.9 (2025-12-15), nodejs18.x (2025-09-01), dotnet6 (2024-12-20)
+      - python3.8 (2024-10-14), nodejs16.x (2024-06-12)
+      - java8, go1.x, provided (2024-01-08; create already blocked)
+      - ruby2.7, nodejs14.x, python3.7 (Dec 2023; create already blocked)
+      - older runtimes (create AND update already blocked)
+
+      Deprecating within ~6 months:
+      - python3.10: 2026-10-31
+      - dotnet8: 2026-11-10
+      - ruby3.3: 2027-03-31
+
+      NOT yet included (add when inside the 6-month window):
+      - nodejs22.x (deprecation 2027-04-30) -> add after 2026-10-31
+      - python3.11, java11, java17, java8.al2 (deprecation 2027-06-30) -> add after 2026-12-31
+      Container-image functions have no Runtime field and are never matched.
+
       Reference: https://docs.aws.amazon.com/lambda/latest/dg/lambda-runtimes.html
     resource: aws.lambda
+    metadata:
+      category: deprecation
+      severity: high
+      tier: free
     filters:
-      # Match deprecated runtimes
+      # Exact identifiers only (java17 must not match java17.al2023, etc.)
       - type: value
         key: 'Runtime'
         op: in
         value:
-          # Fully blocked (Phase 2 past)
+          # Deprecating within ~6 months
+          - 'python3.10'
+          - 'dotnet8'
+          - 'ruby3.3'
+          # Deprecated; create blocked 2027-07-29, update blocked 2027-08-31
+          - 'provided.al2'
+          - 'nodejs20.x'
+          - 'ruby3.2'
+          - 'python3.9'
+          - 'nodejs18.x'
+          - 'dotnet6'
           - 'python3.8'
           - 'nodejs16.x'
-          - 'dotnet6'
-          - 'java11'
-          - 'nodejs18.x'
-          - 'python3.9'
-          # Deprecating soon (2026)
-          - 'ruby3.2'
-          - 'nodejs20.x'
-          - 'python3.10'
-          - 'java17'
-          # Very old (should have been migrated long ago)
-          - 'python3.7'
-          - 'python3.6'
-          - 'python2.7'
-          - 'nodejs14.x'
-          - 'nodejs12.x'
-          - 'nodejs10.x'
-          - 'dotnetcore3.1'
+          # Deprecated; create already blocked, update blocked 2027-08-31
           - 'java8'
-          - 'java8.al2'
           - 'go1.x'
+          - 'provided'
           - 'ruby2.7'
-    actions:
-      - type: tag
-        key: leftsize-lambda-runtime-upgrade
-        value: 'leftsize-flagged'
+          - 'nodejs14.x'
+          - 'python3.7'
+          # Deprecated; create and update already blocked
+          - 'dotnetcore3.1'
+          - 'nodejs12.x'
+          - 'python3.6'
+          - 'dotnetcore2.1'
+          - 'nodejs10.x'
+          - 'ruby2.5'
+          - 'python2.7'
+          - 'nodejs8.10'
+          - 'nodejs6.10'
+          - 'nodejs4.3'
+          - 'nodejs4.3-edge'
+          - 'dotnetcore2.0'
+          - 'dotnetcore1.0'
+          - 'nodejs'
 
   # ========================================
   # 🗄️ ELASTICACHE VERSION DEPRECATIONS
@@ -77,31 +99,41 @@ policies:
 
   - name: leftsize-elasticache-eol-redis
     description: |
-      Find ElastiCache Redis clusters running EOL or deprecated versions.
-      
-      Redis version support:
-      - Redis 6.x: Still in standard support (flag only 5.x and older)
-      - Redis 5.x: Legacy, should upgrade
-      - Redis 4.x and below: Very old, critical to upgrade
-      
-      Redis 7.x provides better performance and new features.
-      
-      Reference: https://docs.aws.amazon.com/AmazonElastiCache/latest/red-ug/supported-engine-versions.html
+      Find ElastiCache node-based clusters on Redis OSS 5 or older, which are billed
+      for ElastiCache Extended Support.
+
+      Redis OSS 4 and 5:
+      - End of standard support: 2026-01-31
+      - Extended Support Y1/Y2 premium (80% of the on-demand node price): from 2026-02-01
+      - Extended Support Y3 premium (160%): from 2028-02-01
+      - End of Extended Support: 2029-01-31, then caches are upgraded to the latest Valkey
+
+      Reserved node discounts don't apply to the Extended Support charge.
+      Redis OSS 6 is covered by leftsize-elasticache-redis6-end-of-standard-support.
+
+      References:
+      - https://docs.aws.amazon.com/AmazonElastiCache/latest/dg/extended-support.html
+      - https://docs.aws.amazon.com/AmazonElastiCache/latest/dg/engine-versions.html
+      - https://aws.amazon.com/elasticache/pricing/
     resource: aws.cache-cluster
     filters:
-      # Redis engine only
+      - type: value
+        key: 'CacheClusterStatus'
+        op: not-in
+        value: ['deleting', 'deleted', 'create-failed']
+      # Redis OSS engine only (Valkey and Memcached are not affected)
       - type: value
         key: 'Engine'
         value: 'redis'
-      # Match older Redis versions (5.x and below; Redis 6.x still supported)
+      # Redis OSS 5.x and older
       - type: value
         key: 'EngineVersion'
         op: regex
-        value: '^[1-5]\.'
-    actions:
-      - type: tag
-        key: leftsize-elasticache-upgrade
-        value: 'leftsize-flagged'
+        value: '^[1-5]\..*$'
+    metadata:
+      category: deprecation
+      severity: high
+      tier: free
 
   # ========================================
   # 🔍 OPENSEARCH/ELASTICSEARCH DEPRECATIONS
@@ -109,34 +141,40 @@ policies:
 
   - name: leftsize-opensearch-outdated-version
     description: |
-      Find OpenSearch/Elasticsearch domains running outdated versions.
-      
-      Version guidance:
-      - Elasticsearch 7.x and below: Migrate to OpenSearch 2.x
-      - OpenSearch 1.x: Upgrade to OpenSearch 2.x for better performance
-      
-      OpenSearch 2.x provides significant performance improvements,
-      security enhancements, and new features.
-      
-      Reference: https://docs.aws.amazon.com/opensearch-service/latest/developerguide/version-migration.html
+      Find OpenSearch Service domains on versions that are in paid Extended Support.
+
+      End of standard support was 2025-11-07 for:
+      - Elasticsearch 1.5, 2.3, 5.1-5.5, 6.0-6.7, 7.1-7.8
+      - OpenSearch 1.0-1.2, 2.3-2.9
+      Their Extended Support was extended to 2027-11-07. From 2026-11-07 the Extended
+      Support charge for these versions equals the instance cost (effectively doubling
+      instance pricing; storage is not affected).
+
+      - Elasticsearch 5.6: Extended Support until 2028-11-07 at the standard rate
+        ($0.0065 per Normalized Instance Hour in us-east-1)
+
+      NOT matched (standard support until 2027-11-07): Elasticsearch 6.8, 7.9, 7.10,
+      OpenSearch 1.3, OpenSearch 2.11 - 2.19. OpenSearch 3.x has no announced end date.
+
+      The legacy ES API (used by aws.elasticsearch) reports OpenSearch domains in
+      ElasticsearchVersion as "OpenSearch_X.Y".
+
+      Reference: https://docs.aws.amazon.com/opensearch-service/latest/developerguide/what-is.html
     resource: aws.elasticsearch
     filters:
-      # Match older versions
-      - or:
-        # Legacy Elasticsearch versions
-        - type: value
-          key: 'ElasticsearchVersion'
-          op: regex
-          value: '^[1-7]\.'
-        # OpenSearch 1.x
-        - type: value
-          key: 'EngineVersion'
-          op: regex
-          value: '^OpenSearch_1\.'
-    actions:
-      - type: tag
-        key: leftsize-opensearch-upgrade
-        value: 'leftsize-flagged'
+      # Skip domains that are being deleted
+      - type: value
+        key: 'Deleted'
+        op: ne
+        value: true
+      - type: value
+        key: 'ElasticsearchVersion'
+        op: regex
+        value: '^(1\.5|2\.3|5\.[1-6]|6\.[0-7]|7\.[1-8]|(OpenSearch|OS)_1\.[0-2]|(OpenSearch|OS)_2\.[3-9])$'
+    metadata:
+      category: deprecation
+      severity: high
+      tier: free
 
   # ========================================
   # ☸️ EKS KUBERNETES VERSION DEPRECATIONS
@@ -144,53 +182,55 @@ policies:
 
   - name: leftsize-eks-outdated-version
     description: |
-      Find EKS clusters running outdated Kubernetes versions incurring extended support charges.
-      
-      CRITICAL COST IMPACT:
-      - Extended support costs 6X MORE than standard support
-      - Standard: $0.10/cluster/hour (~$73/month)
-      - Extended: $0.60/cluster/hour (~$438/month)
-      - Potential savings: $365/month per cluster ($4,380/year)
-      
-      EKS Version Support Timeline (as of Feb 2026):
-      
-      | Version | Standard Support | Extended Support | Status |
-      |---------|------------------|------------------|--------|
-      | 1.27    | Ended Jan 2025   | Ends Jul 2025    | EXPIRED |
-      | 1.28    | Ended Mar 2025   | Ends Nov 2025    | EXPIRED |
-      | 1.29    | Ended Mar 2025   | Ends Mar 2026    | Extended (6X cost) |
-      | 1.30    | Ended Jul 2025   | Ends Jul 2026    | Extended (6X cost) |
-      | 1.31    | Ended Nov 2025   | Ends Nov 2026    | Extended (6X cost) |
-      | 1.32    | Ends Mar 2026    | Ends Mar 2027    | Standard (upgrade soon) |
-      | 1.33+   | Active           | -                | Current |
-      
-      AWS auto-upgrades clusters when extended support ends if upgrade policy is disabled.
-      
+      Find EKS clusters whose Kubernetes version is in paid extended support, or
+      whose standard support ends within ~2 months.
+
+      Pricing (https://aws.amazon.com/eks/pricing/):
+      - Standard support: $0.10 per cluster per hour
+      - Extended support: $0.60 per cluster per hour (standard + $0.50)
+      - Difference: $0.50/hour = ~$365 per cluster per month (730 h)
+
+      Amazon EKS release calendar (verified 2026-10-04, dates UTC):
+
+      | Version | End of standard support | End of extended support |
+      |---------|-------------------------|-------------------------|
+      | 1.31    | 2025-11-26              | 2026-11-26              |
+      | 1.32    | 2026-03-23              | 2027-03-23              |
+      | 1.33    | 2026-07-29              | 2027-07-29              |
+      | 1.34    | 2026-12-02              | 2027-12-02              |
+      | 1.35    | 2027-03-27              | 2028-03-27              |
+      | 1.36    | 2027-08-02              | 2028-08-02              |
+      | 1.37    | 2027-12-01              | 2028-12-01              |
+
+      Billing for extended support starts at the beginning of the end-of-standard-support
+      day. At the end of extended support the control plane is auto-upgraded (no notice,
+      no rollback). With upgradePolicy.supportType=STANDARD the cluster is instead
+      auto-upgraded at the end of standard support.
+
+      MAINTENANCE: the filter is version-agnostic below the threshold (value_type: version,
+      lte). Raise the threshold to '1.35' around 2027-01-27 (~2 months before 1.35 standard
+      support ends on 2027-03-27).
+
       Reference: https://docs.aws.amazon.com/eks/latest/userguide/kubernetes-versions.html
     resource: aws.eks
+    metadata:
+      category: cost-optimization
+      severity: high
+      tier: free
     filters:
-      # Match Kubernetes versions in extended support or approaching it
+      # Skip clusters that are being deleted or failed to create
+      - type: value
+        key: 'status'
+        op: not-in
+        value: ['DELETING', 'FAILED']
+      # Kubernetes version <= 1.34: 1.31-1.33 are in extended support today,
+      # 1.34 enters extended support on 2026-12-02. Numeric version comparison,
+      # so anything older (e.g. 1.30, 1.9) also matches.
       - type: value
         key: 'version'
-        op: in
-        value:
-          # Extended support EXPIRED - critical upgrade needed
-          - '1.23'
-          - '1.24'
-          - '1.25'
-          - '1.26'
-          - '1.27'
-          - '1.28'
-          # Currently in EXTENDED SUPPORT (6X cost)
-          - '1.29'
-          - '1.30'
-          - '1.31'
-          # Standard support ending Mar 2026
-          - '1.32'
-    actions:
-      - type: tag
-        key: leftsize-eks-upgrade
-        value: 'leftsize-flagged'
+        value_type: version
+        op: lte
+        value: '1.34'
 
   # ========================================
   # 📌 AMAZON PINPOINT DEPRECATION
@@ -296,3 +336,868 @@ policies:
   #       tag: leftsize-[service]-upgrade
   #
   # ========================================
+
+  # ========================================
+  # 🐘 RDS / AURORA POSTGRESQL LIFECYCLE
+  # ========================================
+
+  - name: leftsize-rds-postgres11-end-of-extended-support
+    description: |
+      Find RDS for PostgreSQL and Aurora PostgreSQL DB instances on PostgreSQL 11.
+
+      PostgreSQL 11 timeline (RDS and Aurora):
+      - End of standard support: 2024-02-29
+      - Extended Support year 1 pricing: 2024-04-01
+      - Extended Support year 3 pricing: 2026-04-01 (billed now)
+      - End of Extended Support: 2027-03-31
+
+      After the end of Extended Support, Amazon RDS automatically upgrades the
+      major engine version of any database still on PostgreSQL 11.
+
+      References:
+      - https://docs.aws.amazon.com/AmazonRDS/latest/PostgreSQLReleaseNotes/postgresql-release-calendar.html
+      - https://docs.aws.amazon.com/AmazonRDS/latest/AuroraPostgreSQLReleaseNotes/aurorapostgresql-release-calendar.html
+      - https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/extended-support.html
+    resource: aws.rds
+    filters:
+      - type: value
+        key: 'DBInstanceStatus'
+        op: not-in
+        value: ['deleting', 'failed']
+      - type: value
+        key: 'Engine'
+        op: in
+        value: ['postgres', 'aurora-postgresql']
+      - type: value
+        key: 'EngineVersion'
+        op: regex
+        value: '^11\..*$'
+    metadata:
+      category: deprecation
+      severity: critical
+      tier: free
+
+  - name: leftsize-rds-postgres14-end-of-standard-support
+    description: |
+      Find RDS for PostgreSQL and Aurora PostgreSQL DB instances on PostgreSQL 14.
+
+      PostgreSQL 14 timeline (RDS and Aurora):
+      - Community end of life: 2026-11-12 (RDS) / November 2026 (Aurora)
+      - End of standard support: 2027-02-28
+      - Extended Support year 1 pricing: 2027-03-01 (per vCPU-hour, automatic)
+      - Extended Support year 3 pricing: 2029-03-01
+      - End of Extended Support: 2030-02-28
+
+      References:
+      - https://docs.aws.amazon.com/AmazonRDS/latest/PostgreSQLReleaseNotes/postgresql-release-calendar.html
+      - https://docs.aws.amazon.com/AmazonRDS/latest/AuroraPostgreSQLReleaseNotes/aurorapostgresql-release-calendar.html
+    resource: aws.rds
+    filters:
+      - type: value
+        key: 'DBInstanceStatus'
+        op: not-in
+        value: ['deleting', 'failed']
+      - type: value
+        key: 'Engine'
+        op: in
+        value: ['postgres', 'aurora-postgresql']
+      - type: value
+        key: 'EngineVersion'
+        op: regex
+        value: '^14\..*$'
+    metadata:
+      category: deprecation
+      severity: medium
+      tier: free
+
+  # ========================================
+  # 🦭 RDS FOR MARIADB END OF STANDARD SUPPORT
+  # ========================================
+
+  - name: leftsize-rds-mariadb-end-of-support
+    description: |
+      Find RDS for MariaDB DB instances on MariaDB 10.6 or older.
+
+      - MariaDB 10.6: RDS end of standard support 2026-12-31
+      - MariaDB 10.5: RDS end of standard support 2026-08-31 (deprecated)
+      - MariaDB 10.0 - 10.4: deprecated
+
+      RDS Extended Support is only offered for RDS for MySQL and RDS for PostgreSQL,
+      so there is no paid option to stay on these versions. When a major version is
+      deprecated, RDS applies an automatic upgrade to the next major version during
+      the maintenance window.
+
+      References:
+      - https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/MariaDB.Concepts.VersionMgmt.html
+      - https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/extended-support-versions.html
+      - https://aws.amazon.com/rds/faqs/
+    resource: aws.rds
+    filters:
+      - type: value
+        key: 'DBInstanceStatus'
+        op: not-in
+        value: ['deleting', 'failed']
+      - type: value
+        key: 'Engine'
+        value: 'mariadb'
+      # 10.0 - 10.6 (10.11 and 11.x/12.x are not matched)
+      - type: value
+        key: 'EngineVersion'
+        op: regex
+        value: '^10\.[0-6]\..*$'
+    metadata:
+      category: deprecation
+      severity: high
+      tier: free
+
+  # ========================================
+  # 🪟 RDS FOR SQL SERVER 2016 END OF SUPPORT
+  # ========================================
+
+  - name: leftsize-rds-sqlserver-2016-end-of-support
+    description: |
+      Find RDS for SQL Server DB instances still on SQL Server 2016 (13.00.x).
+
+      - 2026-01-15: RDS started disabling creation of new SQL Server 2016 instances
+      - 2026-07-14: Microsoft stopped critical patch updates for SQL Server 2016
+      - 2026-07-14: RDS ended support for SQL Server 2016; remaining instances are
+        scheduled to migrate to SQL Server 2019 (latest minor version available)
+
+      Reference: https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/SQLServer.Concepts.General.VersionSupport.html
+    resource: aws.rds
+    filters:
+      - type: value
+        key: 'DBInstanceStatus'
+        op: not-in
+        value: ['deleting', 'failed']
+      - type: value
+        key: 'Engine'
+        op: in
+        value: ['sqlserver-ee', 'sqlserver-se', 'sqlserver-ex', 'sqlserver-web', 'sqlserver-dev-ee']
+      - type: value
+        key: 'EngineVersion'
+        op: regex
+        value: '^13\.00\..*$'
+    metadata:
+      category: deprecation
+      severity: critical
+      tier: free
+
+  # ========================================
+  # 🔶 RDS CUSTOM FOR ORACLE END OF SUPPORT
+  # ========================================
+
+  - name: leftsize-rds-custom-oracle-end-of-support
+    description: |
+      Find RDS Custom for Oracle DB instances.
+
+      AWS is discontinuing Amazon RDS Custom for Oracle on 2027-03-31. After that
+      date you can no longer access the RDS Custom for Oracle console or resources.
+      AWS recommends migrating to self-managed Oracle on Amazon EC2 (RMAN active
+      duplication or Oracle Data Guard). RDS for Oracle (engines oracle-ee,
+      oracle-se2, ...) and RDS Custom for SQL Server are NOT affected.
+
+      Reference: https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/RDS-Custom-for-Oracle-end-of-support.html
+    resource: aws.rds
+    filters:
+      - type: value
+        key: 'DBInstanceStatus'
+        op: not-in
+        value: ['deleting', 'failed']
+      - type: value
+        key: 'Engine'
+        op: in
+        value: ['custom-oracle-ee', 'custom-oracle-ee-cdb', 'custom-oracle-se2', 'custom-oracle-se2-cdb']
+    metadata:
+      category: deprecation
+      severity: high
+      tier: free
+
+  # ========================================
+  # 📄 AMAZON DOCUMENTDB 3.6 EXTENDED SUPPORT
+  # ========================================
+
+  - name: leftsize-docdb-36-extended-support
+    description: |
+      Find Amazon DocumentDB instances on engine version 3.6.
+
+      - End of standard support: 2026-03-30
+      - Extended Support charges: from 2026-07-01 (Extended Support page; the
+        release calendar lists 2026-03-31 as the start of year 1 pricing)
+      - Year 3 pricing: 2028-03-31
+      - End of Extended Support: 2029-03-30, after which DocumentDB upgrades the cluster
+
+      DocumentDB instances are returned by the RDS DescribeDBInstances API (Engine = docdb).
+
+      References:
+      - https://docs.aws.amazon.com/documentdb/latest/developerguide/docdb-version-support-dates.html
+      - https://docs.aws.amazon.com/documentdb/latest/developerguide/extended-support.html
+    resource: aws.rds
+    filters:
+      - type: value
+        key: 'DBInstanceStatus'
+        op: not-in
+        value: ['deleting', 'failed']
+      - type: value
+        key: 'Engine'
+        value: 'docdb'
+      - type: value
+        key: 'EngineVersion'
+        op: regex
+        value: '^3\.6(\..*)?$'
+    metadata:
+      category: deprecation
+      severity: high
+      tier: free
+
+  # ========================================
+  # 🕸️ AMAZON NEPTUNE ENGINE END OF LIFE
+  # ========================================
+
+  - name: leftsize-neptune-engine-end-of-life
+    description: |
+      Find Amazon Neptune DB instances on engine versions with an announced end of life.
+
+      - 1.1.1.0 and 1.2.0.0 - 1.2.1.2: end of life 2026-12-04 (upgrade to 1.3.0.0+)
+      - 1.3.0.0 - 1.4.6.1: end of life 2027-03-06
+
+      At end of life you can no longer create clusters or instances on the version,
+      and the engine is upgraded automatically during a maintenance window.
+      Neptune instances are returned by the RDS DescribeDBInstances API (Engine = neptune).
+
+      Reference: https://docs.aws.amazon.com/neptune/latest/userguide/engine-releases.html
+    resource: aws.rds
+    filters:
+      - type: value
+        key: 'DBInstanceStatus'
+        op: not-in
+        value: ['deleting', 'failed']
+      - type: value
+        key: 'Engine'
+        value: 'neptune'
+      - type: value
+        key: 'EngineVersion'
+        op: regex
+        value: '^1\.(1\.1\.0|2\.[0-9]+\.[0-9]+|3\.[0-9]+\.[0-9]+|4\.[0-5]\.[0-9]+|4\.6\.[01])$'
+    metadata:
+      category: deprecation
+      severity: high
+      tier: free
+
+  # ========================================
+  # 🗄️ ELASTICACHE REDIS OSS 6 END OF STANDARD SUPPORT
+  # ========================================
+
+  - name: leftsize-elasticache-redis6-end-of-standard-support
+    description: |
+      Find ElastiCache node-based clusters on Redis OSS 6 (6.0 / 6.2).
+
+      - End of standard support: 2027-01-31
+      - Extended Support Y1 premium: 2027-02-01 (80% of the on-demand node price)
+      - Extended Support Y3 premium: 2029-02-01 (160%)
+      - End of Extended Support and version EOL: 2030-01-31
+
+      Reserved node discounts don't apply to the Extended Support charge.
+
+      References:
+      - https://docs.aws.amazon.com/AmazonElastiCache/latest/dg/engine-versions.html
+      - https://docs.aws.amazon.com/AmazonElastiCache/latest/dg/extended-support-charges.html
+      - https://aws.amazon.com/elasticache/pricing/
+    resource: aws.cache-cluster
+    filters:
+      - type: value
+        key: 'CacheClusterStatus'
+        op: not-in
+        value: ['deleting', 'deleted', 'create-failed']
+      - type: value
+        key: 'Engine'
+        value: 'redis'
+      - type: value
+        key: 'EngineVersion'
+        op: regex
+        value: '^6\..*$'
+    metadata:
+      category: deprecation
+      severity: medium
+      tier: free
+
+  # ========================================
+  # AMAZON LINUX 2 END OF SUPPORT (EKS, BATCH, EC2)
+  # ========================================
+
+  - name: leftsize-eks-nodegroup-al2-ami
+    description: |
+      Find EKS managed node groups that still use an Amazon Linux 2 AMI type
+      (AL2_x86_64, AL2_x86_64_GPU, AL2_ARM_64).
+
+      Timeline:
+      - 2025-11-26: Amazon EKS stopped publishing EKS-optimized AL2 and AL2-accelerated
+        AMIs and ended support for them (no new Kubernetes versions, patches or bug fixes).
+      - Kubernetes 1.32 is the last version with EKS AL2 AMIs, so AL2 node groups block
+        upgrading the cluster to 1.33+.
+      - 2026-06-30: Amazon Linux 2 itself reached end of support.
+
+      Node groups with amiType CUSTOM (custom AMI in a launch template) are not matched:
+      their OS cannot be determined from the node group.
+
+      Reference: https://docs.aws.amazon.com/eks/latest/userguide/eks-ami-deprecation-faqs.html
+      Migration: https://docs.aws.amazon.com/eks/latest/userguide/al2023.html
+    resource: aws.eks-nodegroup
+    metadata:
+      category: deprecation
+      severity: high
+      tier: free
+    filters:
+      # Skip node groups that are being deleted or failed
+      - type: value
+        key: 'status'
+        op: not-in
+        value: ['DELETING', 'CREATE_FAILED', 'DELETE_FAILED']
+      # EKS-optimized Amazon Linux 2 AMI types (EKS AMITypes enum)
+      - type: value
+        key: 'amiType'
+        op: in
+        value: ['AL2_x86_64', 'AL2_x86_64_GPU', 'AL2_ARM_64']
+
+  - name: leftsize-batch-compute-al2-ami
+    description: |
+      Find AWS Batch managed EC2/Spot compute environments that are configured to use
+      Batch-provided Amazon Linux 2 AMIs (ec2Configuration imageType ECS_AL2,
+      ECS_AL2_NVIDIA, EKS_AL2 or EKS_AL2_NVIDIA).
+
+      Timeline:
+      - 2025-11-26: Support ended for Amazon EKS-optimized AL2 AMIs (EKS_AL2*).
+      - 2026-01-12: Batch default AMI for new ECS compute environments changed to AL2023.
+      - 2026-06-30: Support ended for Amazon ECS-optimized AL2 AMIs (ECS_AL2*); Batch blocks
+        creation of new ECS compute environments using Batch-provided AL2 AMIs.
+      Existing compute environments keep running but get no software updates, security
+      patches or bug fixes from AWS.
+
+      Limit: environments that never set ec2Configuration (implicit default) are not
+      matched, because the describe output does not reliably show the implied image type.
+
+      Reference: https://docs.aws.amazon.com/batch/latest/userguide/ecs-al2-ami-deprecation.html
+      Reference: https://docs.aws.amazon.com/batch/latest/userguide/eks-al2-ami-deprecation.html
+    resource: aws.batch-compute
+    metadata:
+      category: deprecation
+      severity: high
+      tier: free
+    filters:
+      # Only managed compute environments choose AMIs via ec2Configuration
+      - type: value
+        key: 'type'
+        value: 'MANAGED'
+      # Fargate compute environments have no AMI
+      - type: value
+        key: 'computeResources.type'
+        op: in
+        value: ['EC2', 'SPOT']
+      # Any configured image type is an Amazon Linux 2 variant
+      - type: value
+        key: 'computeResources.ec2Configuration[].imageType'
+        op: intersect
+        value: ['ECS_AL2', 'ECS_AL2_NVIDIA', 'EKS_AL2', 'EKS_AL2_NVIDIA']
+
+  - name: leftsize-ec2-amazon-linux-2-eol
+    description: |
+      Find running or stopped EC2 instances launched from an Amazon Linux 2 AMI
+      (AMI name starting with "amzn2-ami-", the documented AL2 naming scheme,
+      including ECS-optimized AL2 AMIs).
+
+      Timeline:
+      - 2026-06-30: Amazon Linux 2 reached end of support. It no longer receives
+        standard security updates. AWS recommends migrating to Amazon Linux 2023
+        (supported until June 2029).
+
+      Limits (the image filter looks up the source AMI with ec2:DescribeImages):
+      - Instances whose source AMI is deregistered, or private to another account, are
+        skipped (AMI not found).
+      - Instances from custom/golden AMIs built on AL2 but named differently are missed.
+      - EKS-optimized AL2 node AMIs (amazon-eks-node-*) are not matched here; managed node
+        groups are covered by leftsize-eks-nodegroup-al2-ami.
+      - The AMI is what the instance was launched from; an in-place OS change is not seen.
+
+      Reference: https://aws.amazon.com/amazon-linux-2/faqs/
+      AMI naming: https://docs.aws.amazon.com/linux/al2/ug/ec2.html
+    resource: aws.ec2
+    metadata:
+      category: deprecation
+      severity: high
+      tier: free
+    filters:
+      # Terminated instances do not matter
+      - type: value
+        key: 'State.Name'
+        op: in
+        value: ['running', 'stopped']
+      # Source AMI is an Amazon Linux 2 AMI
+      - type: image
+        key: 'Name'
+        op: regex
+        value: '^amzn2-ami-.*$'
+
+  # ========================================
+  # ELASTIC BEANSTALK RETIRED PLATFORM BRANCHES
+  # ========================================
+
+  - name: leftsize-elasticbeanstalk-retired-linux-platform
+    description: |
+      Find Elastic Beanstalk environments running on a retired Linux platform branch.
+
+      Timeline:
+      - 2022-07-18: All Amazon Linux AMI (AL1) platform branches retired.
+      - 2026-08-06: All remaining Amazon Linux 2 (AL2) platform branches retired.
+      - 2026-08-13: AL2023 Node.js 20, Python 3.9 and Ruby 3.2 branches retired.
+      - Earlier AL2023 retirements: Node.js 18 (2025-08), .NET 6, PHP 8.1 (2026-04).
+      Retired branches cannot be used for new environments and no longer receive security
+      updates, platform updates or bug fixes. Moving to another platform branch requires a
+      blue/green deployment (new environment + CNAME swap).
+
+      Matching is on SolutionStackName (environments built on custom platforms have none).
+
+      Reference: https://docs.aws.amazon.com/elasticbeanstalk/latest/platforms/platforms-retiring.html
+      Reference: https://docs.aws.amazon.com/elasticbeanstalk/latest/relnotes/relnotes.html
+    resource: aws.elasticbeanstalk-environment
+    metadata:
+      category: deprecation
+      severity: high
+      tier: free
+    filters:
+      - type: value
+        key: 'Status'
+        op: not-in
+        value: ['Terminating', 'Terminated']
+      - or:
+          # Amazon Linux 2 ("64bit Amazon Linux 2 v3.x running ..."); does not match "2023"
+          - type: value
+            key: 'SolutionStackName'
+            op: regex
+            value: '^64bit Amazon Linux 2 v.*$'
+          # Amazon Linux AMI / AL1 ("64bit Amazon Linux 2018.03 v2.x running ...")
+          - type: value
+            key: 'SolutionStackName'
+            op: regex
+            value: '^64bit Amazon Linux 20(1[0-9]|09)\.[0-9]+ v.*$'
+          # Retired AL2023 branches
+          - type: value
+            key: 'SolutionStackName'
+            op: regex
+            value: '^64bit Amazon Linux 2023 v[0-9.]+ running (Node\.js (18|20)|Python 3\.9|Ruby 3\.2|PHP 8\.1|\.NET 6)$'
+
+  - name: leftsize-elasticbeanstalk-windows-2016-platform
+    description: |
+      Find Elastic Beanstalk environments on the Windows Server 2016 / Windows Server
+      Core 2016 platform branches.
+
+      Timeline:
+      - 2026-09-30: Branches retired. No new environments; existing environments get no
+        security updates, platform updates or bug fixes.
+      - 2027-01-15: The default AMIs for these branches become inaccessible. Anything that
+        launches a new EC2 instance from them fails: auto scaling, instance replacement,
+        and deployments/configuration changes that launch new instances.
+
+      Target: Windows Server 2025, 2022 or 2019 with IIS 10.0 (blue/green deployment).
+
+      Reference: https://docs.aws.amazon.com/elasticbeanstalk/latest/platforms/platforms-retiring.html
+    resource: aws.elasticbeanstalk-environment
+    metadata:
+      category: deprecation
+      severity: critical
+      tier: free
+    filters:
+      - type: value
+        key: 'Status'
+        op: not-in
+        value: ['Terminating', 'Terminated']
+      # "64bit Windows Server 2016 v2.23.6 running IIS 10.0" /
+      # "64bit Windows Server Core 2016 v2.23.6 running IIS 10.0"
+      - type: value
+        key: 'SolutionStackName'
+        op: regex
+        value: '^64bit Windows Server (Core )?2016 v.*$'
+
+  # ========================================
+  # AMAZON WORKSPACES PCOIP END OF SUPPORT
+  # ========================================
+
+  - name: leftsize-workspaces-pcoip-end-of-support
+    description: |
+      Find WorkSpaces Personal that still stream over PCoIP.
+
+      Timeline:
+      - 2026-07-31: PCoIP WorkSpaces Personal closed to new customers.
+      - 2027-10-31: End of support. After this date you can no longer create or connect
+        to PCoIP WorkSpaces (all Regions, including GovCloud).
+      Migration to Amazon DCV (protocol "WSP") is free; WorkSpaces pricing is unchanged.
+      PCoIP Zero Client devices cannot use DCV and must be replaced.
+
+      Reference: https://docs.aws.amazon.com/workspaces/latest/adminguide/workspaces-pcoip-end-of-support.html
+    resource: aws.workspaces
+    metadata:
+      category: deprecation
+      severity: medium
+      tier: free
+    filters:
+      - type: value
+        key: 'State'
+        op: not-in
+        value: ['TERMINATING', 'TERMINATED']
+      - type: value
+        key: 'WorkspaceProperties.Protocols'
+        op: contains
+        value: 'PCOIP'
+
+  # ========================================
+  # 🧪 AWS GLUE JOB VERSION END OF LIFE
+  # ========================================
+
+  - name: leftsize-glue-job-eol-version
+    description: |
+      Find AWS Glue jobs pinned to a Glue / Python shell version that has reached End of Life.
+
+      End of Life means: no new jobs, no new job runs, existing runs are stopped,
+      and the version is removed from the Glue SDKs and APIs.
+
+      | Job type     | Version                                 | End of support | End of life |
+      |--------------|-----------------------------------------|----------------|-------------|
+      | Spark        | Glue 0.9 (also the default when GlueVersion is not set) | 2022-06-01 | 2026-04-01 |
+      | Spark        | Glue 1.0                                | 2022-06-01 / 2022-09-30 | 2026-04-01 |
+      | Spark        | Glue 2.0                                | 2024-01-31     | 2026-04-01  |
+      | Python shell | Python 2 (PythonVersion "2")            | 2022-06-01     | 2026-04-01  |
+      | Python shell | Python 3.6 (PythonVersion "3")          | March 2026 (*) | 2026-06-01  |
+
+      (*) The support-policy page says 2026-03-31, the Python shell page says 2026-03-01;
+          both agree on End of Life 2026-06-01.
+      PythonVersion "3" is the legacy 3.6 selector. AWS now resolves "3" to 3.9 for newly
+      created jobs, so a flagged "3" job is either a legacy 3.6 job (stopped since 2026-06-01)
+      or ambiguous; set "3.9" explicitly.
+
+      Migrate Spark jobs to Glue 5.0/6.0 and Python shell jobs to PythonVersion "3.9", or delete unused jobs.
+
+      Reference: https://docs.aws.amazon.com/glue/latest/dg/glue-version-support-policy.html
+      Reference: https://docs.aws.amazon.com/glue/latest/dg/add-job-python.html
+    resource: aws.glue-job
+    metadata:
+      category: deprecation
+      severity: high
+      tier: free
+    filters:
+      - or:
+        # Spark batch / streaming jobs on Glue 0.9, 1.0 or 2.0
+        - and:
+          - type: value
+            key: 'Command.Name'
+            op: in
+            value: ['glueetl', 'gluestreaming']
+          - or:
+            - type: value
+              key: 'GlueVersion'
+              op: in
+              value: ['0.9', '1.0', '2.0']
+            # GlueVersion not set => job runs on Glue 0.9 (botocore Job.GlueVersion docs)
+            - type: value
+              key: 'GlueVersion'
+              value: absent
+        # Python shell jobs on Python 2 or Python 3.6 (PythonVersion "3"; 3.9 is "3.9")
+        - and:
+          - type: value
+            key: 'Command.Name'
+            value: 'pythonshell'
+          - type: value
+            key: 'Command.PythonVersion'
+            op: in
+            value: ['2', '3']
+
+  # ========================================
+  # 🐘 AMAZON EMR RELEASE END OF SUPPORT
+  # ========================================
+
+  - name: leftsize-emr-release-end-of-support
+    description: |
+      Find active Amazon EMR clusters on releases that reached End of Support on 2026-09-01.
+
+      Releases 2.x, 3.x, 4.x, 5.0-5.35 and 6.0-6.5 left Bridge Support on 2026-08-31 and
+      do NOT get Extended Support:
+      - End of Support: 2026-09-01 (no support cases, no fixes/patches, removed from console)
+      - End of Life:    2027-09-01 (EMR may remove the release from the API/SDK case by case)
+      Running clusters keep working; EMR does not upgrade clusters automatically.
+
+      Only active clusters are scanned (c7n default ClusterStates:
+      STARTING, BOOTSTRAPPING, RUNNING, WAITING).
+
+      Reference: https://docs.aws.amazon.com/emr/latest/ReleaseGuide/emr-standard-support.html
+    resource: aws.emr
+    metadata:
+      category: deprecation
+      severity: high
+      tier: free
+    filters:
+      - or:
+        # emr-4.x, emr-5.0 .. emr-5.35, emr-6.0 .. emr-6.5
+        - type: value
+          key: 'ReleaseLabel'
+          op: regex
+          value: '^emr-(4\.[0-9]+|5\.([0-9]|[12][0-9]|3[0-5])|6\.[0-5])\.[0-9]+$'
+        # 2.x / 3.x clusters use AMI versions instead of a release label
+        - and:
+          - type: value
+            key: 'ReleaseLabel'
+            value: absent
+          - type: value
+            key: 'RunningAmiVersion'
+            value: present
+
+  - name: leftsize-emr-release-support-ending-2027
+    description: |
+      Find active Amazon EMR clusters on releases whose free Extended Support ends 2027-06-30.
+
+      Releases 5.36 and 6.6-6.15 receive best-effort critical security fixes until 2027-06-30:
+      - End of Support: 2027-06-30
+      - End of Life:    2028-07-01
+      Upgrade to a current 7.x release before mid-2027.
+
+      Reference: https://docs.aws.amazon.com/emr/latest/ReleaseGuide/emr-standard-support.html
+    resource: aws.emr
+    metadata:
+      category: deprecation
+      severity: medium
+      tier: free
+    filters:
+      # emr-5.36.x, emr-6.6.x .. emr-6.15.x
+      - type: value
+        key: 'ReleaseLabel'
+        op: regex
+        value: '^emr-(5\.36|6\.([6-9]|1[0-5]))\.[0-9]+$'
+
+  # ========================================
+  # 📨 AMAZON MSK KAFKA VERSION END OF SUPPORT
+  # ========================================
+
+  - name: leftsize-msk-kafka-version-end-of-support
+    description: |
+      Find Amazon MSK provisioned clusters running an Apache Kafka version past its MSK end of support date.
+
+      Recent end of support dates: 3.4.0 (2025-08-04), 3.5.1 (2025-10-23),
+      3.6.0 (2026-06-01), 3.7.x (2026-09-01); all 1.x / 2.x and 3.1-3.3 ended in 2024-2025.
+      Supported: 3.8.x, 3.9.x (recommended), 4.0.x, 4.1.x, 4.2.x.
+
+      After the end of support date MSK auto-upgrades the cluster to the recommended
+      version at any time, without prior notification.
+
+      Reference: https://docs.aws.amazon.com/msk/latest/developerguide/supported-kafka-versions.html
+      Reference: https://docs.aws.amazon.com/msk/latest/developerguide/version-support.html
+    resource: aws.kafka
+    metadata:
+      category: deprecation
+      severity: high
+      tier: free
+    filters:
+      # Serverless clusters have no KafkaVersion and are skipped by this filter
+      - type: value
+        key: 'Provisioned.CurrentBrokerSoftwareInfo.KafkaVersion'
+        op: regex
+        # 1.x, 2.x (incl. 2.4.1.1 and 2.8.2.tiered), 3.0 - 3.7.x
+        value: '^([12]\.|3\.[0-7](\.|$))'
+      - type: value
+        key: 'State'
+        op: not-in
+        value: ['DELETING', 'FAILED']
+
+  # ========================================
+  # 🔁 AWS DMS REPLICATION ENGINE END OF LIFE
+  # ========================================
+
+  - name: leftsize-dms-replication-engine-eol
+    description: |
+      Find AWS DMS replication instances on engine versions that are past or approaching End of Life.
+
+      | Version | No new instances | EOL (forced upgrade) |
+      |---------|------------------|----------------------|
+      | 3.4.6, 3.4.7 (older: no longer listed) | 2024-09-30 | 2024-10-31 |
+      | 3.5.1   | 2024-11-30       | 2025-03-15 |
+      | 3.5.2   | 2025-03-30       | 2025-04-29 |
+      | 3.5.3   | 2026-02-28       | 2026-06-30 |
+      | 3.6.0   | 2026-04-27       | 2026-07-27 |
+      | 3.5.4   | 2027-01-31       | 2027-03-31 |
+      | 3.6.1   | TBD              | TBD        |
+
+      On the EOL date DMS upgrades the instance during its maintenance window.
+      Upgrade to 3.6.1 on your own schedule and test tasks first.
+
+      Reference: https://docs.aws.amazon.com/dms/latest/userguide/CHAP_ReleaseNotes.html
+    resource: aws.dms-instance
+    metadata:
+      category: deprecation
+      severity: high
+      tier: free
+    filters:
+      - type: value
+        key: 'EngineVersion'
+        op: regex
+        # 1.x, 2.x, 3.0-3.4.x, 3.5.0-3.5.4, 3.6.0
+        value: '^([12]\.|3\.[0-4]\.|3\.5\.[0-4]([^0-9]|$)|3\.6\.0([^0-9]|$))'
+      - type: value
+        key: 'ReplicationInstanceStatus'
+        op: not-in
+        value: ['deleting', 'deleted', 'failed']
+
+  # ========================================
+  # 🌬️ AMAZON MWAA AIRFLOW VERSION END OF SUPPORT
+  # ========================================
+
+  - name: leftsize-mwaa-airflow-version-end-of-support
+    description: |
+      Find Amazon MWAA environments running an Apache Airflow version past its MWAA end-of-support date.
+
+      | Airflow | MWAA end of support |
+      |---------|---------------------|
+      | 1.10.12 | 2024-02-21 |
+      | 2.0.2   | 2024-04-29 |
+      | 2.2.2   | 2024-06-27 |
+      | 2.4.3   | 2025-12-30 |
+      | 2.5.1   | 2025-12-30 |
+      | 2.6.3   | 2025-12-30 |
+
+      Environments keep running ("legacy version") but get no technical support, SLA
+      exceptions apply, and AWS may restrict access to a legacy version at any time.
+      Upgrade in place to 2.11.x (2.x) or migrate to a new 3.x environment.
+
+      Reference: https://docs.aws.amazon.com/mwaa/latest/userguide/airflow-versions.html
+    resource: aws.airflow
+    metadata:
+      category: deprecation
+      severity: high
+      tier: free
+    filters:
+      - type: value
+        key: 'AirflowVersion'
+        op: in
+        value: ['1.10.12', '2.0.2', '2.2.2', '2.4.3', '2.5.1', '2.6.3']
+      - type: value
+        key: 'Status'
+        op: not-in
+        value: ['DELETING', 'DELETED']
+
+  # ========================================
+  # 📂 AMAZON CLOUD DIRECTORY END OF SUPPORT
+  # ========================================
+
+  - name: leftsize-cloud-directory-end-of-support
+    description: |
+      Find enabled Amazon Cloud Directory directories.
+
+      Cloud Directory is closed to new customers (2025-11-07) and reaches end of support on
+      2027-07-24 (Cloud Directory developer guide). AWS recommends Amazon DynamoDB or
+      Amazon Neptune as alternatives; migration requires moving the data and rewriting
+      the application's data-access layer.
+
+      Note: the AWS General Reference "Services in Maintenance" list still shows Cloud
+      Directory under maintenance (announced 2025-10-07) without an end date.
+
+      Reference: https://docs.aws.amazon.com/clouddirectory/latest/developerguide/cloud-directory-availability-change.html
+      Reference: https://docs.aws.amazon.com/general/latest/gr/maintenance_services.html
+    resource: aws.cloud-directory
+    metadata:
+      category: deprecation
+      severity: medium
+      tier: free
+    filters:
+      # c7n only lists ENABLED directories by default; keep the check explicit
+      - type: value
+        key: 'State'
+        value: 'ENABLED'
+
+  # ========================================
+  # 🛠️ AWS SERVICES IN MAINTENANCE MODE
+  # ========================================
+  # Maintenance = no new customers, no new features; existing customers keep full
+  # functionality and AWS keeps operating/supporting the service. No end date announced.
+  # Reference: https://docs.aws.amazon.com/general/latest/gr/maintenance_services.html
+
+  - name: leftsize-cloudsearch-maintenance
+    description: |
+      Find Amazon CloudSearch domains.
+
+      Amazon CloudSearch is in maintenance (announced 2024-07-25): no new customers and no
+      new features. Existing domains keep working; no end date has been announced.
+      AWS recommends moving to Amazon OpenSearch Service (managed or Serverless).
+
+      Reference: https://docs.aws.amazon.com/general/latest/gr/maintenance_services.html
+      Reference: https://aws.amazon.com/blogs/big-data/transition-from-amazon-cloudsearch-to-amazon-opensearch-service/
+    resource: aws.cloudsearch
+    metadata:
+      category: deprecation
+      severity: low
+      tier: free
+    filters:
+      - type: value
+        key: 'Deleted'
+        value: false
+
+  - name: leftsize-kendra-maintenance
+    description: |
+      Find Amazon Kendra indexes.
+
+      Amazon Kendra entered maintenance on 2026-06-30 (no new features) and closed to new
+      customers on 2026-07-30. Existing indexes remain fully supported with bug fixes and
+      security updates; no end date has been announced. AWS recommends migrating to
+      Amazon Bedrock Managed Knowledge Base.
+
+      Reference: https://docs.aws.amazon.com/kendra/latest/dg/kendra-availability-change.html
+      Reference: https://docs.aws.amazon.com/general/latest/gr/maintenance_services.html
+    resource: aws.kendra
+    metadata:
+      category: deprecation
+      severity: low
+      tier: free
+    filters:
+      - type: value
+        key: 'Status'
+        op: not-in
+        value: ['DELETING', 'FAILED']
+
+  - name: leftsize-simple-ad-maintenance
+    description: |
+      Find AWS Directory Service Simple AD directories.
+
+      Simple AD is in maintenance (announced 2026-06-30): closed to new customers, existing
+      customers keep full functionality and can still create Simple AD directories.
+      No end date has been announced. AWS recommends AWS Managed Microsoft AD or AD Connector.
+
+      Reference: https://docs.aws.amazon.com/directoryservice/latest/admin-guide/simple-ad-availability-change.html
+      Reference: https://docs.aws.amazon.com/general/latest/gr/maintenance_services.html
+    resource: aws.directory
+    metadata:
+      category: deprecation
+      severity: low
+      tier: free
+    filters:
+      - type: value
+        key: 'Type'
+        value: 'SimpleAD'
+      - type: value
+        key: 'Stage'
+        op: not-in
+        value: ['Deleting', 'Deleted', 'Failed']
+
+  - name: leftsize-arc-readiness-check-maintenance
+    description: |
+      Find Amazon Application Recovery Controller (ARC) readiness checks.
+
+      ARC readiness check is in maintenance (announced 2026-03-31): closed to new customers,
+      existing customers can continue to use it. No end date has been announced. AWS
+      recommends ARC Region switch (plan evaluation) for similar multi-Region readiness
+      monitoring. Routing controls, zonal shift and zonal autoshift are not affected.
+
+      Reference: https://docs.aws.amazon.com/r53recovery/latest/dg/arc-readiness-availability-change.html
+      Reference: https://docs.aws.amazon.com/general/latest/gr/maintenance_services.html
+    resource: aws.readiness-check
+    metadata:
+      category: deprecation
+      severity: low
+      tier: free
+    filters:
+      - type: value
+        key: 'ReadinessCheckName'
+        value: present

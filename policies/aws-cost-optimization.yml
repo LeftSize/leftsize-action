@@ -485,14 +485,47 @@ policies:
   # ========================================
 
   - name: leftsize-rds-outdated-version
-    description: "Find RDS instances on MySQL 5.7/PostgreSQL 11 triggering Extended Support charges"
+    description: |
+      Find RDS and Aurora DB instances on a major version that is past the end of
+      standard support and is billed for RDS Extended Support right now.
+
+      RDS / Aurora Extended Support is charged per vCPU-hour per DB instance
+      (including Multi-AZ standbys), from the day after end of standard support.
+
+      | Engine                       | End of standard support | Year 1 pricing | Year 3 pricing | End of Extended Support |
+      |------------------------------|-------------------------|----------------|----------------|-------------------------|
+      | RDS for MySQL 5.7            | 2024-02-29              | 2024-03-01     | 2026-03-01     | 2029-06-30              |
+      | RDS for MySQL 8.0            | 2026-07-31              | 2026-08-01     | 2028-08-01     | 2029-07-31              |
+      | RDS for PostgreSQL 12        | 2025-02-28              | 2025-03-01     | 2027-03-01     | 2028-02-29              |
+      | RDS for PostgreSQL 13        | 2026-02-28              | 2026-03-01     | 2028-03-01     | 2029-02-28              |
+      | Aurora MySQL 2 (MySQL 5.7)   | 2024-10-31              | 2024-12-01     | 2026-12-01     | 2029-06-30              |
+      | Aurora PostgreSQL 12         | 2025-02-28              | 2025-03-01     | 2027-03-01     | 2028-02-29              |
+      | Aurora PostgreSQL 13         | 2026-02-28              | 2026-03-01     | 2028-03-01     | 2029-02-28              |
+
+      PostgreSQL 11 (forced upgrade 2027-03-31) is a separate rule:
+      leftsize-rds-postgres11-end-of-extended-support.
+      Aurora MySQL 3 (MySQL 8.0 compatible) stays in standard support until 2028-04-30
+      and is NOT matched.
+
+      References:
+      - https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/MySQL.Concepts.VersionMgmt.html
+      - https://docs.aws.amazon.com/AmazonRDS/latest/PostgreSQLReleaseNotes/postgresql-release-calendar.html
+      - https://docs.aws.amazon.com/AmazonRDS/latest/AuroraMySQLReleaseNotes/AuroraMySQL.release-calendars.html
+      - https://docs.aws.amazon.com/AmazonRDS/latest/AuroraPostgreSQLReleaseNotes/aurorapostgresql-release-calendar.html
+      - https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/extended-support-charges.html
     resource: aws.rds
     filters:
-      # Only available (running) instances
+      # Skip instances that are being deleted or have failed
       - type: value
         key: 'DBInstanceStatus'
-        value: 'available'
-      # MySQL 5.7 or PostgreSQL 11 (Extended Support versions)
+        op: not-in
+        value: ['deleting', 'failed']
+      # Instances explicitly opted out of Extended Support are force-upgraded, not billed
+      - type: value
+        key: 'EngineLifecycleSupport'
+        op: ne
+        value: 'open-source-rds-extended-support-disabled'
+      # Engine + major version pairs that are in paid Extended Support today
       - or:
         - and:
           - type: value
@@ -501,7 +534,7 @@ policies:
           - type: value
             key: 'EngineVersion'
             op: regex
-            value: '^5\.7\.'
+            value: '^(5\.7|8\.0)\..*$'
         - and:
           - type: value
             key: 'Engine'
@@ -509,11 +542,28 @@ policies:
           - type: value
             key: 'EngineVersion'
             op: regex
-            value: '^11\.'
-    actions:
-      - type: tag
-        key: leftsize-rds-version-upgrade
-        value: 'leftsize-flagged'
+            value: '^1[23]\..*$'
+        - and:
+          # Aurora MySQL 2 reports versions like 5.7.mysql_aurora.2.11.2
+          - type: value
+            key: 'Engine'
+            value: 'aurora-mysql'
+          - type: value
+            key: 'EngineVersion'
+            op: regex
+            value: '^5\.7\..*$'
+        - and:
+          - type: value
+            key: 'Engine'
+            value: 'aurora-postgresql'
+          - type: value
+            key: 'EngineVersion'
+            op: regex
+            value: '^1[23]\..*$'
+    metadata:
+      category: deprecation
+      severity: high
+      tier: free
 
   - name: leftsize-rds-multiaz-nonprod
     description: "Find non-production RDS instances with unnecessary Multi-AZ (2x cost)"

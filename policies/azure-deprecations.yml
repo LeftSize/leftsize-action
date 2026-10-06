@@ -18,70 +18,64 @@ policies:
   
   - name: leftsize-nvv4-series-retirement
     description: |
-      Detect NVv4-series VMs scheduled for retirement on September 30, 2026.
-      
-      Microsoft is retiring the following VM sizes:
-      - Standard_NV4as_v4, Standard_NV4ahs_v4
-      - Standard_NV8as_v4, Standard_NV8ahs_v4
-      - Standard_NV16as_v4, Standard_NV16ahs_v4
-      - Standard_NV32as_v4, Standard_NV32ahs_v4
-      
-      Recommended migration: NVads_V710_v5-series
-      - Greater GPU memory bandwidth per GPU
-      - Better support for graphics applications, virtual desktops, and visualizations
-      - Improved AI inference workload performance
-      
+      Find VMs that still use a retired NVv3-series or NVv4-series size.
+
+      Both series were retired on September 30, 2026. Remaining VMs were set to
+      deallocated: they don't run, have no SLA or support, and can't start again
+      until they are resized to a supported size. Managed disks of these VMs are
+      still billed. (Exception: NVv3 in UAE North is extended to January 31, 2027.)
+
+      Sizes:
+      - NVv4 (AMD Radeon Instinct MI25): Standard_NV4as_v4, NV4ahs_v4, NV8as_v4,
+        NV8ahs_v4, NV16as_v4, NV16ahs_v4, NV32as_v4, NV32ahs_v4
+      - NVv3 (NVIDIA Tesla M60): Standard_NV12s_v3, NV12hs_v3, NV24s_v3,
+        NV24ms_v3, NV32ms_v3, NV48s_v3
+
       Timeline:
-      - September 30, 2025: Last day for Reserved Instance purchases
-      - April 2026: Microsoft fix for resize operation error expected
-      - September 30, 2026: RETIREMENT DATE - VMs deallocated, no SLA, no support
-      
-      Reference: https://azure.microsoft.com/updates?id=500578
-    
+      - April 15, 2025: Retirement announced
+      - November 2, 2025: 1-year and 3-year RI purchases ended (NVv3 and NVv4)
+      - June 2, 2026: Compute Pre-Purchase sales for NVv4 ended
+      - September 30, 2026: RETIRED - VMs deallocated, no SLA, no support
+      - January 31, 2027: NVv3 extension end date in UAE North only
+
+      Recommended migration: NVads_V710_v5 / NVadsA10_v5 / NGads_V620 (NVv4);
+      NVadsA10_v5 / NC_RTXPRO6000BSE_v6 / NCasT4_v3 (NVv3).
+      Resizing NVv4 -> NVads_V710_v5 needs the AFEC feature
+      'VMTempDiskResizePreview' registered on the subscription.
+
+      All power states are flagged on purpose: after retirement the VMs are
+      deallocated by Microsoft, which is exactly the state that needs action.
+
+      References:
+      - https://learn.microsoft.com/en-us/azure/virtual-machines/sizes/lifecycle/retirement/nvv4-retirement
+      - https://learn.microsoft.com/en-us/azure/virtual-machines/sizes/lifecycle/retirement/nvv3-series-retirement
     resource: azure.vm
-    
     filters:
-      # Match all NVv4-series VM sizes
       - type: value
         key: 'properties.hardwareProfile.vmSize'
+        value_type: normalize
         op: 'in'
         value:
-          - 'Standard_NV4as_v4'
-          - 'Standard_NV4ahs_v4'
-          - 'Standard_NV8as_v4'
-          - 'Standard_NV8ahs_v4'
-          - 'Standard_NV16as_v4'
-          - 'Standard_NV16ahs_v4'
-          - 'Standard_NV32as_v4'
-          - 'Standard_NV32ahs_v4'
-      
-      # Only flag running or stopped VMs (not already deallocated)
-      - type: value
-        key: 'properties.extended.instanceView.powerState.code'
-        op: 'in'
-        value:
-          - 'PowerState/running'
-          - 'PowerState/stopped'
-          - 'PowerState/starting'
-    
-    actions:
-      # Tag for migration tracking
-      - type: tag
-        tag: 'leftsize-migration-required'
-        value: 'nvv4-series-retirement'
-      
-      - type: tag
-        tag: 'leftsize-retirement-date'
-        value: '2026-09-30'
-      
-      - type: tag
-        tag: 'leftsize-detected-date'
-        value: '{now:%Y-%m-%d}'
-      
-      # Mark for GitHub issue creation
-      - type: tag
-        tag: leftsize-nvv4-retirement-notify
-        value: 'leftsize-flagged'
+          # NVv4
+          - 'standard_nv4as_v4'
+          - 'standard_nv4ahs_v4'
+          - 'standard_nv8as_v4'
+          - 'standard_nv8ahs_v4'
+          - 'standard_nv16as_v4'
+          - 'standard_nv16ahs_v4'
+          - 'standard_nv32as_v4'
+          - 'standard_nv32ahs_v4'
+          # NVv3
+          - 'standard_nv12s_v3'
+          - 'standard_nv12hs_v3'
+          - 'standard_nv24s_v3'
+          - 'standard_nv24ms_v3'
+          - 'standard_nv32ms_v3'
+          - 'standard_nv48s_v3'
+    metadata:
+      category: deprecation
+      severity: critical
+      tier: free
 
   # ========================================
   # ⚡ AZURE FUNCTIONS DEPRECATIONS
@@ -89,69 +83,61 @@ policies:
   
   - name: leftsize-functions-linux-consumption-retirement
     description: |
-      Detect Azure Functions using the Linux Consumption hosting plan scheduled for retirement on September 30, 2028.
-      
-      Microsoft is retiring the Linux Consumption (Y1) hosting plan and recommends migration to Flex Consumption plan.
-      
-      Benefits of Flex Consumption:
-      - Faster scaling and cold start mitigation
-      - Advanced networking capabilities
-      - Concurrency control for better resource management
-      - Continued feature development and support
-      
+      Detect App Service plans on the Linux Consumption (Y1 / Dynamic) hosting plan for Azure Functions.
+      Microsoft retires Linux Consumption hosting on September 30, 2028; migrate to the Flex Consumption plan.
+
+      Current state (verified 2026-10-04):
+      - No new features and no new language versions are added to Linux Consumption.
+        Last versions it will ever get: .NET 9 (isolated), Java 21, Node.js 22, Python 3.12, PowerShell 7.4.
+        .NET 10, Node.js 24, Python 3.13+ and PowerShell 7.6 require Flex Consumption (or another plan).
+      - Function apps still on the end-of-life v3 runtime on Linux Consumption stopped running after
+        September 30, 2026 (they must move to the v4 runtime).
+      - Windows Consumption is not affected.
+
       Timeline:
-      - September 30, 2025: No new features; removed from Azure Portal, Visual Studio, and VS Code
-      - September 30, 2028: RETIREMENT DATE - No technical support, cannot create new Linux Consumption apps
-      
-      Detection:
-      - Pricing Tier: Dynamic (Y1: 0)
-      - Operating System: Linux
-      - App Service Plans with Linux Consumption functions
-      
-      Note: Can still be managed via infrastructure as code and Azure CLI until retirement date.
-    
+      - Now: no new features or language versions for Linux Consumption
+      - September 30, 2026: v3-runtime apps on Linux Consumption stop running
+      - September 30, 2028: RETIREMENT DATE - Linux Consumption hosting retired
+
+      Migration: `az functionapp flex-migration list` / `az functionapp flex-migration start`
+      (Flex Consumption has no deployment slots and does not support the .NET in-process model.)
+
+      Detection: App Service plans with SKU Y1 that are Linux (kind contains "linux" or properties.reserved == true)
+      and host at least one site. The v3 runtime (FUNCTIONS_EXTENSION_VERSION app setting) is not checked
+      because reading app settings requires secret-level permissions.
+
+      Reference: https://learn.microsoft.com/en-us/azure/azure-functions/migration/migrate-plan-consumption-to-flex
+      Reference: https://learn.microsoft.com/en-us/azure/azure-functions/supported-languages
+
     resource: azure.appserviceplan
-    
+
+    metadata:
+      category: deprecation
+      severity: medium
+      tier: free
+
     filters:
-      # Match Linux Consumption hosting plan (Y1 SKU)
+      # Linux Consumption hosting plan (Y1 / Dynamic SKU)
       - type: value
         key: 'sku.name'
         value: 'Y1'
-      
-      # Must be Linux OS
-      - type: value
-        key: 'kind'
-        op: 'regex'
-        value: '.*linux.*'
-      
-      # Only plans that have function apps deployed
+
+      # Linux plan: either kind contains "linux" (portal/CLI-created plans) or
+      # properties.reserved == true (Microsoft's Bicep/ARM samples omit kind and only set reserved)
+      - or:
+          - type: value
+            key: 'kind'
+            op: regex
+            value: '.*linux.*'
+          - type: value
+            key: 'properties.reserved'
+            value: true
+
+      # Only plans that actually host function apps
       - type: value
         key: 'properties.numberOfSites'
-        op: 'gt'
+        op: gt
         value: 0
-    
-    actions:
-      # Tag for migration tracking
-      - type: tag
-        tag: 'leftsize-migration-required'
-        value: 'functions-linux-consumption-retirement'
-      
-      - type: tag
-        tag: 'leftsize-retirement-date'
-        value: '2028-09-30'
-      
-      - type: tag
-        tag: 'leftsize-portal-removal-date'
-        value: '2025-09-30'
-      
-      - type: tag
-        tag: 'leftsize-detected-date'
-        value: '{now:%Y-%m-%d}'
-      
-      # Mark for GitHub issue creation
-      - type: tag
-        tag: leftsize-functions-linux-consumption-notify
-        value: 'leftsize-flagged'
 
   # ========================================
   # ☸️ AKS KUBERNETES VERSION DEPRECATIONS
@@ -159,48 +145,54 @@ policies:
 
   - name: leftsize-aks-outdated-version
     description: |
-      Find AKS clusters running outdated Kubernetes versions.
-      
-      AKS version support (as of Feb 2026):
-      - 1.30 and below: Out of standard support
-      - 1.31: Out of standard support (ended Nov 2025)
-      - 1.32: Standard support ending Mar 2026
-      - 1.33, 1.34: Supported
-      
-      Current recommended: 1.33, 1.34
-      
+      Find AKS clusters (control plane or any node pool) on a Kubernetes minor
+      version that is out of AKS community support, or whose support ends by
+      November 30, 2026.
+
+      AKS release calendar (verified 2026-10-04, page updated 2026-09-15):
+      - 1.32 and older: end of life (1.32 ended Mar 2026)
+      - 1.33: end of life Jul 2026; platform support only until 1.37 GA (Oct 2026)
+      - 1.34: end of life Nov 2026 (Nov 30, 2026)
+      - 1.35 (EOL Mar 2027), 1.36 (EOL Jun 2027), 1.37 (EOL Oct 2027): supported
+
+      Clusters with the paid Long Term Support plan (Premium tier) get one
+      extra year (1.31 LTS ends Nov 2026, 1.32 Mar 2027, 1.33 Jul 2027). The
+      API version Cloud Custodian uses does not expose supportPlan, so LTS
+      clusters are also flagged; the issue explains how to check.
+
+      MAINTENANCE: update the regex when the next minor version approaches
+      end of life (1.35 ends Mar 2027).
+
       Reference: https://learn.microsoft.com/en-us/azure/aks/supported-kubernetes-versions
-    
+
     resource: azure.aks
-    
+
     filters:
-      # Match outdated Kubernetes versions
+      # Skip clusters that are being deleted
       - type: value
-        key: 'properties.kubernetesVersion'
-        op: in
-        value:
-          - '1.23'
-          - '1.24'
-          - '1.25'
-          - '1.26'
-          - '1.27'
-          - '1.28'
-          - '1.29'
-          - '1.30'
-          - '1.31'
-      # Only running clusters
-      - type: value
-        key: 'properties.provisioningState'
-        value: 'Succeeded'
-    
-    actions:
-      - type: tag
-        tag: 'leftsize-migration-required'
-        value: 'aks-version-upgrade'
-      
-      - type: tag
-        tag: leftsize-aks-upgrade-notify
-        value: 'leftsize-flagged'
+        key: properties.provisioningState
+        op: ne
+        value_type: normalize
+        value: deleting
+      - or:
+          # Control plane version: matches "1.34" as well as "1.34.2" (any patch)
+          - type: value
+            key: properties.kubernetesVersion
+            op: regex
+            value: '^1\.([0-9]|[12][0-9]|3[0-4])(\..*)?$'
+          # Node pools can lag behind the control plane
+          - type: list-item
+            key: properties.agentPoolProfiles
+            attrs:
+              - type: value
+                key: orchestratorVersion
+                op: regex
+                value: '^1\.([0-9]|[12][0-9]|3[0-4])(\..*)?$'
+
+    metadata:
+      category: deprecation
+      severity: high
+      tier: free
 
   # ========================================
   # 🗄️ SQL DATABASE DTU MODEL (Legacy)
@@ -244,43 +236,41 @@ policies:
   # ========================================
 
   # CRITICAL: Azure Application Gateway v1 retiring April 28, 2026
+  # CRITICAL: Azure Application Gateway v1 was retired on April 28, 2026
   - name: leftsize-appgateway-v1-deprecated
     description: |
-      CRITICAL: Azure Application Gateway V1 SKU is being retired on April 28, 2026.
-      
-      After this date, Application Gateway V1 deployments will be stopped and force deleted.
-      Microsoft recommends migrating to Application Gateway V2, which offers:
-      - Autoscaling capability
-      - Zone redundancy for high availability
-      - Static VIP support
-      - Header rewriting
-      - Web Application Firewall v2 with improved rules
-      - Better performance (up to 5x faster backend health probes)
-      - Faster deployment and update times
-      
+      CRITICAL: Azure Application Gateway V1 (Standard and WAF v1 SKUs) was retired on April 28, 2026.
+
+      Microsoft no longer supports V1 resources and there's no SLA. As Microsoft
+      decommissions the hardware that supports V1, traffic through remaining V1
+      gateways can't be guaranteed: remaining deployments can experience traffic
+      disruptions as Microsoft blocks the data path and deletes the resources.
+      Microsoft notifies customers of the deletion timeline and then deletes
+      deployments that weren't migrated to V2.
+
       Timeline:
       - April 28, 2023: Deprecation announced
       - July 1, 2023: No new V1 deployments for new subscriptions
-      - September 1, 2024: V1 creation completely stopped for all customers
-      - April 28, 2026: RETIREMENT DATE - V1 gateways stopped and deleted
-      
+      - September 1, 2024: V1 creation stopped for all customers
+      - April 28, 2026: RETIREMENT DATE - unsupported, no SLA, data path blocked and resources deleted after notification
+
       V1 SKU Names (affected):
       - Standard_Small, Standard_Medium, Standard_Large
       - WAF_Medium, WAF_Large
-      
+
       V2 SKU Names (target):
       - Standard_v2
-      - WAF_v2
-      
+      - WAF_v2 (then upgrade the legacy WAF configuration to a WAF policy)
+
       Migration path:
-      - Use Azure-provided migration script
-      - Manual migration for complex configurations
-      - Consider Azure Front Door for global load balancing scenarios
-      
+      - Enhanced cloning script AzureAppGWClone (recommended) clones the V1 config to a new V2 gateway
+      - Public IP retention script AzureAppGWIPMigrate moves the V1 public IP to V2 (1-5 min downtime)
+      - V1 gateways aren't automatically upgraded to V2
+
       Reference: https://learn.microsoft.com/en-us/azure/application-gateway/v1-retirement
-    
+
     resource: azure.application-gateway
-    
+
     filters:
       # Match V1 SKU names (Standard and WAF without _v2 suffix)
       - type: value
@@ -292,7 +282,12 @@ policies:
           - 'Standard_Large'
           - 'WAF_Medium'
           - 'WAF_Large'
-    
+
+    metadata:
+      category: deprecation
+      severity: critical
+      tier: free
+
     actions:
       - type: tag
         tag: 'leftsize-deprecation'
@@ -391,34 +386,42 @@ policies:
   # ========================================
 
   # CRITICAL: Azure Database for MariaDB retiring September 19, 2025
+  # CRITICAL: Azure Database for MariaDB was retired on September 19, 2025
   - name: leftsize-mariadb-deprecated
     description: |
-      CRITICAL: Azure Database for MariaDB is being retired on September 19, 2025.
-      
-      After this date, you will lose access to:
-      - Azure Database for MariaDB servers
-      - All databases and data
-      - Management capabilities
-      
-      Microsoft recommends migrating to Azure Database for MySQL - Flexible Server,
-      which offers similar functionality with improved performance and features.
-      
+      CRITICAL: Azure Database for MariaDB was retired on September 19, 2025.
+
+      Microsoft's lifecycle page: after the end date these products no longer receive
+      security updates, non-security updates, bug fixes, or technical support.
+      Microsoft Q&A answers (learn.microsoft.com/answers, not product documentation) report
+      that retired servers were shut down and that resources and automated backups are
+      deleted after retirement; data recovery was only possible by exception via support.
+
+      If this scan still lists a MariaDB server, the ARM resource still exists: export the
+      data immediately (or open a support request if the server is no longer reachable),
+      then migrate to Azure Database for MySQL - Flexible Server and delete the server.
+
       Migration path:
       - Azure Database for MySQL - Flexible Server (recommended)
-      - Azure Database for PostgreSQL - Flexible Server (alternative)
-      - Self-hosted MariaDB on Azure VMs (if specific MariaDB features needed)
-      
-      Reference: https://azure.microsoft.com/updates?id=azure-database-for-mariadb-will-be-retired-on-19-september-2025-migrate-to-azure-database-for-mysql-flexible-server
-    
+      - Azure Database for PostgreSQL - Flexible Server (requires schema/application changes)
+      - Self-hosted MariaDB on Azure VMs (if MariaDB-specific features are required)
+
+      Reference: https://learn.microsoft.com/en-us/lifecycle/announcements/azure-products-retirement-september-2025
+
     resource: azure.mariadb-server
-    
+
     filters:
-      # Match all MariaDB servers - the entire service is deprecated
+      # Match all MariaDB servers - the entire service is retired
       - type: value
         key: name
         op: not-equal
         value: ''
-    
+
+    metadata:
+      category: deprecation
+      severity: critical
+      tier: free
+
     actions:
       - type: tag
         tag: 'leftsize-deprecation'
@@ -441,37 +444,40 @@ policies:
         value: 'leftsize-flagged'
 
   # HIGH: Azure Basic Load Balancer retiring September 30, 2025
+  # HIGH: Azure Basic Load Balancer was retired on September 30, 2025
   - name: leftsize-basic-loadbalancer-deprecated
     description: |
-      Azure Basic Load Balancer is being retired on September 30, 2025.
-      
-      After this date, Basic Load Balancers will no longer be supported.
-      Microsoft recommends upgrading to Standard Load Balancer, which offers:
-      - SLA-backed availability (99.99%)
-      - Zone redundancy
-      - Health probes on any TCP/HTTP/HTTPS port
-      - Outbound rules
-      - Multiple frontend IPs
-      - HA Ports
-      - Diagnostic logging
-      
+      Azure Basic Load Balancer was retired on September 30, 2025.
+
+      Basic Load Balancers remain operational after the retirement date, but customers who
+      keep using them "accept the risks and acknowledge that the service is unsupported and
+      not covered by SLA guarantees". Upgrade to Standard Load Balancer as soon as possible.
+
       Migration path:
-      - Upgrade to Standard Load Balancer (recommended)
-      - Use Azure Load Balancer Upgrade tool for automated migration
-      
-      Note: Standard Load Balancer is not free - it incurs hourly charges.
-      However, Basic LB was never recommended for production workloads.
-      
-      Reference: https://azure.microsoft.com/updates?id=azure-basic-load-balancer-will-be-retired-on-30-september-2025-upgrade-to-standard-load-balancer
-    
+      - AzureBasicLoadBalancerUpgrade PowerShell module (recommended for supported scenarios;
+        also upgrades the associated Basic public IPs)
+      - Manual rebuild in the portal for unsupported scenarios
+
+      Important: migration requires downtime and is one-way. Standard LB blocks outbound
+      access by default (needs outbound rules or NAT Gateway) and Standard public IPs are
+      closed to inbound traffic until an NSG allows it.
+      Cloud Services (extended support) deployments are not affected by this retirement.
+
+      Reference: https://learn.microsoft.com/en-us/azure/load-balancer/load-balancer-basic-upgrade-guidance
+
     resource: azure.loadbalancer
-    
+
     filters:
       # Match Basic SKU load balancers only
       - type: value
         key: sku.name
         value: 'Basic'
-    
+
+    metadata:
+      category: deprecation
+      severity: high
+      tier: free
+
     actions:
       - type: tag
         tag: 'leftsize-deprecation'
@@ -500,81 +506,40 @@ policies:
   # CRITICAL: Azure Unmanaged Disks retiring March 31, 2026
   - name: leftsize-unmanaged-disks-retirement
     description: |
-      CRITICAL: Azure unmanaged disks are being retired on March 31, 2026.
-      
-      Unmanaged disks are VHD page blobs stored in user-managed storage accounts.
-      They were the original disk type for Azure VMs before managed disks launched
-      in 2017. Microsoft announced the retirement on September 13, 2022.
-      
-      After March 31, 2026:
-      - You cannot start IaaS VMs that use unmanaged disks
-      - Any running or allocated VMs with unmanaged disks will be stopped and deallocated
-      
-      This retirement only affects page blobs used as virtual disks attached to VMs.
-      Page blobs accessed via HTTP/HTTPS REST APIs (not attached to VMs) are NOT affected.
-      
-      Benefits of migrating to managed disks:
-      - No storage account management overhead
-      - High availability with 99.999% uptime SLA
-      - Better scalability and disk bursting
-      - Shared disk support
-      - Improved security with RBAC and encryption at rest
-      - Snapshot and image support
-      - Azure Backup integration
-      
-      Migration path:
-      - Windows VMs: Use Convert-AzVMManagedDisk PowerShell command
-      - Linux VMs: Use az vm convert Azure CLI command
-      - Both require VM deallocation
-      
-      Timeline:
-      - September 13, 2022: Retirement announced
-      - September 30, 2025: Originally planned retirement date
-      - March 31, 2026: RETIREMENT DATE (extended) — VMs stopped and deallocated
-      
-      Reference: https://learn.microsoft.com/en-us/azure/virtual-machines/unmanaged-disks-deprecation
-    
-    resource: azure.vm
-    
-    filters:
-      # Detect VMs using unmanaged disks by checking for absence of managedDisk on OS disk
-      - type: value
-        key: 'properties.storageProfile.osDisk.managedDisk'
-        value: null
+      Find VMs that still use unmanaged disks (VHD page blobs in a storage
+      account) for the OS disk or any data disk.
 
-      # Only flag running or stopped VMs (not already deallocated)
-      - type: value
-        key: 'properties.extended.instanceView.powerState.code'
-        op: 'in'
-        value:
-          - 'PowerState/running'
-          - 'PowerState/stopped'
-          - 'PowerState/starting'
-    
-    actions:
-      - type: tag
-        tag: 'leftsize-deprecation'
-        value: 'unmanaged-disks-eol-mar-2026'
-      
-      - type: tag
-        tag: 'leftsize-severity'
-        value: 'critical'
-      
-      - type: tag
-        tag: 'leftsize-action-required'
-        value: 'migrate-to-managed-disks'
-      
-      - type: tag
-        tag: 'leftsize-retirement-date'
-        value: '2026-03-31'
-      
-      - type: tag
-        tag: 'leftsize-detected-date'
-        value: '{now:%Y-%m-%d}'
-      
-      - type: tag
-        tag: leftsize-unmanaged-disks-retirement-notify
-        value: 'leftsize-flagged'
+      Unmanaged disks were fully retired on March 31, 2026 (extended from
+      September 30, 2025; announced September 13, 2022). Since then you can't
+      start IaaS VMs that use unmanaged disks, and running or allocated VMs with
+      unmanaged disks were stopped and deallocated. The VHD data stays in the
+      storage account (and keeps being billed) until you convert or delete it.
+
+      All power states are flagged on purpose: a deallocated VM with unmanaged
+      disks can't be started until it is converted to managed disks.
+
+      Migration: deallocate, then `az vm convert` (CLI) or
+      `ConvertTo-AzVMManagedDisk` (PowerShell). Availability sets must be
+      converted to 'Aligned' first.
+
+      Reference: https://learn.microsoft.com/en-us/azure/virtual-machines/unmanaged-disks-deprecation
+    resource: azure.vm
+    filters:
+      - or:
+          # OS disk is a VHD in a storage account
+          - type: value
+            key: 'properties.storageProfile.osDisk.vhd.uri'
+            value: present
+          # ...or at least one data disk is
+          - type: value
+            key: 'properties.storageProfile.dataDisks[].vhd.uri'
+            value_type: size
+            op: gt
+            value: 0
+    metadata:
+      category: deprecation
+      severity: critical
+      tier: free
 
   # ========================================
   # 📝 TEMPLATE FOR FUTURE DEPRECATIONS
@@ -610,3 +575,1039 @@ policies:
   #       tag: leftsize-[service]-retirement-notify
   #
   # ========================================
+
+  # ========================================
+  # 🗄️ STORAGE ACCOUNT KIND RETIREMENT (Oct 2026)
+  # ========================================
+
+  - name: leftsize-storage-legacy-account-retirement
+    description: |
+      Find general-purpose v1 (kind 'Storage') and legacy Blob Storage
+      (kind 'BlobStorage') accounts. Both account kinds retire in October 2026.
+
+      Timeline:
+      - September 2025: Retirement announced
+      - September 2026: Creation of new GPv1 / legacy Blob Storage accounts disabled
+        (the upgrade page says "Q1 2026" for GPv1)
+      - October 13, 2026: Full retirement. Remaining accounts are auto-migrated
+        to GPv2, which "may result in higher billing costs" (transaction pricing
+        differs). The GPv1 overview only says "October 2026"; the upgrade page and
+        the legacy Blob Storage page give October 13, 2026.
+      - The legacy Blob Storage page ALSO says "After the retirement date, data
+        access will be blocked for all legacy blob storage accounts", which
+        contradicts its own auto-migration wording.
+
+      The upgrade to GPv2 is in place, has no downtime, can't be undone, and
+      defaults the account access tier to Hot unless you set it.
+
+      Filters mirror Microsoft's own Azure Resource Graph inventory query
+      (Standard SKUs, kind != StorageV2). Databricks-managed DBFS accounts
+      (resource group 'databricks-rg-*') are skipped: Microsoft migrates them and
+      they are read-only for the customer.
+
+      References:
+      - https://learn.microsoft.com/en-us/azure/storage/common/general-purpose-version-1-account-migration-overview
+      - https://learn.microsoft.com/en-us/azure/storage/common/legacy-blob-storage-account-migration-overview
+      - https://learn.microsoft.com/en-us/azure/storage/common/storage-account-upgrade
+    resource: azure.storage
+    filters:
+      # GPv1 ('Storage') and legacy Blob Storage ('BlobStorage') account kinds
+      - type: value
+        key: 'kind'
+        op: 'in'
+        value: ['Storage', 'BlobStorage']
+      # Same SKU scope as Microsoft's inventory query (Premium kind=Storage excluded)
+      - type: value
+        key: 'sku.name'
+        value_type: normalize
+        op: 'in'
+        value: ['standard_lrs', 'standard_grs', 'standard_zrs', 'standard_ragrs', 'standard_ragzrs']
+      # Skip Databricks-managed DBFS accounts (Microsoft migrates these)
+      - not:
+          - type: value
+            key: 'resourceGroup'
+            op: 'regex'
+            value: '^databricks-rg-'
+    metadata:
+      category: deprecation
+      severity: high
+      tier: free
+
+  # ========================================
+  # 🖥️ VM SIZE RETIREMENTS (2027-2029)
+  # ========================================
+  # Source for all VM rules below:
+  # https://learn.microsoft.com/en-us/azure/virtual-machines/sizes/lifecycle/retirements-and-capacity-restrictions
+  # https://learn.microsoft.com/en-us/azure/virtual-machines/sizes/lifecycle/retirement/retired-sizes-modernization-guide
+  # Size regexes were checked against `az vm list-skus` (westeurope, northeurope,
+  # eastus, southcentralus, westus2, uaenorth), the Azure SDK VirtualMachineSizeTypes
+  # enum and the size names on the Learn series pages. They are anchored and
+  # case-insensitive (c7n 'regex' uses re.IGNORECASE).
+  #
+  # Power state: c7n lists VMs without the instance view, so the Resource Graph
+  # path 'properties.extended.instanceView.powerState.code' doesn't exist on
+  # c7n resources. The 'instance-view' filter fetches it per VM; it runs last so
+  # only VMs that already matched the size filter cost an extra API call.
+
+  - name: leftsize-vm-m192i-v2-retirement
+    description: |
+      Find VMs on the isolated Msv2/Mdsv2 Medium Memory sizes
+      (Standard_M192is_v2, M192ims_v2, M192ids_v2, M192idms_v2).
+
+      Timeline:
+      - March 22, 2024: Retirement announced
+      - March 31, 2027: RETIREMENT - remaining VMs are deallocated
+        (stopped, removed from the host, no longer billed)
+
+      Recommended migration: Msv3 / Mdsv3 Medium Memory series.
+
+      Reference: https://learn.microsoft.com/en-us/azure/virtual-machines/sizes/lifecycle/retirement/msv2-mdsv2-retirement
+    resource: azure.vm
+    filters:
+      - type: value
+        key: 'properties.hardwareProfile.vmSize'
+        value_type: normalize
+        op: 'in'
+        value:
+          - 'standard_m192is_v2'
+          - 'standard_m192ims_v2'
+          - 'standard_m192ids_v2'
+          - 'standard_m192idms_v2'
+      # Running, stopped (still allocated) or starting VMs only
+      - type: instance-view
+        key: 'statuses[].code'
+        op: intersect
+        value: ['PowerState/running', 'PowerState/stopped', 'PowerState/starting']
+    metadata:
+      category: deprecation
+      severity: high
+      tier: free
+
+  - name: leftsize-vm-hpc-fpga-retirement-2027
+    description: |
+      Find VMs on the NP-series (FPGA), HC-series and HBv2-series (HPC) sizes.
+
+      Sizes:
+      - NP: Standard_NP10s, NP20s, NP40s
+      - HC: Standard_HC44rs, HC44-16rs, HC44-32rs
+      - HBv2: Standard_HB120rs_v2 and constrained-core HB120-16/32/64/96rs_v2
+
+      Timeline:
+      - April 2, 2026: 1-year and 3-year Reserved Instance purchases ended
+      - May 31, 2027: RETIREMENT - remaining VMs are deallocated, no SLA,
+        no support (managed disk data is preserved)
+
+      Recommended migration: HBv5 / HBv4 / HX / HBv3 (HC, HBv2);
+      NDv2 / NCads_H100_v5 / NCasT4_v3 (NP, requires porting FPGA code to GPU).
+
+      References:
+      - https://learn.microsoft.com/en-us/azure/virtual-machines/sizes/lifecycle/retirement/np-series-retirement
+      - https://learn.microsoft.com/en-us/azure/virtual-machines/sizes/lifecycle/retirement/hc-series-retirement
+      - https://learn.microsoft.com/en-us/azure/virtual-machines/sizes/lifecycle/retirement/hbv2-series-retirement
+    resource: azure.vm
+    filters:
+      - type: value
+        key: 'properties.hardwareProfile.vmSize'
+        op: 'regex'
+        value: '^Standard_(NP\d+s|HC44(-\d+)?rs|HB120(-\d+)?rs_v2)$'
+      - type: instance-view
+        key: 'statuses[].code'
+        op: intersect
+        value: ['PowerState/running', 'PowerState/stopped', 'PowerState/starting']
+    metadata:
+      category: deprecation
+      severity: high
+      tier: free
+
+  - name: leftsize-vm-series-retirement-2028-05
+    description: |
+      Find VMs on the D, Ds, Dv2, Dsv2 and Ls series.
+
+      Sizes: Standard_D1-D14, DS1-DS14, D1_v2-D15_v2, DS1_v2-DS15_v2
+      (incl. constrained-core DS11-1_v2 ... DS14-8_v2 and _Promo), L4s-L32s.
+
+      Timeline:
+      - March 31, 2025: Retirement announced
+      - July 2026: Capacity growth restrictions (no extra quota, new subscriptions
+        can't deploy); 1-year RIs can't be bought or renewed after July 1, 2026
+      - February 1, 2027: End of regular RI exchanges for these series
+      - May 1, 2028: RETIREMENT - remaining VMs are deallocated, no SLA, no support
+
+      Recommended migration: Dsv5/Ddsv5/Dasv5/Dadsv5, Dsv6/Ddsv6/Dasv6/Dadsv6,
+      Dasv7/Dadsv7 (D, Ds, Dv2, Dsv2); Lsv3/Lasv3/Lsv4/Lasv4 (Ls).
+    resource: azure.vm
+    filters:
+      - type: value
+        key: 'properties.hardwareProfile.vmSize'
+        op: 'regex'
+        value: '^Standard_(DS?\d+(-\d+)?|DS?\d+(-\d+)?_v2(_Promo)?|L\d+s)$'
+      - type: instance-view
+        key: 'statuses[].code'
+        op: intersect
+        value: ['PowerState/running', 'PowerState/stopped', 'PowerState/starting']
+    metadata:
+      category: deprecation
+      severity: medium
+      tier: free
+
+  - name: leftsize-vm-series-retirement-2028-11
+    description: |
+      Find VMs on the Av2, Amv2, B (v1), F, Fs, Fsv2, G, Gs and Lsv2 series.
+
+      Sizes: Standard_A1_v2-A8_v2, A2m_v2-A8m_v2, B1ls-B20ms (not Bsv2/Basv2/Bpsv2),
+      F1-F16, F1s-F16s, F2s_v2-F72s_v2, G1-G5, GS1-GS5 (incl. GS4-4/-8, GS5-8/-16),
+      L8s_v2-L80s_v2.
+
+      Timeline:
+      - October 15, 2025: Retirement announced
+      - July 2026: Capacity growth restrictions; 1-year RIs can't be bought or
+        renewed after July 1, 2026
+      - February 1, 2027: End of regular RI exchanges for these series
+      - November 15, 2028: RETIREMENT - remaining VMs are deallocated, no SLA,
+        no support
+    resource: azure.vm
+    filters:
+      - type: value
+        key: 'properties.hardwareProfile.vmSize'
+        op: 'regex'
+        value: '^Standard_(A\d+m?_v2|B\d+(ls|s|ms)|F\d+s?|F\d+s_v2|GS?\d+(-\d+)?|L\d+s_v2)$'
+      - type: instance-view
+        key: 'statuses[].code'
+        op: intersect
+        value: ['PowerState/running', 'PowerState/stopped', 'PowerState/starting']
+    metadata:
+      category: deprecation
+      severity: medium
+      tier: free
+
+  - name: leftsize-vm-v3-series-retirement-2029
+    description: |
+      Find VMs on the Dv3, Dsv3, Ev3 and Esv3 series (incl. E64i_v3, E64is_v3
+      and constrained-core Esv3 sizes).
+
+      Timeline:
+      - July 1, 2026: 1-year and 3-year RIs can't be bought or renewed;
+        capacity growth restrictions start (July 2026)
+      - February 1, 2027: End of regular RI exchanges
+      - November 15, 2029: RETIREMENT - you can't create, resize into, run or
+        purchase these sizes (public Azure; not Azure Government / 21Vianet /
+        sovereign clouds)
+
+      Recommended migration: Dv5/Dsv5/Ddv5/Ddsv5/Dasv5/Dadsv5 and
+      Ev5/Esv5/Edv5/Edsv5/Easv5/Eadsv5 (or v6/v7).
+    resource: azure.vm
+    filters:
+      - type: value
+        key: 'properties.hardwareProfile.vmSize'
+        op: 'regex'
+        value: '^Standard_(D\d+s?_v3|E\d+(-\d+)?i?s?_v3)$'
+      - type: instance-view
+        key: 'statuses[].code'
+        op: intersect
+        value: ['PowerState/running', 'PowerState/stopped', 'PowerState/starting']
+    metadata:
+      category: deprecation
+      severity: low
+      tier: free
+
+  # ========================================
+  # ☸️ AKS NODE OS / NETWORKING / ADD-ON RETIREMENTS
+  # ========================================
+
+  - name: leftsize-aks-azure-linux-2-node-pools
+    description: |
+      Find AKS clusters with node pools still on Azure Linux 2.0 (CBL-Mariner 2.0).
+
+      Timeline:
+      - Nov 30, 2025: Azure Linux 2.0 no longer supported on AKS, no security
+        updates. Node image frozen at 202512.06.0.
+      - Oct 31, 2026: Azure Linux 2.0 node images are removed. Node pools can no
+        longer scale (scale-out, autoscaler, reimage, redeploy fail).
+
+      Detection uses the pool's nodeImageVersion (AKSAzureLinux-V2* or
+      AKSCBLMariner-V2*), because osSKU "AzureLinux" means 2.0 on Kubernetes
+      1.26-1.31 and 3.0 on 1.32+.
+
+      Reference: https://learn.microsoft.com/en-us/azure/aks/node-images
+      Reference: https://learn.microsoft.com/en-us/azure/aks/upgrade-os-version
+
+    resource: azure.aks
+
+    filters:
+      - type: value
+        key: properties.provisioningState
+        op: ne
+        value_type: normalize
+        value: deleting
+      # Any node pool running an Azure Linux 2.0 / CBL-Mariner 2.0 node image
+      - type: list-item
+        key: properties.agentPoolProfiles
+        attrs:
+          - type: value
+            key: nodeImageVersion
+            op: regex
+            value: '^AKS(AzureLinux|CBLMariner)-V2.*$'
+
+    metadata:
+      category: deprecation
+      severity: critical
+      tier: free
+
+  - name: leftsize-aks-ubuntu-2004-node-pools
+    description: |
+      Find AKS clusters with node pools on Ubuntu 20.04 node images.
+
+      Timeline:
+      - Mar 17, 2027: AKS stops supporting Ubuntu 20.04, stops security updates
+        and deletes existing Ubuntu 20.04 node images. Node pools can no longer
+        scale.
+
+      Ubuntu 20.04 pools are typically Confidential VM (CVM) or FIPS pools, or
+      pools on old Kubernetes versions. Microsoft's remediation: upgrade the
+      node pools to Kubernetes 1.35+ (Ubuntu 24.04).
+
+      Reference: https://learn.microsoft.com/en-us/azure/aks/node-images
+
+    resource: azure.aks
+
+    filters:
+      - type: value
+        key: properties.provisioningState
+        op: ne
+        value_type: normalize
+        value: deleting
+      - type: list-item
+        key: properties.agentPoolProfiles
+        attrs:
+          - type: value
+            key: nodeImageVersion
+            op: regex
+            value: '^AKSUbuntu-2004.*$'
+
+    metadata:
+      category: deprecation
+      severity: high
+      tier: free
+
+  - name: leftsize-aks-ubuntu-2204-node-pools
+    description: |
+      Find AKS clusters with node pools on Ubuntu 22.04.
+
+      Timeline:
+      - Jun 30, 2027: AKS stops supporting Ubuntu 22.04. No new node images, no
+        security patches, no new Ubuntu 22.04 node pools.
+      - Apr 30, 2028: Ubuntu 22.04 node images are removed. Scaling and
+        remediation operations fail.
+
+      Ubuntu 22.04 is the default for osSKU "Ubuntu" on Kubernetes 1.25-1.34,
+      so most clusters below 1.35 match. Migrate by upgrading to Kubernetes
+      1.35+ (osSKU Ubuntu) or by setting osSKU Ubuntu2404 (Kubernetes 1.32+).
+
+      Reference: https://learn.microsoft.com/en-us/azure/aks/node-images
+      Reference: https://learn.microsoft.com/en-us/azure/aks/upgrade-os-version
+
+    resource: azure.aks
+
+    filters:
+      - type: value
+        key: properties.provisioningState
+        op: ne
+        value_type: normalize
+        value: deleting
+      - type: list-item
+        key: properties.agentPoolProfiles
+        attrs:
+          - or:
+              - type: value
+                key: nodeImageVersion
+                op: regex
+                value: '^AKSUbuntu-2204.*$'
+              # Versioned OS SKU pinned to 22.04
+              - type: value
+                key: osSKU
+                value_type: normalize
+                value: ubuntu2204
+
+    metadata:
+      category: deprecation
+      severity: medium
+      tier: free
+
+  - name: leftsize-aks-windows-unsupported-node-pools
+    description: |
+      Find AKS clusters with Windows node pools on Windows Server 2019 or
+      Windows Server Annual Channel (preview). Both are already unsupported.
+
+      Windows Server 2019:
+      - Mar 2026: support ended (Azure Update: Mar 1, 2026; Azure lifecycle
+        page: Mar 31, 2026). Not supported on Kubernetes 1.33+.
+      - Apr 1, 2027: node images removed, scaling fails (AKS retirement
+        GitHub issue Azure/AKS#4091).
+
+      Windows Server Annual Channel (preview):
+      - May 15, 2026: support ended, no new images or security patches.
+      - May 15, 2027: node images removed, scaling/reimage/redeploy fail.
+
+      Both need a new Windows Server 2022/2025 (LTSC) node pool; there is no
+      in-place OS SKU update from these versions.
+
+      Reference: https://learn.microsoft.com/en-us/azure/aks/windows-faq
+      Reference: https://learn.microsoft.com/en-us/azure/aks/node-images
+      Reference: https://learn.microsoft.com/en-us/azure/aks/upgrade-windows-os
+
+    resource: azure.aks
+
+    filters:
+      - type: value
+        key: properties.provisioningState
+        op: ne
+        value_type: normalize
+        value: deleting
+      - type: list-item
+        key: properties.agentPoolProfiles
+        attrs:
+          - or:
+              # e.g. AKSWindows-2019-containerd-17763.x, AKSWindows-23H2-gen2-25398.x
+              - type: value
+                key: nodeImageVersion
+                op: regex
+                value: '^AKSWindows-(2019|23H2|24H2)-.*$'
+              - type: value
+                key: osSKU
+                op: in
+                value_type: normalize
+                value: ['windows2019', 'windowsannual']
+
+    metadata:
+      category: deprecation
+      severity: critical
+      tier: free
+
+  - name: leftsize-aks-kubenet-retirement
+    description: |
+      Find AKS clusters using kubenet networking.
+
+      Timeline:
+      - Mar 31, 2028: kubenet networking for AKS is retired; kubenet workloads
+        are no longer supported.
+
+      Migrate in place to Azure CNI Overlay (az aks update --network-plugin azure
+      --network-plugin-mode overlay). One-way operation that reimages all node
+      pools; requires Kubernetes 1.27+, no network policy engine, and a
+      user-assigned managed identity to detach the kubenet route table.
+
+      Reference: https://learn.microsoft.com/en-us/azure/aks/configure-kubenet
+      Reference: https://learn.microsoft.com/en-us/azure/aks/upgrade-azure-cni
+
+    resource: azure.aks
+
+    filters:
+      - type: value
+        key: properties.provisioningState
+        op: ne
+        value_type: normalize
+        value: deleting
+      - type: value
+        key: properties.networkProfile.networkPlugin
+        value_type: normalize
+        value: kubenet
+
+    metadata:
+      category: deprecation
+      severity: medium
+      tier: free
+
+  - name: leftsize-aks-open-service-mesh-retirement
+    description: |
+      Find AKS clusters with the Open Service Mesh (OSM) add-on enabled.
+
+      Timeline:
+      - Sep 30, 2027: AKS stops supporting the OSM add-on (upstream OSM project
+        is archived). Security patches only until then.
+
+      Migrate to the managed Istio add-on (az aks mesh enable) and disable OSM
+      (az aks disable-addons --addons open-service-mesh).
+
+      Reference: https://learn.microsoft.com/en-us/azure/aks/open-service-mesh-about
+      Reference: https://learn.microsoft.com/en-us/azure/aks/open-service-mesh-istio-migration-guidance
+
+    resource: azure.aks
+
+    filters:
+      - type: value
+        key: properties.provisioningState
+        op: ne
+        value_type: normalize
+        value: deleting
+      - type: value
+        key: properties.addonProfiles.openServiceMesh.enabled
+        value: true
+
+    metadata:
+      category: deprecation
+      severity: medium
+      tier: free
+
+  # ========================================
+  # ⚡ AZURE FUNCTIONS - RUNTIME / LANGUAGE END OF SUPPORT
+  # ========================================
+
+  - name: leftsize-functions-dotnet-inprocess-end-of-support
+    description: |
+      Detect Linux function apps that run C# on the .NET in-process model.
+      Support for the in-process model ends on November 10, 2026. Migrate to the isolated worker model.
+
+      Timeline:
+      - .NET 8 is the last (and only) .NET version supported by the in-process model
+      - November 10, 2026: END OF SUPPORT - in-process model (and .NET 8) no longer supported
+      - Flex Consumption does not support the in-process model at all
+
+      Detection (Linux only):
+      - Site kind contains "functionapp" and "linux" (Logic Apps Standard "workflowapp" excluded)
+      - Site config linuxFxVersion is "DOTNET|<version>" (in-process). Isolated apps use "DOTNET-ISOLATED|<version>".
+      - Uses the c7n `configuration` filter (GET sites/config/web, Reader permission is sufficient).
+      Windows function apps are NOT detected: on Windows the model is only visible in the
+      FUNCTIONS_WORKER_RUNTIME app setting, which needs secret-level permission to read.
+
+      Reference: https://learn.microsoft.com/en-us/azure/azure-functions/migrate-dotnet-to-isolated-model
+      Reference: https://learn.microsoft.com/en-us/azure/azure-functions/migrate-version-3-version-4 (linuxFxVersion values)
+
+    resource: azure.webapp
+
+    metadata:
+      category: deprecation
+      severity: high
+      tier: free
+
+    filters:
+      # Function apps only (kind is e.g. "functionapp,linux")
+      - type: value
+        key: 'kind'
+        op: regex
+        value: '.*functionapp.*'
+      # Linux only - linuxFxVersion is not used for the stack on Windows
+      - type: value
+        key: 'kind'
+        op: regex
+        value: '.*linux.*'
+      # Exclude Logic Apps Standard (kind "functionapp,workflowapp[,linux]")
+      - not:
+          - type: value
+            key: 'kind'
+            op: regex
+            value: '.*workflowapp.*'
+      # In-process .NET: "DOTNET|8.0" (isolated is "DOTNET-ISOLATED|8.0" and does not match)
+      - type: configuration
+        key: 'linuxFxVersion'
+        op: regex
+        value: '^dotnet\|[0-9.]+$'
+
+  - name: leftsize-functions-linux-language-end-of-support
+    description: |
+      Detect Linux function apps whose language stack version is out of support or reaches
+      end of support on or before November 10, 2026 (per the Azure Functions supported-languages table).
+
+      Covered stack versions (linuxFxVersion, case-insensitive):
+      - DOTNET-ISOLATED|6.0, 7.0 (ended 2024), 8.0 and 9.0 (end of support November 10, 2026)
+      - PYTHON|3.6 - 3.9 (ended), 3.10 (end of support October 2026)
+      - POWERSHELL|7.0, 7.2 (ended), 7.4 (end of support November 10, 2026)
+      - NODE|20 and older (Node.js 20 end of support April 30, 2026; only 22 and 24 are listed as supported)
+      Not covered: Java (8/11/17 supported until September 2027), Node.js 22 (April 30, 2027).
+      The .NET in-process model (DOTNET|x) is covered by leftsize-functions-dotnet-inprocess-end-of-support.
+
+      Apps keep running after end of support but get no security patches or support.
+      Linux Consumption apps cannot move to .NET 10, Node.js 24, Python 3.13+ or PowerShell 7.6 without
+      migrating to Flex Consumption first.
+
+      Detection (Linux only): site kind contains "functionapp" and "linux", configuration linuxFxVersion
+      matches an affected stack. Windows apps and Flex Consumption apps (runtime stored in
+      properties.functionAppConfig.runtime, empty linuxFxVersion) are not detected.
+
+      Reference: https://learn.microsoft.com/en-us/azure/azure-functions/supported-languages
+      Reference: https://learn.microsoft.com/en-us/azure/azure-functions/update-language-versions
+
+    resource: azure.webapp
+
+    metadata:
+      category: deprecation
+      severity: high
+      tier: free
+
+    filters:
+      - type: value
+        key: 'kind'
+        op: regex
+        value: '.*functionapp.*'
+      - type: value
+        key: 'kind'
+        op: regex
+        value: '.*linux.*'
+      - not:
+          - type: value
+            key: 'kind'
+            op: regex
+            value: '.*workflowapp.*'
+      # Affected language stack versions (regex is case-insensitive in c7n)
+      - type: configuration
+        key: 'linuxFxVersion'
+        op: regex
+        # optional third segment = managed Linux image version, e.g. "Python|3.11|2.0"
+        value: '^(dotnet-isolated\|[6-9]\.0|python\|3\.([6-9]|10)|powershell\|7\.[0-4]|node\|([0-9]|1[0-9]|20))(\|[0-9.]+)?$'
+
+  # ========================================
+  # 🤖 AZURE AI SERVICES (COGNITIVE SERVICES) RETIREMENTS
+  # ========================================
+
+  - name: leftsize-ai-services-retired
+    description: |
+      Detect Azure AI services (Cognitive Services) accounts whose service has already been retired.
+      These resources no longer provide a supported service; migrate the workload and delete the account.
+
+      Retired services (kind):
+      - QnAMaker: retired October 31, 2025 -> custom question answering (Azure Language)
+      - LUIS / LUIS.Authoring: fully retired March 31, 2026 -> conversational language understanding (CLU)
+      - MetricsAdvisor: retired (product docs: May 18, 2026; lifecycle page: October 1, 2026)
+      - Personalizer: retired (product docs: August 25, 2026; lifecycle page: October 1, 2026)
+      - AnomalyDetector: retired October 1, 2026 -> Microsoft Fabric anomaly detection / open-source anomaly-detector
+
+      Reference: https://learn.microsoft.com/en-us/lifecycle/end-of-support/end-of-support-2026
+      Reference: https://learn.microsoft.com/en-us/azure/ai-services/luis/what-is-luis
+      Reference: https://learn.microsoft.com/en-us/azure/ai-services/qnamaker/overview/overview
+      Reference: https://learn.microsoft.com/en-us/azure/ai-services/anomaly-detector/overview
+
+    resource: azure.cognitiveservice
+
+    metadata:
+      category: deprecation
+      severity: high
+      tier: free
+
+    filters:
+      - type: value
+        key: 'kind'
+        op: in
+        value_type: normalize
+        value:
+          - 'luis'
+          - 'luis.authoring'
+          - 'qnamaker'
+          - 'anomalydetector'
+          - 'metricsadvisor'
+          - 'personalizer'
+
+  - name: leftsize-content-moderator-retirement
+    description: |
+      Detect Azure Content Moderator accounts. Content Moderator has been deprecated since February 2024
+      and is retired on March 15, 2027 (product documentation). The Microsoft lifecycle product page lists
+      March 31, 2027; plan for the earlier date. Replacement: Azure AI Content Safety.
+
+      Reference: https://learn.microsoft.com/en-us/azure/ai-services/content-moderator/overview
+      Reference: https://learn.microsoft.com/en-us/lifecycle/products/azure-ai-content-moderator
+
+    resource: azure.cognitiveservice
+
+    metadata:
+      category: deprecation
+      severity: high
+      tier: free
+
+    filters:
+      - type: value
+        key: 'kind'
+        op: eq
+        value_type: normalize
+        value: 'contentmoderator'
+
+  # ========================================
+  # 🌱 AZURE SPRING APPS RETIREMENT
+  # ========================================
+
+  - name: leftsize-spring-apps-retirement
+    description: |
+      Detect Azure Spring Apps service instances. All plans (Basic, Standard, Enterprise) entered a
+      three-year retirement period on March 17, 2025 and are retired on March 31, 2028. After that date
+      you no longer have access to your workloads. Migrate to Azure Container Apps (recommended) or AKS.
+
+      Timeline:
+      - March 17, 2025: retirement period starts, no new customers
+      - August/September 2025: Tanzu App Live View, App Accelerator, App Configuration Service out of support (Enterprise)
+      - March 31, 2028: RETIREMENT DATE - service discontinued
+
+      Reference: https://learn.microsoft.com/en-us/azure/spring-apps/basic-standard/retirement-announcement
+
+    resource: azure.spring-service-instance
+
+    metadata:
+      category: deprecation
+      severity: high
+      tier: free
+
+  # ========================================
+  # ☁️ CLOUD SERVICES (EXTENDED SUPPORT) RETIREMENT
+  # ========================================
+
+  - name: leftsize-cloud-services-extended-support-retirement
+    description: |
+      Detect Cloud Services (extended support) deployments (Microsoft.Compute/cloudServices).
+      Deprecated since March 31, 2025 and fully retired on March 31, 2027. No extensions are granted.
+      Migrate to Service Fabric managed clusters, Virtual Machine Scale Sets, App Service, AKS or Container Apps.
+
+      Detection uses the generic ARM resource list (no dedicated c7n resource type exists).
+
+      Reference: https://learn.microsoft.com/en-us/azure/cloud-services-extended-support/overview
+      Reference: https://learn.microsoft.com/en-us/azure/service-fabric/service-fabric-cloud-services-migration-faq
+
+    resource: azure.armresource
+
+    metadata:
+      category: deprecation
+      severity: critical
+      tier: free
+
+    filters:
+      - type: resource-type
+        values:
+          - 'Microsoft.Compute/cloudServices'
+
+  # ========================================
+  # 🌐 NETWORKING RETIREMENTS (public IP, WAF config, Front Door / CDN classic, NSG flow logs)
+  # ========================================
+
+  # HIGH: Basic SKU public IP addresses were retired on September 30, 2025
+  - name: leftsize-basic-public-ip-retired
+    description: |
+      Basic SKU public IP addresses were retired on September 30, 2025.
+
+      Basic public IPs remain operational after the retirement date, but Microsoft
+      states that customers who keep using them "accept the risks and acknowledge
+      that the service is unsupported and not covered by SLA guarantees".
+
+      Upgrade path depends on what the IP is attached to:
+      - Unattached IP: set allocation to Static, then `az network public-ip update --sku Standard`
+        (keeps the IP address; one-way)
+      - Virtual machine: AzureVMPublicIPUpgrade PowerShell module (Start-VMPublicIPUpgrade)
+      - Basic Load Balancer: upgrade the LB with the AzureBasicLoadBalancerUpgrade module
+      - VPN / ExpressRoute gateway: gateway migration to AZ SKUs
+      - Application Gateway v1: migrate to Application Gateway v2
+
+      Standard public IPs are "secure by default": inbound traffic must be allowed by an NSG.
+      Cloud Services (extended support) deployments are exempt from this retirement.
+
+      Timeline:
+      - September 30, 2025: RETIREMENT DATE - Basic public IPs unsupported, no SLA
+
+      Reference: https://learn.microsoft.com/en-us/azure/virtual-network/ip-services/public-ip-basic-upgrade-guidance
+
+    resource: azure.publicip
+
+    filters:
+      # Basic SKU only (Standard SKU is the supported replacement)
+      - type: value
+        key: sku.name
+        value: 'Basic'
+
+    metadata:
+      category: deprecation
+      severity: high
+      tier: free
+
+  # HIGH: Application Gateway WAF v2 legacy "WAF configuration" retires March 15, 2027
+  - name: leftsize-appgateway-waf-config-retirement
+    description: |
+      WAF configuration (the legacy, inline webApplicationFirewallConfiguration) on
+      Application Gateway WAF v2 retires on March 15, 2027. Microsoft isn't making further
+      investments in WAF configuration; upgrade to a WAF Policy at no extra cost.
+
+      The upgrade can be done in place without downtime (portal "Upgrade from WAF
+      configuration", Azure Firewall Manager, or the migrateToWafPolicy.ps1 script).
+
+      Timeline:
+      - March 15, 2024: Deprecation announced
+      - March 15, 2025: No new WAF configuration deployments
+      - March 15, 2027: RETIREMENT DATE
+
+      Note: gateways that have a custom-rules-only policy AND a legacy WAF configuration
+      still need the upgrade, so this rule does not require firewallPolicy to be absent.
+
+      Reference: https://learn.microsoft.com/en-us/azure/web-application-firewall/ag/upgrade-ag-waf-policy
+
+    resource: azure.application-gateway
+
+    filters:
+      # Only WAF v2 gateways (v1 is covered by leftsize-appgateway-v1-deprecated)
+      - type: value
+        key: properties.sku.tier
+        value: 'WAF_v2'
+
+      # Still carries the legacy inline WAF configuration
+      - type: value
+        key: properties.webApplicationFirewallConfiguration
+        value: present
+
+    metadata:
+      category: deprecation
+      severity: high
+      tier: free
+
+  # HIGH: Azure Front Door (classic) retires March 31, 2027
+  - name: leftsize-front-door-classic-retirement
+    description: |
+      Azure Front Door (classic) retires on March 31, 2027.
+
+      After retirement you lose the ability to create or manage classic resources, access
+      them through the portal or APIs/SDKs/tools, receive service updates, or get support.
+      No new classic profiles since April 1, 2025; no managed certificates since August 15, 2025.
+
+      Microsoft provides a zero-downtime migration tool (portal or Azure PowerShell) to
+      Azure Front Door Standard or Premium. After migration, update DNS/clients to the new
+      endpoint by March 31, 2028 (classic endpoints may stop functioning from April 1, 2028).
+
+      azure.front-door enumerates Microsoft.Network/frontDoors, which is only the classic tier
+      (Standard/Premium profiles are Microsoft.Cdn/profiles), so no extra filter is needed.
+
+      Timeline:
+      - April 1, 2025: No new classic profiles
+      - August 15, 2025: No managed certificates
+      - March 31, 2027: RETIREMENT DATE
+
+      Reference: https://learn.microsoft.com/en-us/azure/frontdoor/classic-retirement-faq
+
+    resource: azure.front-door
+
+    metadata:
+      category: deprecation
+      severity: high
+      tier: free
+
+  # MEDIUM: Azure CDN Standard from Microsoft (classic) retires September 30, 2027
+  - name: leftsize-cdn-classic-retirement
+    description: |
+      Azure CDN Standard from Microsoft (classic) retires on September 30, 2027.
+
+      After retirement you lose the ability to create or manage these resources, access
+      them through the portal or APIs/SDKs/tools, receive updates, or get support.
+      No new profiles, domain onboarding or managed certificates since August 15, 2025.
+
+      Migrate to Azure Front Door Standard or Premium with the portal migration tool
+      (Validate -> Prepare -> Migrate). After migration, cut over DNS/clients to the new
+      endpoint by March 31, 2028.
+
+      azure.cdnprofile also returns Azure Front Door Standard/Premium profiles, so only the
+      exact Standard_Microsoft SKU is matched.
+
+      Timeline:
+      - August 15, 2025: No new profiles / domains / managed certificates
+      - September 30, 2027: RETIREMENT DATE
+
+      Reference: https://learn.microsoft.com/en-us/azure/cdn/classic-cdn-retirement-faq
+
+    resource: azure.cdnprofile
+
+    filters:
+      - type: value
+        key: sku.name
+        value: 'Standard_Microsoft'
+
+    metadata:
+      category: deprecation
+      severity: medium
+      tier: free
+
+  # MEDIUM: NSG flow logs retire September 30, 2027 (flow log resources are deleted)
+  - name: leftsize-nsg-flow-logs-retirement
+    description: |
+      Network security group (NSG) flow logs retire on September 30, 2027. New NSG flow
+      logs can no longer be created.
+
+      After the retirement date Azure no longer supports traffic analytics for NSG flow logs
+      and deletes existing NSG flow log resources. Existing log records in Azure Storage are
+      kept and follow their retention policy.
+
+      Migrate to virtual network flow logs (portal "Migrate flow logs" script, Azure Policy,
+      or `az network watcher flow-log create --vnet ...`).
+
+      Detection: the NSG's read-only properties.flowLogs array lists the flow log resources
+      attached to it (the same field c7n's own flow-logs filter reads).
+
+      Timeline:
+      - September 30, 2027: RETIREMENT DATE - NSG flow log resources deleted
+
+      Reference: https://learn.microsoft.com/en-us/azure/network-watcher/nsg-flow-logs-overview
+
+    resource: azure.networksecuritygroup
+
+    filters:
+      # NSG has at least one NSG flow log attached
+      - type: value
+        key: properties.flowLogs
+        value: not-null
+
+    metadata:
+      category: deprecation
+      severity: medium
+      tier: free
+
+  # ========================================
+  # 🗄️ DATABASE / CACHE / ANALYTICS RETIREMENTS
+  # ========================================
+
+  # MEDIUM: PostgreSQL Flexible Server 11/12/13 in paid extended support (14 from Feb 1, 2027)
+  - name: leftsize-postgresql-flexible-extended-support
+    description: |
+      Azure Database for PostgreSQL Flexible Server versions 11, 12 and 13 left Azure
+      standard support on July 31, 2026. Servers were automatically enrolled in Extended
+      Support on August 1, 2026 and Extended Support billing started September 1, 2026.
+      PostgreSQL 14 follows: standard support ends January 31, 2027, Extended Support
+      (billed) starts February 1, 2027.
+
+      You can't opt out of Extended Support except by upgrading to a supported major version.
+      Billing applies only while the server is in a Succeeded (running) state.
+
+      Extended Support end dates:
+      - PostgreSQL 11: March 31, 2027
+      - PostgreSQL 12: November 13, 2027
+      - PostgreSQL 13: November 12, 2028
+      - PostgreSQL 14: November 11, 2029
+
+      Fix: in-place major version upgrade (`az postgres flexible-server upgrade --version <n>`).
+
+      Reference: https://learn.microsoft.com/en-us/azure/postgresql/configure-maintain/extended-support
+
+    resource: azure.postgresql-flexibleserver
+
+    filters:
+      - type: value
+        key: properties.version
+        op: in
+        value:
+          - '11'
+          - '12'
+          - '13'
+          - '14'
+
+    metadata:
+      category: deprecation
+      severity: medium
+      tier: free
+
+  # MEDIUM: MySQL Flexible Server 5.7 in paid extended support (8.0 from Feb 1, 2027)
+  - name: leftsize-mysql-flexible-extended-support
+    description: |
+      Azure Database for MySQL Flexible Server 5.7 left Azure standard support on
+      September 30, 2026. Servers still on 5.7 were automatically enrolled in Extended
+      Support on October 1, 2026 and are charged per vCore per hour.
+      MySQL 8.0 follows: standard support ends January 31, 2027, Extended Support (billed)
+      starts February 1, 2027.
+
+      Extended Support end dates:
+      - MySQL 5.7: March 31, 2029
+      - MySQL 8.0: May 31, 2029
+
+      Stopped servers aren't charged; read replicas and HA standbys are billed for their vCores.
+      Fix: in-place major version upgrade (`az mysql flexible-server upgrade --version 8.0|8.4`).
+
+      Reference: https://learn.microsoft.com/en-us/azure/mysql/concepts-version-policy
+
+    resource: azure.mysql-flexibleserver
+
+    filters:
+      # 5.7 and 8.0 (8.0 servers report e.g. '8.0.21'); 8.4 is not matched
+      - type: value
+        key: properties.version
+        op: regex
+        value: '^(5\.7|8\.0)(\..*)?$'
+
+    metadata:
+      category: deprecation
+      severity: medium
+      tier: free
+
+  # HIGH: Azure Cache for Redis Enterprise / Enterprise Flash retire March 31, 2027
+  - name: leftsize-redis-enterprise-retirement
+    description: |
+      All Azure Cache for Redis Enterprise and Enterprise Flash instances retire on
+      March 31, 2027. Instances are disabled starting April 1, 2027.
+      Migrate to Azure Managed Redis (self-service migration or Microsoft migration tooling).
+
+      Azure Managed Redis uses the same resource type (Microsoft.Cache/redisEnterprise) with
+      Balanced_/MemoryOptimized_/ComputeOptimized_/FlashOptimized_ SKUs, so only
+      Enterprise_* and EnterpriseFlash_* SKUs are matched.
+      No typed c7n resource exists for redisEnterprise, so the generic ARM resource is used
+      (resources.list returns the top-level sku).
+
+      Timeline:
+      - March 31, 2027: RETIREMENT DATE
+      - April 1, 2027: Remaining Enterprise instances disabled
+
+      Reference: https://learn.microsoft.com/en-us/azure/azure-cache-for-redis/retirement-faq
+
+    resource: azure.armresource
+
+    filters:
+      - type: resource-type
+        values:
+          - Microsoft.Cache/redisEnterprise
+
+      - type: value
+        key: sku.name
+        op: regex
+        value: '^(Enterprise|EnterpriseFlash)_.*$'
+
+    metadata:
+      category: deprecation
+      severity: high
+      tier: free
+
+  # MEDIUM: Azure Cache for Redis Basic / Standard / Premium retire September 30, 2028
+  - name: leftsize-redis-cache-retirement
+    description: |
+      All Azure Cache for Redis Basic, Standard and Premium instances retire on
+      September 30, 2028. Remaining instances are disabled starting October 1, 2028.
+      Existing reservations are supported until September 30, 2028.
+      Migrate to Azure Managed Redis (self-service migration recommended; migration
+      tooling in preview).
+
+      azure.redis enumerates Microsoft.Cache/Redis only (Basic/Standard/Premium); Enterprise
+      tiers are covered by leftsize-redis-enterprise-retirement.
+
+      Timeline:
+      - September 30, 2028: RETIREMENT DATE
+      - October 1, 2028: Remaining instances disabled
+
+      Reference: https://learn.microsoft.com/en-us/azure/azure-cache-for-redis/retirement-faq
+
+    resource: azure.redis
+
+    metadata:
+      category: deprecation
+      severity: medium
+      tier: free
+
+  # CRITICAL: HDInsight 4.0 and 5.0 were retired on March 31, 2025
+  - name: leftsize-hdinsight-retired-version
+    description: |
+      HDInsight 4.0 and 5.0 reached end of support and retirement on March 31, 2025.
+
+      For retired versions: no support or maintenance (including security updates, bug fixes,
+      scaling or performance improvements), no new clusters, and "Microsoft reserves the right
+      to remove, disable, or delete all instances of retired versions of this service at any
+      time after the retirement date".
+
+      HDInsight has no in-place upgrade: create a new HDInsight 5.1 cluster, migrate jobs,
+      and delete the old cluster.
+
+      Reference: https://learn.microsoft.com/en-us/azure/hdinsight/hdinsight-component-versioning
+
+    resource: azure.hdinsight
+
+    filters:
+      # clusterVersion looks like '4.0.3000.1' / '5.0.3000.0'; 5.1 is supported
+      - type: value
+        key: properties.clusterVersion
+        op: regex
+        value: '^(4\.0|5\.0)(\..*)?$'
+
+    metadata:
+      category: deprecation
+      severity: critical
+      tier: free

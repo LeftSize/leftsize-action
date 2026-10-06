@@ -227,25 +227,6 @@ policies:
         value: 'leftsize-flagged'
 
   # VM Outdated Series - 10-20% savings + better performance
-  - name: leftsize-vm-outdated-series
-    description: "Find VMs using outdated series (v2/v3/v4) when v5/v6 available"
-    resource: azure.vm
-    filters:
-      # Match older VM series (v2, v3, v4)
-      - type: value
-        key: 'properties.hardwareProfile.vmSize'
-        op: 'regex'
-        value: 'Standard_(D|E|F|L|M)[0-9]+[a-z]*s?_v[234]$'
-      # Power state needs the instance view (one GET per remaining VM, so it runs last)
-      - type: instance-view
-        key: 'statuses[].code'
-        op: intersect
-        value: ['PowerState/running']
-    actions:
-      - type: tag
-        tag: leftsize-vm-series-upgrade
-        value: 'leftsize-flagged'
-
   # VM Scheduled Shutdown - 30-70% savings for non-prod
   # Note: Only checks for non-prod tags on running VMs. Cannot verify auto-shutdown
   # configuration (Microsoft.DevTestLab/schedules) with Cloud Custodian VM filters.
