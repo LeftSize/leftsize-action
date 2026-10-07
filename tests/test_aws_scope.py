@@ -239,3 +239,12 @@ class TestBuildScopeFromResourceId:
         assert scope_dev_eu == 'aws:account/111111111111/region/eu-west-1'
         assert scope_dev_us == 'aws:account/111111111111/region/us-west-1'
         assert scope_prod_eu == 'aws:account/222222222222/region/eu-west-1'
+
+
+def test_azure_scope_is_case_insensitive():
+    """The same resource group is reported in different casing by different resource types."""
+    config = {'cloud_provider': 'azure'}
+    vm = '/subscriptions/ABC-123/resourceGroups/ALL-DXP-ACC-RG/providers/Microsoft.Compute/virtualMachines/vm1'
+    sa = '/subscriptions/abc-123/resourceGroups/all-dxp-acc-rg/providers/Microsoft.Storage/storageAccounts/sa1'
+    assert build_scope_from_resource_id(vm, config) == build_scope_from_resource_id(sa, config) \
+        == 'azure:subscription/abc-123/resourceGroup/all-dxp-acc-rg'

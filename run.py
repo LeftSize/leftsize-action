@@ -1037,8 +1037,11 @@ def build_scope_from_resource_id(resource_id: str, config: Dict[str, Any]) -> st
         # Azure resource ID: /subscriptions/{sub}/resourceGroups/{rg}/providers/{provider}/{type}/{name}
         parts = resource_id.split('/')
         if len(parts) >= 5 and parts[1] == 'subscriptions':
-            subscription_id = parts[2]
-            resource_group = parts[4] if len(parts) >= 5 else 'unknown'
+            # Azure IDs are case-insensitive and the same resource group is reported as
+            # e.g. "ALL-RG" by VMs and "all-rg" by other resources; lowercase the scope
+            # so one resource group always maps to one finding group / issue.
+            subscription_id = parts[2].lower()
+            resource_group = (parts[4] if len(parts) >= 5 else 'unknown').lower()
             return f"azure:subscription/{subscription_id}/resourceGroup/{resource_group}"
         else:
             # Fallback scope - ensure we never return None
