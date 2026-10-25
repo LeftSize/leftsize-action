@@ -313,7 +313,7 @@ policies:
   # ========================================
 
   - name: leftsize-orphaned-ebs-snapshots
-    description: "Find EBS snapshots older than 30 days that should be reviewed for cleanup"
+    description: "Find EBS snapshots older than 30 days whose source volume no longer exists"
     resource: aws.ebs-snapshot
     filters:
       # Snapshot is older than 30 days
@@ -341,9 +341,11 @@ policies:
       - type: value
         key: 'tag:aws:dlm:lifecycle-policy-id'
         value: absent
-      # Snapshots whose source volume still exists are included on purpose (old
-      # manual backups). A `volume` filter with `key: VolumeId, value: absent`
-      # would restrict this to snapshots of deleted volumes.
+      # Source volume no longer exists (looked up via the related EBS volume;
+      # copied snapshots carry a placeholder VolumeId and count as orphaned).
+      - type: volume
+        key: VolumeId
+        value: absent
     actions:
       - type: tag
         key: leftsize-orphaned-snapshot-delete
