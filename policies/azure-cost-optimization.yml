@@ -421,19 +421,25 @@ policies:
   # Note: Using armresource since azure.sql-elasticpool is not a registered Cloud Custodian resource type.
   # ARM list response does not include database count, so we flag old pools for manual review.
   - name: leftsize-sql-elastic-pool-empty
-    description: "Find SQL Elastic Pools older than 7 days that should be reviewed for emptiness"
+    description: "Find SQL Elastic Pools that held no databases at any point in the last 7 days"
     resource: azure.armresource
     filters:
       # Target SQL Elastic Pool resource type
       - type: resource-type
         values:
           - Microsoft.Sql/servers/elasticPools
-      # Pool has been running for more than 7 days (not newly created)
-      - type: value
-        key: 'properties.creationDate'
-        op: 'ge'
-        value_type: age
-        value: 7
+      # armresource comes from resources.list(), which returns no `properties`,
+      # so emptiness is read from Azure Monitor instead: data space allocated by
+      # the pool's databases is 0 only when the pool has no databases. No data
+      # points (no databases ever) count as 0; a failed metrics call doesn't match.
+      - type: metric
+        metric: 'allocated_data_storage'
+        aggregation: 'maximum'
+        timeframe: 168  # hours (7 days)
+        interval: 'P1D'
+        op: 'le'
+        threshold: 0
+        no_data_action: to_zero
     actions:
       - type: tag
         tag: leftsize-empty-elastic-pool-delete
