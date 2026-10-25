@@ -196,7 +196,8 @@ policies:
         metric: Percentage CPU
         op: lt
         threshold: 5
-        days: 7
+        interval: P1D
+        timeframe: 168  # hours, not days (c7n-azure metric filter)
       - type: value
         key: powerState
         op: eq

@@ -9,7 +9,7 @@ policies:
       - type: metric
         metric: 'Percentage CPU'
         aggregation: 'average'
-        timeframe: 7  # 7 days
+        timeframe: 168  # hours (7 days) — c7n-azure metric timeframe is in hours
         interval: 'P1D'  # Daily intervals
         op: 'le' 
         threshold: 5.0  # CPU usage <= 5%
@@ -57,7 +57,7 @@ policies:
       - type: metric
         metric: 'CpuPercentage'
         aggregation: 'average'
-        timeframe: 7  # 7 days
+        timeframe: 168  # hours (7 days) — c7n-azure metric timeframe is in hours
         interval: 'P1D'  # Daily intervals
         op: 'le'
         threshold: 10.0  # CPU usage <= 10%
@@ -65,7 +65,7 @@ policies:
       - type: metric
         metric: 'MemoryPercentage'
         aggregation: 'average'
-        timeframe: 7  # 7 days
+        timeframe: 168  # hours (7 days) — c7n-azure metric timeframe is in hours
         interval: 'P1D'  # Daily intervals
         op: 'le'
         threshold: 30.0  # Memory usage <= 30%
@@ -294,7 +294,7 @@ policies:
       - type: metric
         metric: 'Transactions'
         aggregation: 'total'
-        timeframe: 30
+        timeframe: 720  # hours (30 days)
         interval: 'P1D'
         op: 'le'
         threshold: 100.0
@@ -537,7 +537,7 @@ policies:
   #     - type: metric
   #       metric: 'dtu_consumption_percent'
   #       aggregation: 'average'
-  #       timeframe: 14
+  #       timeframe: 336  # hours (14 days)
   #       interval: 'P1D'
   #       op: 'le'
   #       threshold: 20.0
@@ -560,7 +560,7 @@ policies:
       - type: metric
         metric: 'usedmemorypercentage'
         aggregation: 'average'
-        timeframe: 14
+        timeframe: 336  # hours (14 days)
         interval: 'P1D'
         op: 'le'
         threshold: 20.0
@@ -634,7 +634,7 @@ policies:
         aggregation: 'average'
         op: 'le'
         threshold: 20.0
-        timeframe: 14
+        timeframe: 336  # hours (14 days)
         interval: 'P1D'
       # Database is in running state
       - type: value
@@ -659,7 +659,7 @@ policies:
         aggregation: 'average'
         op: 'le'
         threshold: 30.0
-        timeframe: 14
+        timeframe: 336  # hours (14 days)
         interval: 'P1D'
       # Account is in running state
       - type: value
