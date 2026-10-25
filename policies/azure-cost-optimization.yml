@@ -771,3 +771,54 @@ policies:
       category: cost-optimization
       severity: low
       tier: free
+
+  # Idle Azure Bastion - billed per hour whether or not anyone connects
+  - name: leftsize-bastion-idle
+    description: |
+      Find Azure Bastion hosts (Basic, Standard, Premium) with no sessions in
+      the last 7 days. Bastion is billed per hour while deployed (westeurope
+      list price: Basic $0.19/h, Standard $0.29/h, Premium $0.45/h, about
+      $139, $212 and $329 a month), regardless of use. The Developer SKU is
+      free and is not flagged.
+    resource: azure.bastion-host
+    filters:
+      - type: value
+        key: 'sku.name'
+        value_type: normalize
+        op: 'in'
+        value: ['basic', 'standard', 'premium']
+      - type: value
+        key: 'properties.provisioningState'
+        value: 'Succeeded'
+      # `sessions` is only published at PT5M/PT15M grain and supports Total
+      # and Average aggregation. No data points (nobody connected) count as
+      # 0; a failed metrics call doesn't match.
+      - type: metric
+        metric: 'sessions'
+        aggregation: 'total'
+        timeframe: 168  # hours (7 days)
+        interval: 'PT15M'
+        op: 'le'
+        threshold: 0
+        no_data_action: to_zero
+    metadata:
+      category: cost-optimization
+      severity: medium
+      tier: pro
+
+  # SFTP enabled on a storage account - flat hourly charge, used or not
+  - name: leftsize-storage-sftp-enabled
+    description: |
+      Find storage accounts with SFTP enabled. Enabling the SFTP endpoint adds
+      a flat hourly charge per storage account (about $0.30/h, roughly
+      $216-219 a month) whether or not it is used. SFTP can be switched off
+      and on again at any time; local users are kept.
+    resource: azure.storage
+    filters:
+      - type: value
+        key: 'properties.isSftpEnabled'
+        value: true
+    metadata:
+      category: cost-optimization
+      severity: medium
+      tier: pro

@@ -1479,6 +1479,7 @@ RESOURCE_FIELD_PATHS: Dict[str, Dict[str, List[str]]] = {
     'azure.redis': {'skuName': ['properties.sku.name'], 'skuCapacity': ['properties.sku.capacity'],
                     'skuFamily': ['properties.sku.family'], 'redisVersion': ['properties.redisVersion']},
     'azure.armresource': {'skuName': ['sku.name'], 'skuCapacity': ['sku.capacity']},
+    'azure.bastion-host': {'skuName': ['sku.name'], 'scaleUnits': ['properties.scaleUnits']},
     'azure.hdinsight': {'clusterVersion': ['properties.clusterVersion'],
                         'clusterState': ['properties.clusterState'],
                         'clusterKind': ['properties.clusterDefinition.kind']},

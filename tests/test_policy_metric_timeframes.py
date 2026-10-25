@@ -51,3 +51,14 @@ def test_daily_interval_timeframe_is_whole_days_in_hours(metric_filter: dict) ->
     assert timeframe >= 24 and timeframe % 24 == 0, (
         f'timeframe {timeframe} is in hours; a daily interval needs whole days (e.g. 168 for 7 days)'
     )
+
+
+def test_bastion_sessions_metric_uses_a_supported_grain_and_aggregation() -> None:
+    # Azure publishes `sessions` only at PT5M/PT15M with Total/Average. Any other
+    # interval or aggregation makes the metrics call fail, and the filter then
+    # silently never matches.
+    policies = yaml.safe_load((POLICIES_DIR / 'azure-cost-optimization.yml').read_text())['policies']
+    bastion = next(p for p in policies if p['name'] == 'leftsize-bastion-idle')
+    (sessions,) = [f for f in _metric_filters(bastion['filters']) if f.get('metric') == 'sessions']
+    assert sessions['interval'] in ('PT5M', 'PT15M')
+    assert sessions['aggregation'] in ('total', 'average')

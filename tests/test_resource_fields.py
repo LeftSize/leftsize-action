@@ -39,6 +39,10 @@ class TestExtractResourceFields:
             "win: Windows/-, k8s -, image -",
         ]
 
+    def test_bastion_sku_and_scale_units(self):
+        r = {"sku": {"name": "Standard"}, "properties": {"scaleUnits": 2}}
+        assert extract_resource_fields(r, "azure.bastion-host") == {"skuName": "Standard", "scaleUnits": 2}
+
     def test_webapp_runtime_from_configuration_annotation(self):
         r = {"c7n:configuration": {"linuxFxVersion": "DOTNET|8.0"}}
         assert extract_resource_fields(r, "azure.webapp") == {"runtime": "DOTNET|8.0"}
