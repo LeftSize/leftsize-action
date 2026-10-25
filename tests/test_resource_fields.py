@@ -39,6 +39,17 @@ class TestExtractResourceFields:
             "win: Windows/-, k8s -, image -",
         ]
 
+    def test_ami_name_date_and_snapshots(self):
+        r = {"Name": "web-2026-05", "CreationDate": "2026-05-01T10:00:00.000Z",
+             "BlockDeviceMappings": [{"Ebs": {"SnapshotId": "snap-1", "VolumeSize": 30}},
+                                     {"DeviceName": "/dev/sdb", "VirtualName": "ephemeral0"},
+                                     {"Ebs": {"SnapshotId": "snap-2", "VolumeSize": 100}}]}
+        f = extract_resource_fields(r, "aws.ami")
+        assert f["imageName"] == "web-2026-05"
+        assert f["creationDate"] == "2026-05-01T10:00:00.000Z"
+        assert f["snapshotIds"] == "snap-1, snap-2"
+        assert f["volumeSizesGb"] == "30, 100"
+
     def test_bastion_sku_and_scale_units(self):
         r = {"sku": {"name": "Standard"}, "properties": {"scaleUnits": 2}}
         assert extract_resource_fields(r, "azure.bastion-host") == {"skuName": "Standard", "scaleUnits": 2}

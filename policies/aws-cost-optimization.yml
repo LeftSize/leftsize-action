@@ -324,9 +324,26 @@ policies:
       - type: value
         key: 'OwnerId'
         value: present
-      # Note: VolumeId is always retained by AWS even after volume deletion,
-      # so we cannot reliably detect true orphans via filters alone.
-      # Template instructs users to verify source volume before deleting.
+      # Not backing an AMI, launch configuration or ASG launch template: AWS
+      # refuses to delete those ("snapshot is currently in use by ami-...").
+      - type: unused
+        value: true
+      # Not managed by AWS Backup or Data Lifecycle Manager; deleting those by
+      # hand breaks recovery points or fights the lifecycle policy.
+      - not:
+          - type: value
+            key: 'Description'
+            op: glob
+            value: 'This snapshot is created by the AWS Backup service*'
+      - type: value
+        key: 'tag:aws:backup:source-resource'
+        value: absent
+      - type: value
+        key: 'tag:aws:dlm:lifecycle-policy-id'
+        value: absent
+      # Snapshots whose source volume still exists are included on purpose (old
+      # manual backups). A `volume` filter with `key: VolumeId, value: absent`
+      # would restrict this to snapshots of deleted volumes.
     actions:
       - type: tag
         key: leftsize-orphaned-snapshot-delete
@@ -1431,3 +1448,42 @@ policies:
       - type: tag
         key: leftsize-elasticache-underutilized
         value: 'rightsizing-candidate'
+
+  # Unused AMIs keep their EBS snapshots (and the storage bill) until deregistered
+  - name: leftsize-unused-ami
+    description: |
+      Find AMIs owned by this account that are at least 90 days old and not
+      used by any EC2 instance or Auto Scaling group (launch configuration or
+      launch template). Each AMI keeps its EBS snapshots, billed at about
+      $0.05/GB-month, until it is deregistered and the snapshots are deleted.
+      Skips AMIs shared with other accounts or public, and AMIs managed by AWS
+      Backup or Data Lifecycle Manager. Launch templates not attached to an
+      ASG (Batch, EC2/Spot Fleet, Karpenter, scripts) aren't checked; the issue
+      tells users how to verify.
+    resource: aws.ami
+    filters:
+      - type: image-age
+        days: 90
+        op: ge
+      - type: unused
+        value: true
+      # Shared or public AMIs may be used by other accounts
+      - not:
+          - type: cross-account
+      # AWS Backup recovery points; deregistering them breaks the backup vault
+      - not:
+          - type: value
+            key: 'Name'
+            op: glob
+            value: 'AwsBackup_*'
+      - type: value
+        key: 'tag:aws:backup:source-resource'
+        value: absent
+      # Managed by a Data Lifecycle Manager AMI policy
+      - type: value
+        key: 'tag:aws:dlm:lifecycle-policy-id'
+        value: absent
+    metadata:
+      category: cost-optimization
+      severity: low
+      tier: pro
