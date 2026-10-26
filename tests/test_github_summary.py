@@ -71,7 +71,7 @@ class TestPrintGitHubSummary:
                 
                 # Check summary table
                 assert "| Free Tier | 2 | ✅ 2 |" in content
-                assert "| Pro (upgrade required) | 1 | ❌ 0 |" in content
+                assert "| Team (upgrade required) | 1 | ❌ 0 |" in content
                 assert "| **Total** | **3** | **2** |" in content
                 
                 # Check Free tier section
@@ -79,7 +79,7 @@ class TestPrintGitHubSummary:
                 assert "Idle virtual machines wasting compute costs" in content
                 
                 # Check Pro tier section
-                assert "Pro Findings (1 → Upgrade to Unlock)" in content
+                assert "Team Findings (1 → Upgrade to Unlock)" in content
                 assert "Overprovisioned AKS clusters" in content
                 
                 # Check upsell message with savings
@@ -127,7 +127,7 @@ class TestPrintGitHubSummary:
                 assert "Idle virtual machines" in content
                 
                 # Check Pro section NOT shown
-                assert "Pro Findings" not in content
+                assert "Team Findings" not in content
                 assert "Upgrade to Unlock" not in content
         finally:
             os.unlink(summary_file)
@@ -287,12 +287,38 @@ class TestPrintGitHubSummary:
                     content = f.read()
                 
                 # Check warning message
-                assert "Free Tier Limit Reached" in content
-                assert "3 repositories" in content
-                assert "Upgrade to Pro" in content
+                assert "Repository Limit Reached" in content
+                assert "Your Free plan allows scanning **3 repositories**" in content
+                assert "See plans" in content
         finally:
             os.unlink(summary_file)
     
+    def test_team_plan_summary(self):
+        """Team (and Business) plans get the paid summary with the plan name."""
+        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.md') as f:
+            summary_file = f.name
+        try:
+            with patch.dict(os.environ, {'GITHUB_STEP_SUMMARY': summary_file}):
+                findings = [{"ruleId": "leftsize-aks-kubenet-retirement", "scope": "sub-1", "resourceId": "/r1"}]
+                plan_info = {
+                    "PlanType": "Team",
+                    "ScannedRepositoryCount": 4,
+                    "RepositoryLimit": 10,
+                    "FindingsIncluded": 1,
+                    "FindingsRequireUpgrade": 0,
+                    "FindingsBreakdown": [
+                        {"RuleId": "leftsize-aks-kubenet-retirement", "RuleName": "aks-kubenet-retirement",
+                         "ResourceCount": 1, "IsFreeTier": False, "EstimatedSavings": 0},
+                    ],
+                }
+                print_github_summary(findings, submitted=True, plan_info=plan_info)
+                with open(summary_file, 'r') as f:
+                    content = f.read()
+                assert "**Plan**: Team" in content
+                assert "Upgrade" not in content
+        finally:
+            os.unlink(summary_file)
+
     def test_fallback_when_no_breakdown(self):
         """Should show basic summary when FindingsBreakdown is not available"""
         with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.md') as f:

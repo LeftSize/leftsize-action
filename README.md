@@ -28,15 +28,16 @@ A scheduled scan turns each finding group into an issue that is updated on every
 
 ## Plans
 
-| | Free | Pro |
-|---|---|---|
-| Repositories | 3 | Unlimited |
-| Cost optimization rules (AWS + Azure) | ✅ All | ✅ All |
-| Deprecation & retirement alerts | – | ✅ |
-| Security & governance rules | – | ✅ |
-| Price | $0 | $29/month or $290/year per GitHub organization |
+| | Free | Team | Business |
+|---|---|---|---|
+| Repositories | 3 | 10 | Unlimited |
+| Cost optimization rules (AWS + Azure) | ✅ All | ✅ All | ✅ All |
+| Deprecation & retirement alerts | – | ✅ | ✅ |
+| Security & governance rules | – | ✅ | ✅ |
+| Support | Docs | Email | Priority email |
+| Price per GitHub organization | $0 | $79/month or $790/year | $249/month or $2,490/year |
 
-See [leftsize.com/#pricing](https://leftsize.com/#pricing). Pro: contact [hi@leftsize.com](mailto:hi@leftsize.com).
+Early-access prices; see [leftsize.com/#pricing](https://leftsize.com/#pricing). To get a paid plan, contact [hi@leftsize.com](mailto:hi@leftsize.com).
 
 ## Features
 

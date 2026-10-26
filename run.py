@@ -83,8 +83,9 @@ class RepositoryLimitExceeded(Exception):
         self.context = context
         self.current_count = context.get('currentCount', 0)
         self.limit = context.get('limit', 3)
-        self.upgrade_url = context.get('upgradeUrl', 'https://github.com/marketplace/leftsize')
+        self.upgrade_url = context.get('upgradeUrl', 'https://leftsize.com/#pricing')
         self.account_login = context.get('accountLogin', '')
+        self.plan = context.get('plan', 'Free')
 
 
 # Input validation functions
@@ -437,13 +438,13 @@ def print_github_summary(
     
     # Show repository limit exceeded warning first (if applicable)
     if limit_exceeded:
-        summary += f"""## ⚠️ Free Tier Limit Reached
+        summary += f"""## ⚠️ Repository Limit Reached
 
-Your free plan allows scanning **{limit_exceeded.limit} repositories**. You've already scanned {limit_exceeded.current_count} repositories.
+Your {limit_exceeded.plan} plan allows scanning **{limit_exceeded.limit} repositories**. You've already scanned {limit_exceeded.current_count} repositories.
 
 **Findings from this scan were not submitted** because the repository limit has been exceeded.
 
-👉 **[Upgrade to Pro]({limit_exceeded.upgrade_url})** for unlimited repository scanning.
+👉 **[See plans]({limit_exceeded.upgrade_url})** to scan more repositories.
 
 ---
 
@@ -467,7 +468,7 @@ Your free plan allows scanning **{limit_exceeded.limit} repositories**. You've a
 """
         summary += f"| Free Tier | {free_count} | ✅ {free_count} |\n"
         if pro_count > 0:
-            summary += f"| Pro (upgrade required) | {pro_count} | ❌ 0 |\n"
+            summary += f"| Team (upgrade required) | {pro_count} | ❌ 0 |\n"
         summary += f"| **Total** | **{free_count + pro_count}** | **{free_count}** |\n\n"
         
         # Free tier findings table
@@ -485,7 +486,7 @@ Your free plan allows scanning **{limit_exceeded.limit} repositories**. You've a
         
         # Pro tier findings table (the upsell section)
         if pro_tier_findings:
-            summary += f"## Pro Findings ({pro_count} → Upgrade to Unlock)\n\n"
+            summary += f"## Team Findings ({pro_count} → Upgrade to Unlock)\n\n"
             summary += "| Rule | Resources | Est. Savings |\n"
             summary += "|------|-----------|-------------|\n"
             for f in pro_tier_findings:
@@ -497,11 +498,11 @@ Your free plan allows scanning **{limit_exceeded.limit} repositories**. You've a
             summary += "\n"
             
             # Upsell message
-            upgrade_url = plan_info.get('UpgradeUrl', 'https://github.com/marketplace/leftsize')
+            upgrade_url = plan_info.get('UpgradeUrl', 'https://leftsize.com/#pricing')
             if pro_savings > 0:
-                summary += f"> 💡 **Upgrade to Pro** to create issues for all {free_count + pro_count} findings and unlock ~${pro_savings:,.0f}/mo in additional estimated savings.\n"
+                summary += f"> 💡 **Upgrade to Team** to create issues for all {free_count + pro_count} findings and unlock ~${pro_savings:,.0f}/mo in additional estimated savings.\n"
             else:
-                summary += f"> 💡 **Upgrade to Pro** to create issues for all {free_count + pro_count} findings.\n"
+                summary += f"> 💡 **Upgrade to Team** to create issues for all {free_count + pro_count} findings.\n"
             summary += f"> 👉 [Upgrade Now]({upgrade_url})\n\n"
         
         # Plan information footer
@@ -511,14 +512,15 @@ Your free plan allows scanning **{limit_exceeded.limit} repositories**. You've a
         summary += "---\n\n"
         summary += f"**Plan**: Free Tier ({repo_count}/{repo_limit} repositories scanned, {remaining} remaining)\n\n"
     
-    # Show Pro plan summary (simpler, all findings included)
-    elif plan_info and plan_info.get('PlanType') == 'Pro':
+    # Paid plans (Team, Business, legacy Pro): all findings included
+    elif plan_info and plan_info.get('PlanType') in ('Team', 'Business', 'Pro'):
+        plan_name = plan_info.get('PlanType')
         total_findings = len(findings)
         total_savings = sum(f.get('EstimatedSavings', 0) for f in findings_breakdown) if findings_breakdown else 0
         
         summary += f"""## Summary
 
-- **Plan**: Pro ✨
+- **Plan**: {plan_name} ✨
 - **Findings Detected**: {total_findings}
 - **Issues Created**: ✅ {total_findings}
 """
@@ -528,16 +530,18 @@ Your free plan allows scanning **{limit_exceeded.limit} repositories**. You've a
         
         # Show findings table
         if findings_breakdown:
+            # The backend may not send a category; only show the column when it does
+            with_category = any(f.get('Category') for f in findings_breakdown)
             summary += "## Findings by Rule\n\n"
-            summary += "| Rule | Resources | Est. Savings | Category |\n"
-            summary += "|------|-----------|-------------|----------|\n"
+            summary += "| Rule | Resources | Est. Savings |" + (" Category |" if with_category else "") + "\n"
+            summary += "|------|-----------|-------------|" + ("----------|" if with_category else "") + "\n"
             for f in findings_breakdown:
                 rule_name = f.get('RuleName', f.get('RuleId', 'Unknown'))
                 resource_count = f.get('ResourceCount', 0)
                 savings = f.get('EstimatedSavings', 0)
                 savings_str = f"~${savings:,.0f}/mo" if savings > 0 else "-"
-                category = f.get('Category', 'unknown')
-                summary += f"| {rule_name} | {resource_count} | {savings_str} | {category} |\n"
+                category = f" {f.get('Category') or '-'} |" if with_category else ""
+                summary += f"| {rule_name} | {resource_count} | {savings_str} |{category}\n"
             summary += "\n"
     
     # Fallback: No plan info or no breakdown - show basic summary
