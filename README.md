@@ -1,15 +1,51 @@
-# LeftSize GitHub Action
+# LeftSize: Dependabot for cloud waste
 
-Scan your AWS and Azure infrastructure for cost optimization opportunities using Cloud Custodian. Run scans directly in GitHub Actions - no infrastructure required from your side.
+LeftSize scans your AWS and Azure accounts with read-only access and opens **GitHub issues** for idle and orphaned resources, upcoming service retirements, and security and governance gaps. Each issue lists the affected resources, the estimated impact and the fix, so the team that owns the resources can act on it like any other issue.
+
+This repository is the open-source (MIT) GitHub Action that runs the scan. It uses [Cloud Custodian](https://github.com/cloud-custodian/cloud-custodian) under the hood and runs on **your** GitHub Actions runner: cloud credentials never leave it.
+
+- **Website:** [leftsize.com](https://leftsize.com)
+- **Rule catalog:** [leftsize.com/rules](https://leftsize.com/rules/): every check, what it detects and how to fix it
+- **Install:** [LeftSize GitHub App](https://github.com/apps/leftsize)
+- **Compare:** [vs Azure Advisor, AWS Trusted Advisor, Infracost and Cloud Custodian](https://leftsize.com/compare/)
+
+## What you get
+
+A scheduled scan turns each finding group into an issue that is updated on every run. For example:
+
+> **[COST] 3 idle VMs (≈ $350.40/mo)**
+>
+> We've identified **3** VMs with minimal activity (≤5% CPU over 7+ days), wasting **≈$350.40/month**.
+>
+> **Affected resources**
+> - **`vm-build-agent-02`** in **rg-dev** (≈ $140.16/mo)
+> - **`vm-test-runner`** in **rg-dev** (≈ $140.16/mo)
+> - **`vm-demo-old`** in **rg-dev** (≈ $70.08/mo)
+>
+> **Quick fix:** `az vm deallocate --name "vm-build-agent-02" --resource-group "rg-dev"` …
+>
+> Comment `@leftsize explain`, `@leftsize howto`, `@leftsize script azure-cli`, `@leftsize impact`, `@leftsize alternatives`, `@leftsize snooze 14d` or `@leftsize ignore reason="..."` on the issue.
+
+## Plans
+
+| | Free | Pro |
+|---|---|---|
+| Repositories | 3 | Unlimited |
+| Cost optimization rules (AWS + Azure) | ✅ All | ✅ All |
+| Deprecation & retirement alerts | – | ✅ |
+| Security & governance rules | – | ✅ |
+| Price | $0 | $29/month or $290/year per GitHub organization |
+
+See [leftsize.com/#pricing](https://leftsize.com/#pricing). Pro: contact [hi@leftsize.com](mailto:hi@leftsize.com).
 
 ## Features
 
-- 🔍 **Safe Scanning** - 100% read-only operations, no changes to your infrastructure
-- ☁️ **Multi-Cloud** - Supports Azure and AWS
-- 🚀 **Zero Config** - Works out-of-the-box with sensible defaults
-- 🔐 **Secure** - Uses OIDC for authentication, no secrets storage needed
-- 📊 **Actionable** - Findings submitted to LeftSize dashboard for tracking
-- 🎯 **Customizable** - Filter policies, add custom rules
+- 🔍 **Read-only** - Scans with Reader / ReadOnlyAccess; never changes your infrastructure
+- ☁️ **AWS and Azure** - One workflow for both clouds
+- 🐙 **GitHub issues** - Findings land in the repository of the team that owns the resources
+- 🔐 **OIDC** - Keyless sign-in from your runner; no cloud secrets stored by LeftSize
+- 📅 **Retirements** - Retiring VM sizes, end-of-support runtimes and engines, with dates
+- 🎯 **Customizable** - Include or exclude policy categories
 
 ## Quick Start
 
@@ -295,28 +331,7 @@ aws iam attach-role-policy \
 
 ## Policies Included
 
-The action includes curated Cloud Custodian policies:
-
-### Cost Optimization (Azure)
-- `leftsize-idle-vm` - Idle virtual machines
-- `leftsize-unattached-disk` - Unattached managed disks
-- `leftsize-unused-public-ip` - Unused public IP addresses
-- `leftsize-idle-app-service-plan` - Underutilized App Service Plans
-- `leftsize-idle-app-service-plan-no-apps` - Empty App Service Plans
-- `leftsize-inactive-azure-load-balancer` - Inactive load balancers
-
-### Cost Optimization (AWS)
-- `leftsize-idle-ecs-instances` - Idle ECS container instances
-- `leftsize-unattached-ebs-volumes` - Unattached EBS volumes
-- `leftsize-unused-elastic-ips` - Unused Elastic IPs
-- `leftsize-old-snapshots` - Old EBS snapshots
-- And more...
-
-### Governance
-- Security group rules
-- Unencrypted resources
-- Missing tags
-- And more...
+The action ships the curated LeftSize policies in [`policies/`](policies/): cost optimization, deprecations and retirements, security and governance for AWS and Azure. The [rule catalog](https://leftsize.com/rules/) documents every rule: what it checks, why it matters and how to fix it.
 
 ## Runner Requirements
 
@@ -328,7 +343,7 @@ jobs:
     runs-on: ubuntu-latest  # Required
 ```
 
-## Pricing
+## Runner minutes
 
 LeftSize runs on **your** GitHub Actions runners, not our infrastructure:
 - **Free tier**: 2000 minutes/month (GitHub Free)

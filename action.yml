@@ -1,5 +1,5 @@
 name: 'LeftSize Cloud Cost Optimization'
-description: 'Scan AWS and Azure infrastructure for cost optimization opportunities using Cloud Custodian'
+description: 'Dependabot for cloud waste: scan AWS and Azure read-only and get GitHub issues for idle resources and retirements'
 author: 'LeftSize'
 branding:
   icon: 'cloud'
