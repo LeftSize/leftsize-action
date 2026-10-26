@@ -75,7 +75,7 @@ policies:
     metadata:
       category: deprecation
       severity: critical
-      tier: free
+      tier: pro
 
   # ========================================
   # ⚡ AZURE FUNCTIONS DEPRECATIONS
@@ -114,7 +114,7 @@ policies:
     metadata:
       category: deprecation
       severity: medium
-      tier: free
+      tier: pro
 
     filters:
       # Linux Consumption hosting plan (Y1 / Dynamic SKU)
@@ -192,7 +192,7 @@ policies:
     metadata:
       category: deprecation
       severity: high
-      tier: free
+      tier: pro
 
   # ========================================
   # 🗄️ SQL DATABASE DTU MODEL (Legacy)
@@ -230,6 +230,9 @@ policies:
         key: 'name'
         op: ne
         value: 'master'
+    metadata:
+      category: deprecation
+      tier: pro
 
   # ========================================
   # 🌐 APPLICATION GATEWAY DEPRECATIONS
@@ -286,7 +289,7 @@ policies:
     metadata:
       category: deprecation
       severity: critical
-      tier: free
+      tier: pro
 
     actions:
       - type: tag
@@ -380,6 +383,9 @@ policies:
       - type: tag
         tag: leftsize-hdd-os-disk-retirement-notify
         value: 'leftsize-flagged'
+    metadata:
+      category: deprecation
+      tier: pro
 
   # ========================================
   # 🗄️ SERVICE DEPRECATIONS (Sep 2025)
@@ -420,7 +426,7 @@ policies:
     metadata:
       category: deprecation
       severity: critical
-      tier: free
+      tier: pro
 
     actions:
       - type: tag
@@ -476,7 +482,7 @@ policies:
     metadata:
       category: deprecation
       severity: high
-      tier: free
+      tier: pro
 
     actions:
       - type: tag
@@ -539,7 +545,7 @@ policies:
     metadata:
       category: deprecation
       severity: critical
-      tier: free
+      tier: pro
 
   # ========================================
   # 📝 TEMPLATE FOR FUTURE DEPRECATIONS
@@ -631,7 +637,7 @@ policies:
     metadata:
       category: deprecation
       severity: high
-      tier: free
+      tier: pro
 
   # ========================================
   # 🖥️ VM SIZE RETIREMENTS (2027-2029)
@@ -681,7 +687,7 @@ policies:
     metadata:
       category: deprecation
       severity: high
-      tier: free
+      tier: pro
 
   - name: leftsize-vm-hpc-fpga-retirement-2027
     description: |
@@ -717,7 +723,7 @@ policies:
     metadata:
       category: deprecation
       severity: high
-      tier: free
+      tier: pro
 
   - name: leftsize-vm-series-retirement-2028-05
     description: |
@@ -748,7 +754,7 @@ policies:
     metadata:
       category: deprecation
       severity: medium
-      tier: free
+      tier: pro
 
   - name: leftsize-vm-series-retirement-2028-11
     description: |
@@ -778,7 +784,7 @@ policies:
     metadata:
       category: deprecation
       severity: medium
-      tier: free
+      tier: pro
 
   - name: leftsize-vm-v3-series-retirement-2029
     description: |
@@ -808,7 +814,7 @@ policies:
     metadata:
       category: deprecation
       severity: low
-      tier: free
+      tier: pro
 
   # ========================================
   # ☸️ AKS NODE OS / NETWORKING / ADD-ON RETIREMENTS
@@ -851,7 +857,7 @@ policies:
     metadata:
       category: deprecation
       severity: critical
-      tier: free
+      tier: pro
 
   - name: leftsize-aks-ubuntu-2004-node-pools
     description: |
@@ -887,7 +893,7 @@ policies:
     metadata:
       category: deprecation
       severity: high
-      tier: free
+      tier: pro
 
   - name: leftsize-aks-ubuntu-2204-node-pools
     description: |
@@ -931,7 +937,7 @@ policies:
     metadata:
       category: deprecation
       severity: medium
-      tier: free
+      tier: pro
 
   - name: leftsize-aks-windows-unsupported-node-pools
     description: |
@@ -981,7 +987,7 @@ policies:
     metadata:
       category: deprecation
       severity: critical
-      tier: free
+      tier: pro
 
   - name: leftsize-aks-kubenet-retirement
     description: |
@@ -1015,7 +1021,7 @@ policies:
     metadata:
       category: deprecation
       severity: medium
-      tier: free
+      tier: pro
 
   - name: leftsize-aks-open-service-mesh-retirement
     description: |
@@ -1046,7 +1052,7 @@ policies:
     metadata:
       category: deprecation
       severity: medium
-      tier: free
+      tier: pro
 
   # ========================================
   # ⚡ AZURE FUNCTIONS - RUNTIME / LANGUAGE END OF SUPPORT
@@ -1077,7 +1083,7 @@ policies:
     metadata:
       category: deprecation
       severity: high
-      tier: free
+      tier: pro
 
     filters:
       # Function apps only (kind is e.g. "functionapp,linux")
@@ -1131,7 +1137,7 @@ policies:
     metadata:
       category: deprecation
       severity: high
-      tier: free
+      tier: pro
 
     filters:
       - type: value
@@ -1180,7 +1186,7 @@ policies:
     metadata:
       category: deprecation
       severity: high
-      tier: free
+      tier: pro
 
     filters:
       - type: value
@@ -1209,7 +1215,7 @@ policies:
     metadata:
       category: deprecation
       severity: high
-      tier: free
+      tier: pro
 
     filters:
       - type: value
@@ -1240,7 +1246,7 @@ policies:
     metadata:
       category: deprecation
       severity: high
-      tier: free
+      tier: pro
 
   # ========================================
   # ☁️ CLOUD SERVICES (EXTENDED SUPPORT) RETIREMENT
@@ -1262,7 +1268,7 @@ policies:
     metadata:
       category: deprecation
       severity: critical
-      tier: free
+      tier: pro
 
     filters:
       - type: resource-type
@@ -1309,7 +1315,7 @@ policies:
     metadata:
       category: deprecation
       severity: high
-      tier: free
+      tier: pro
 
   # HIGH: Application Gateway WAF v2 legacy "WAF configuration" retires March 15, 2027
   - name: leftsize-appgateway-waf-config-retirement
@@ -1347,7 +1353,7 @@ policies:
     metadata:
       category: deprecation
       severity: high
-      tier: free
+      tier: pro
 
   # HIGH: Azure Front Door (classic) retires March 31, 2027
   - name: leftsize-front-door-classic-retirement
@@ -1377,7 +1383,7 @@ policies:
     metadata:
       category: deprecation
       severity: high
-      tier: free
+      tier: pro
 
   # MEDIUM: Azure CDN Standard from Microsoft (classic) retires September 30, 2027
   - name: leftsize-cdn-classic-retirement
@@ -1411,7 +1417,7 @@ policies:
     metadata:
       category: deprecation
       severity: medium
-      tier: free
+      tier: pro
 
   # MEDIUM: NSG flow logs retire September 30, 2027 (flow log resources are deleted)
   - name: leftsize-nsg-flow-logs-retirement
@@ -1445,7 +1451,7 @@ policies:
     metadata:
       category: deprecation
       severity: medium
-      tier: free
+      tier: pro
 
   # ========================================
   # 🗄️ DATABASE / CACHE / ANALYTICS RETIREMENTS
@@ -1488,7 +1494,7 @@ policies:
     metadata:
       category: deprecation
       severity: medium
-      tier: free
+      tier: pro
 
   # MEDIUM: MySQL Flexible Server 5.7 in paid extended support (8.0 from Feb 1, 2027)
   - name: leftsize-mysql-flexible-extended-support
@@ -1520,7 +1526,7 @@ policies:
     metadata:
       category: deprecation
       severity: medium
-      tier: free
+      tier: pro
 
   # HIGH: Azure Cache for Redis Enterprise / Enterprise Flash retire March 31, 2027
   - name: leftsize-redis-enterprise-retirement
@@ -1556,7 +1562,7 @@ policies:
     metadata:
       category: deprecation
       severity: high
-      tier: free
+      tier: pro
 
   # MEDIUM: Azure Cache for Redis Basic / Standard / Premium retire September 30, 2028
   - name: leftsize-redis-cache-retirement
@@ -1581,7 +1587,7 @@ policies:
     metadata:
       category: deprecation
       severity: medium
-      tier: free
+      tier: pro
 
   # CRITICAL: HDInsight 4.0 and 5.0 were retired on March 31, 2025
   - name: leftsize-hdinsight-retired-version
@@ -1610,7 +1616,7 @@ policies:
     metadata:
       category: deprecation
       severity: critical
-      tier: free
+      tier: pro
 
   # ========================================
   # 📉 VM SIZE RETIREMENTS: SCALE SETS AND AKS NODE POOLS
@@ -1703,7 +1709,7 @@ policies:
     metadata:
       category: deprecation
       severity: high
-      tier: free
+      tier: pro
 
   - name: leftsize-aks-node-pool-retiring-size
     description: |
@@ -1763,4 +1769,4 @@ policies:
     metadata:
       category: deprecation
       severity: high
-      tier: free
+      tier: pro

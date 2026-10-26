@@ -24,6 +24,9 @@ policies:
       - type: tag
         tag: leftsize-aks-orphaned-resources-check
         value: 'scan-for-orphaned-k8s-resources'
+    metadata:
+      category: cost-optimization
+      tier: free
 
   - name: leftsize-overprovisioned-aks-nodes
     description: "Find AKS clusters with overprovisioned node pools (low CPU/memory utilization)"
@@ -49,6 +52,9 @@ policies:
       - type: tag
         tag: leftsize-aks-overprovisioned-check
         value: 'analyze-node-pool-utilization'
+    metadata:
+      category: cost-optimization
+      tier: free
 
   - name: leftsize-aks-cluster-autoscaler-disabled
     description: "Find AKS clusters without cluster autoscaler enabled"
@@ -72,6 +78,9 @@ policies:
       - type: tag
         tag: leftsize-aks-enable-autoscaler
         value: 'consider-enabling-cluster-autoscaler'
+    metadata:
+      category: cost-optimization
+      tier: free
 
   - name: leftsize-aks-using-expensive-vm-sizes
     description: "Find AKS node pools using expensive VM sizes that could be optimized"
@@ -102,6 +111,9 @@ policies:
       - type: tag
         tag: leftsize-aks-expensive-vms
         value: 'review-vm-size-optimization'
+    metadata:
+      category: cost-optimization
+      tier: free
 
   - name: leftsize-aks-dev-clusters-always-running
     description: "Find non-production AKS clusters running 24/7"
@@ -137,3 +149,6 @@ policies:
       - type: tag
         tag: leftsize-aks-dev-always-on
         value: 'consider-start-stop-schedule'
+    metadata:
+      category: cost-optimization
+      tier: free

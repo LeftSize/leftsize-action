@@ -50,7 +50,7 @@ policies:
     metadata:
       category: deprecation
       severity: high
-      tier: free
+      tier: pro
     filters:
       # Exact identifiers only (java17 must not match java17.al2023, etc.)
       - type: value
@@ -133,7 +133,7 @@ policies:
     metadata:
       category: deprecation
       severity: high
-      tier: free
+      tier: pro
 
   # ========================================
   # 🔍 OPENSEARCH/ELASTICSEARCH DEPRECATIONS
@@ -174,7 +174,7 @@ policies:
     metadata:
       category: deprecation
       severity: high
-      tier: free
+      tier: pro
 
   # ========================================
   # ☸️ EKS KUBERNETES VERSION DEPRECATIONS
@@ -216,7 +216,7 @@ policies:
     metadata:
       category: cost-optimization
       severity: high
-      tier: free
+      tier: pro
     filters:
       # Skip clusters that are being deleted or failed to create
       - type: value
@@ -269,6 +269,9 @@ policies:
       - type: tag
         key: leftsize-pinpoint-migration
         value: 'leftsize-flagged'
+    metadata:
+      category: deprecation
+      tier: pro
 
   # ========================================
   # ⏱️ AMAZON TIMESTREAM LIVEANALYTICS DEPRECATION
@@ -306,6 +309,9 @@ policies:
       - type: tag
         key: leftsize-timestream-migration
         value: 'leftsize-flagged'
+    metadata:
+      category: deprecation
+      tier: pro
 
   # ========================================
   # 📝 TEMPLATE FOR FUTURE DEPRECATIONS
@@ -375,7 +381,7 @@ policies:
     metadata:
       category: deprecation
       severity: critical
-      tier: free
+      tier: pro
 
   - name: leftsize-rds-postgres14-end-of-standard-support
     description: |
@@ -408,7 +414,7 @@ policies:
     metadata:
       category: deprecation
       severity: medium
-      tier: free
+      tier: pro
 
   # ========================================
   # 🦭 RDS FOR MARIADB END OF STANDARD SUPPORT
@@ -448,7 +454,7 @@ policies:
     metadata:
       category: deprecation
       severity: high
-      tier: free
+      tier: pro
 
   # ========================================
   # 🪟 RDS FOR SQL SERVER 2016 END OF SUPPORT
@@ -481,7 +487,7 @@ policies:
     metadata:
       category: deprecation
       severity: critical
-      tier: free
+      tier: pro
 
   # ========================================
   # 🔶 RDS CUSTOM FOR ORACLE END OF SUPPORT
@@ -511,7 +517,7 @@ policies:
     metadata:
       category: deprecation
       severity: high
-      tier: free
+      tier: pro
 
   # ========================================
   # 📄 AMAZON DOCUMENTDB 3.6 EXTENDED SUPPORT
@@ -548,7 +554,7 @@ policies:
     metadata:
       category: deprecation
       severity: high
-      tier: free
+      tier: pro
 
   # ========================================
   # 🕸️ AMAZON NEPTUNE ENGINE END OF LIFE
@@ -582,7 +588,7 @@ policies:
     metadata:
       category: deprecation
       severity: high
-      tier: free
+      tier: pro
 
   # ========================================
   # 🗄️ ELASTICACHE REDIS OSS 6 END OF STANDARD SUPPORT
@@ -619,7 +625,7 @@ policies:
     metadata:
       category: deprecation
       severity: medium
-      tier: free
+      tier: pro
 
   # ========================================
   # AMAZON LINUX 2 END OF SUPPORT (EKS, BATCH, EC2)
@@ -646,7 +652,7 @@ policies:
     metadata:
       category: deprecation
       severity: high
-      tier: free
+      tier: pro
     filters:
       # Skip node groups that are being deleted or failed
       - type: value
@@ -682,7 +688,7 @@ policies:
     metadata:
       category: deprecation
       severity: high
-      tier: free
+      tier: pro
     filters:
       # Only managed compute environments choose AMIs via ec2Configuration
       - type: value
@@ -724,7 +730,7 @@ policies:
     metadata:
       category: deprecation
       severity: high
-      tier: free
+      tier: pro
     filters:
       # Terminated instances do not matter
       - type: value
@@ -762,7 +768,7 @@ policies:
     metadata:
       category: deprecation
       severity: high
-      tier: free
+      tier: pro
     filters:
       - type: value
         key: 'Status'
@@ -804,7 +810,7 @@ policies:
     metadata:
       category: deprecation
       severity: critical
-      tier: free
+      tier: pro
     filters:
       - type: value
         key: 'Status'
@@ -837,7 +843,7 @@ policies:
     metadata:
       category: deprecation
       severity: medium
-      tier: free
+      tier: pro
     filters:
       - type: value
         key: 'State'
@@ -881,7 +887,7 @@ policies:
     metadata:
       category: deprecation
       severity: high
-      tier: free
+      tier: pro
     filters:
       - or:
         # Spark batch / streaming jobs on Glue 0.9, 1.0 or 2.0
@@ -931,7 +937,7 @@ policies:
     metadata:
       category: deprecation
       severity: high
-      tier: free
+      tier: pro
     filters:
       - or:
         # emr-4.x, emr-5.0 .. emr-5.35, emr-6.0 .. emr-6.5
@@ -962,7 +968,7 @@ policies:
     metadata:
       category: deprecation
       severity: medium
-      tier: free
+      tier: pro
     filters:
       # emr-5.36.x, emr-6.6.x .. emr-6.15.x
       - type: value
@@ -991,7 +997,7 @@ policies:
     metadata:
       category: deprecation
       severity: high
-      tier: free
+      tier: pro
     filters:
       # Serverless clusters have no KafkaVersion and are skipped by this filter
       - type: value
@@ -1030,7 +1036,7 @@ policies:
     metadata:
       category: deprecation
       severity: high
-      tier: free
+      tier: pro
     filters:
       - type: value
         key: 'EngineVersion'
@@ -1068,7 +1074,7 @@ policies:
     metadata:
       category: deprecation
       severity: high
-      tier: free
+      tier: pro
     filters:
       - type: value
         key: 'AirflowVersion'
@@ -1101,7 +1107,7 @@ policies:
     metadata:
       category: deprecation
       severity: medium
-      tier: free
+      tier: pro
     filters:
       # c7n only lists ENABLED directories by default; keep the check explicit
       - type: value
@@ -1129,7 +1135,7 @@ policies:
     metadata:
       category: deprecation
       severity: low
-      tier: free
+      tier: pro
     filters:
       - type: value
         key: 'Deleted'
@@ -1150,7 +1156,7 @@ policies:
     metadata:
       category: deprecation
       severity: low
-      tier: free
+      tier: pro
     filters:
       - type: value
         key: 'Status'
@@ -1171,7 +1177,7 @@ policies:
     metadata:
       category: deprecation
       severity: low
-      tier: free
+      tier: pro
     filters:
       - type: value
         key: 'Type'
@@ -1196,7 +1202,7 @@ policies:
     metadata:
       category: deprecation
       severity: low
-      tier: free
+      tier: pro
     filters:
       - type: value
         key: 'ReadinessCheckName'

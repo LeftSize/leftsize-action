@@ -44,7 +44,7 @@ policies:
     metadata:
       category: security
       severity: high
-      tier: free
+      tier: pro
   
   - name: leftsize-iam-user-without-mfa
     description: |
@@ -74,7 +74,7 @@ policies:
     metadata:
       category: security
       severity: high
-      tier: free
+      tier: pro
   
   - name: leftsize-iam-unused-user
     description: |
@@ -114,7 +114,7 @@ policies:
     metadata:
       category: security
       severity: medium
-      tier: free
+      tier: pro
   
   # ========================================
   # NETWORK MONITORING
@@ -145,7 +145,7 @@ policies:
     metadata:
       category: security
       severity: medium
-      tier: free
+      tier: pro
   
   # ========================================
   # DATABASE EXPOSURE
@@ -179,7 +179,7 @@ policies:
     metadata:
       category: security
       severity: critical
-      tier: free
+      tier: pro
   
   # ========================================
   # S3 AUDIT LOGGING
@@ -209,7 +209,7 @@ policies:
     metadata:
       category: security
       severity: medium
-      tier: free
+      tier: pro
   
   # ========================================
   # PUBLIC SNAPSHOT/IMAGE EXPOSURE
@@ -240,7 +240,7 @@ policies:
     metadata:
       category: security
       severity: critical
-      tier: free
+      tier: pro
   
   - name: leftsize-rds-snapshot-public
     description: |
@@ -265,7 +265,7 @@ policies:
     metadata:
       category: security
       severity: critical
-      tier: free
+      tier: pro
   
   - name: leftsize-ami-public
     description: |
@@ -291,4 +291,4 @@ policies:
     metadata:
       category: security
       severity: critical
-      tier: free
+      tier: pro

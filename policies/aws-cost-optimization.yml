@@ -31,6 +31,9 @@ policies:
       - type: tag
         key: leftsize-ecs-capacity-review
         value: 'check-for-idle-instances'
+    metadata:
+      category: cost-optimization
+      tier: free
 
   - name: leftsize-fargate-spot-eligible
     description: "Find ECS services using regular Fargate that could use Fargate Spot for 70% savings"
@@ -63,6 +66,9 @@ policies:
       - type: tag
         key: leftsize-fargate-spot-eligible
         value: 'review-for-spot-migration'
+    metadata:
+      category: cost-optimization
+      tier: free
 
   # ========================================
   # 🖥️ EC2 INSTANCES
@@ -103,6 +109,9 @@ policies:
       - type: tag
         key: leftsize-inactive-ec2-stop
         value: 'leftsize-flagged'
+    metadata:
+      category: cost-optimization
+      tier: free
 
   - name: leftsize-underutilized-ec2-instance
     description: "Find underutilized EC2 instances with low but non-zero CPU usage (right-sizing candidates)"
@@ -151,6 +160,9 @@ policies:
       - type: tag
         key: leftsize-underutilized-ec2-review
         value: 'leftsize-flagged'
+    metadata:
+      category: cost-optimization
+      tier: free
 
   - name: leftsize-multi-az-nonprod-ec2
     description: "Find non-production EC2 instances spread across multiple AZs (unnecessary HA)"
@@ -182,6 +194,9 @@ policies:
       - type: tag
         key: leftsize-multi-az-review
         value: 'leftsize-flagged'
+    metadata:
+      category: cost-optimization
+      tier: free
 
   # ========================================
   # 💾 EBS VOLUMES
@@ -200,15 +215,13 @@ policies:
         op: greater-than
         value_type: age
         value: 7
-      # Not a snapshot (those are handled separately)
-      - not:
-        - type: value
-          key: 'SnapshotId'
-          value: present
     actions:
       - type: tag
         key: leftsize-unattached-ebs-delete
         value: 'leftsize-flagged'
+    metadata:
+      category: cost-optimization
+      tier: free
 
   # ========================================
   # 🌐 ELASTIC IPs
@@ -225,6 +238,9 @@ policies:
       - type: tag
         key: leftsize-unused-eip-release
         value: 'leftsize-flagged'
+    metadata:
+      category: cost-optimization
+      tier: free
 
   # ========================================
   # 🗄️ RDS INSTANCES
@@ -262,6 +278,9 @@ policies:
       - type: tag
         key: leftsize-idle-rds-stop
         value: 'leftsize-flagged'
+    metadata:
+      category: cost-optimization
+      tier: free
 
   # ========================================
   # 🔄 LOAD BALANCERS
@@ -284,6 +303,9 @@ policies:
       - type: tag
         key: leftsize-unused-elb-delete
         value: 'leftsize-flagged'
+    metadata:
+      category: cost-optimization
+      tier: free
 
   - name: leftsize-unused-alb
     description: "Find Application Load Balancers with no active target groups"
@@ -307,6 +329,9 @@ policies:
       - type: tag
         key: leftsize-unused-alb-delete
         value: 'leftsize-flagged'
+    metadata:
+      category: cost-optimization
+      tier: free
 
   # ========================================
   # 💰 COST OPTIMIZATION - Advanced Rules
@@ -350,6 +375,9 @@ policies:
       - type: tag
         key: leftsize-orphaned-snapshot-delete
         value: 'leftsize-flagged'
+    metadata:
+      category: cost-optimization
+      tier: free
 
   - name: leftsize-ec2-outdated-generation
     description: "Find EC2 instances on older generations (4th gen or earlier) - 10-40% savings available"
@@ -372,6 +400,9 @@ policies:
       - type: tag
         key: leftsize-outdated-generation-review
         value: 'leftsize-flagged'
+    metadata:
+      category: cost-optimization
+      tier: free
 
   - name: leftsize-ec2-scheduled-shutdown-missing
     description: "Find non-production EC2 instances running 24/7 without scheduled shutdown (30-70% savings)"
@@ -415,6 +446,9 @@ policies:
       - type: tag
         key: leftsize-schedule-review
         value: 'leftsize-flagged'
+    metadata:
+      category: cost-optimization
+      tier: free
 
   - name: leftsize-s3-intelligent-tiering-missing
     description: "Find S3 buckets not using Intelligent-Tiering (40-70% savings on infrequent data)"
@@ -432,6 +466,9 @@ policies:
       - type: tag
         key: leftsize-intelligent-tiering-review
         value: 'leftsize-flagged'
+    metadata:
+      category: cost-optimization
+      tier: free
 
   - name: leftsize-s3-missing-bucket-key
     description: "Find S3 buckets using SSE-KMS without Bucket Key enabled (reduces KMS API costs by 99%)"
@@ -447,6 +484,9 @@ policies:
       - type: tag
         key: leftsize-bucket-key-review
         value: 'leftsize-flagged'
+    metadata:
+      category: cost-optimization
+      tier: free
 
   - name: leftsize-s3-missing-lifecycle-policy
     description: "Find S3 buckets without lifecycle policies (30-70% storage savings possible)"
@@ -471,6 +511,9 @@ policies:
       - type: tag
         key: leftsize-lifecycle-policy-review
         value: 'leftsize-flagged'
+    metadata:
+      category: cost-optimization
+      tier: free
 
   - name: leftsize-gp2-to-gp3-migration
     description: "Find EBS volumes still using gp2 - migrate to gp3 for 20% savings and better performance"
@@ -494,6 +537,9 @@ policies:
       - type: tag
         key: leftsize-gp3-migration-review
         value: 'leftsize-flagged'
+    metadata:
+      category: cost-optimization
+      tier: free
 
   # ========================================
   # 💰 COST OPTIMIZATION - Batch 2
@@ -620,6 +666,9 @@ policies:
       - type: tag
         key: leftsize-multiaz-review
         value: 'leftsize-flagged'
+    metadata:
+      category: cost-optimization
+      tier: free
 
   - name: leftsize-rds-non-graviton
     description: "Find RDS instances using x86 instead of Graviton (20-40% savings)"
@@ -649,6 +698,9 @@ policies:
       - type: tag
         key: leftsize-graviton-review
         value: 'leftsize-flagged'
+    metadata:
+      category: cost-optimization
+      tier: free
 
   - name: leftsize-rds-excessive-backup-retention
     description: "Find non-production RDS instances with backup retention exceeding 14 days"
@@ -691,6 +743,9 @@ policies:
       - type: tag
         key: leftsize-backup-retention-review
         value: 'leftsize-flagged'
+    metadata:
+      category: cost-optimization
+      tier: free
 
   - name: leftsize-rds-suboptimal-storage-type
     description: "Find RDS instances using io1/io2 when gp3 would provide sufficient IOPS at lower cost"
@@ -725,6 +780,9 @@ policies:
       - type: tag
         key: leftsize-rds-storage-review
         value: 'leftsize-flagged'
+    metadata:
+      category: cost-optimization
+      tier: free
 
   - name: leftsize-lambda-x86-architecture
     description: "Find Lambda functions using x86 instead of ARM (20% savings)"
@@ -758,6 +816,9 @@ policies:
       - type: tag
         key: leftsize-lambda-arm-review
         value: 'leftsize-flagged'
+    metadata:
+      category: cost-optimization
+      tier: free
 
   - name: leftsize-inactive-nat-gateway
     description: "Find NAT Gateways with no traffic (pure waste)"
@@ -787,6 +848,9 @@ policies:
       - type: tag
         key: leftsize-inactive-nat-delete
         value: 'leftsize-flagged'
+    metadata:
+      category: cost-optimization
+      tier: free
 
   - name: leftsize-ebs-delete-on-termination-disabled
     description: "Find EBS volumes with DeleteOnTermination disabled that will orphan"
@@ -809,6 +873,9 @@ policies:
       - type: tag
         key: leftsize-delete-on-termination-review
         value: 'leftsize-flagged'
+    metadata:
+      category: cost-optimization
+      tier: free
 
   - name: leftsize-ebs-attached-to-stopped-ec2
     description: "Find EBS volumes attached to stopped EC2 instances (still incurring full storage costs)"
@@ -836,6 +903,9 @@ policies:
       - type: tag
         key: leftsize-stopped-instance-storage-review
         value: 'leftsize-flagged'
+    metadata:
+      category: cost-optimization
+      tier: free
 
   - name: leftsize-ec2-non-graviton
     description: "Find EC2 instances not using Graviton processors (20-40% cost savings available)"
@@ -865,6 +935,9 @@ policies:
       - type: tag
         key: leftsize-graviton-migration-review
         value: 'leftsize-flagged'
+    metadata:
+      category: cost-optimization
+      tier: free
 
   - name: leftsize-io1-to-io2-migration
     description: "Find EBS volumes using io1 - migrate to io2 for better durability at the same price"
@@ -888,6 +961,9 @@ policies:
       - type: tag
         key: leftsize-io2-migration-review
         value: 'leftsize-flagged'
+    metadata:
+      category: cost-optimization
+      tier: free
 
   # ========================================
   # 💰 COST OPTIMIZATION - PointFive Inspired
@@ -936,6 +1012,9 @@ policies:
       - type: tag
         key: leftsize-spot-eligible-review
         value: 'leftsize-flagged'
+    metadata:
+      category: cost-optimization
+      tier: free
 
   - name: leftsize-s3-incomplete-multipart-uploads
     description: "Find S3 buckets without lifecycle rule to abort incomplete multipart uploads"
@@ -967,6 +1046,9 @@ policies:
       - type: tag
         key: leftsize-multipart-cleanup-review
         value: 'leftsize-flagged'
+    metadata:
+      category: cost-optimization
+      tier: free
 
   - name: leftsize-s3-non-current-versions
     description: "Find versioned S3 buckets without lifecycle rule to expire old versions"
@@ -997,6 +1079,9 @@ policies:
       - type: tag
         key: leftsize-version-cleanup-review
         value: 'leftsize-flagged'
+    metadata:
+      category: cost-optimization
+      tier: free
 
   - name: leftsize-missing-vpc-endpoint-s3
     description: "Find VPCs without S3 Gateway Endpoint (causes unnecessary data transfer costs)"
@@ -1020,6 +1105,9 @@ policies:
       - type: tag
         key: leftsize-s3-endpoint-review
         value: 'leftsize-flagged'
+    metadata:
+      category: cost-optimization
+      tier: free
 
   - name: leftsize-rds-auto-restart-pending
     description: "Find stopped RDS instances approaching 7-day auto-restart limit"
@@ -1047,6 +1135,9 @@ policies:
       - type: tag
         key: leftsize-rds-auto-restart-warning
         value: 'leftsize-flagged'
+    metadata:
+      category: cost-optimization
+      tier: free
 
   - name: leftsize-orphaned-rds-snapshots
     description: "Find manual RDS snapshots where the source database no longer exists"
@@ -1068,6 +1159,9 @@ policies:
       - type: tag
         key: leftsize-orphaned-rds-snapshot-delete
         value: 'leftsize-flagged'
+    metadata:
+      category: cost-optimization
+      tier: free
 
   # ========================================
   # 🐳 CONTAINER REGISTRY OPTIMIZATION
@@ -1089,7 +1183,7 @@ policies:
     metadata:
       category: cost-optimization
       severity: medium
-      tier: pro
+      tier: free
 
   # ========================================
   # 📝 LOG & OBSERVABILITY OPTIMIZATION
@@ -1112,7 +1206,7 @@ policies:
     metadata:
       category: cost-optimization
       severity: medium
-      tier: pro
+      tier: free
 
   # ========================================
   # 🔐 SECRETS & CREDENTIALS OPTIMIZATION
@@ -1137,7 +1231,7 @@ policies:
     metadata:
       category: cost-optimization
       severity: low
-      tier: pro
+      tier: free
 
   # ========================================
   # 💰 COST OPTIMIZATION - Phase 2
@@ -1171,6 +1265,9 @@ policies:
       - type: tag
         key: leftsize-io1-io2-gp3-migration-review
         value: 'leftsize-flagged'
+    metadata:
+      category: cost-optimization
+      tier: free
 
   # ========================================
   # 💰 COST OPTIMIZATION - Phase 3 (Zombie Resources)
@@ -1200,7 +1297,7 @@ policies:
     metadata:
       category: cost-optimization
       severity: low
-      tier: pro
+      tier: free
 
   - name: leftsize-idle-dynamodb-table
     description: "Find DynamoDB tables with zero read and write activity in 30 days"
@@ -1237,7 +1334,7 @@ policies:
     metadata:
       category: cost-optimization
       severity: medium
-      tier: pro
+      tier: free
 
   - name: leftsize-idle-elasticache-cluster
     description: "Find ElastiCache clusters with zero connections in 14 days"
@@ -1263,7 +1360,7 @@ policies:
     metadata:
       category: cost-optimization
       severity: medium
-      tier: pro
+      tier: free
 
   # ========================================
   # 💰 COST OPTIMIZATION - Batch 3 (New Rules)
@@ -1287,6 +1384,9 @@ policies:
       - type: tag
         key: leftsize-inactive-eks
         value: 'no-nodegroups-review'
+    metadata:
+      category: cost-optimization
+      tier: free
 
   # A3 - RDS read replicas with no read load
   # Detects read replicas with no database connections consuming full instance + storage costs
@@ -1322,6 +1422,9 @@ policies:
       - type: tag
         key: leftsize-inactive-replica
         value: 'no-read-load-review'
+    metadata:
+      category: cost-optimization
+      tier: free
 
   # A4 - Inactive EFS filesystems with no IO
   # Detects EFS filesystems with no client connections over 14 days
@@ -1345,6 +1448,9 @@ policies:
       - type: tag
         key: leftsize-inactive-efs
         value: 'no-io-review'
+    metadata:
+      category: cost-optimization
+      tier: free
 
   # A5 - Network Load Balancers with no active flows
   # Detects NLBs with zero traffic consuming $16-20/mo fixed + LCU costs
@@ -1373,6 +1479,9 @@ policies:
       - type: tag
         key: leftsize-inactive-nlb
         value: 'no-traffic-review'
+    metadata:
+      category: cost-optimization
+      tier: free
 
   # A8 - Inactive VPC endpoints (interface type)
   # Detects interface VPC endpoints with no traffic ($7.30/mo/AZ waste)
@@ -1401,6 +1510,9 @@ policies:
       - type: tag
         key: leftsize-inactive-vpc-endpoint
         value: 'no-traffic-review'
+    metadata:
+      category: cost-optimization
+      tier: free
 
   # A12 - Lambda functions with oversized memory and low invocation
   # Detects functions with >1024MB memory but low usage (likely over-provisioned)
@@ -1425,6 +1537,9 @@ policies:
       - type: tag
         key: leftsize-lambda-oversized
         value: 'rightsizing-candidate'
+    metadata:
+      category: cost-optimization
+      tier: free
 
   # A18 - ElastiCache clusters with low CPU utilization
   # Detects Redis/Memcached clusters with low CPU over 14 days (rightsizing candidates)
@@ -1450,6 +1565,9 @@ policies:
       - type: tag
         key: leftsize-elasticache-underutilized
         value: 'rightsizing-candidate'
+    metadata:
+      category: cost-optimization
+      tier: free
 
   # Unused AMIs keep their EBS snapshots (and the storage bill) until deregistered
   - name: leftsize-unused-ami
@@ -1488,4 +1606,4 @@ policies:
     metadata:
       category: cost-optimization
       severity: low
-      tier: pro
+      tier: free

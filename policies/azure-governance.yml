@@ -60,6 +60,9 @@ policies:
       - type: tag
         tag: leftsize-anonymous-blob-access-notify
         value: 'leftsize-flagged'
+    metadata:
+      category: governance
+      tier: pro
 
   # HIGH: HTTP traffic allowed creates man-in-the-middle attack risk
   - name: leftsize-storage-http-allowed
@@ -104,6 +107,9 @@ policies:
       - type: tag
         tag: leftsize-storage-http-allowed-notify
         value: 'leftsize-flagged'
+    metadata:
+      category: governance
+      tier: pro
 
   # CRITICAL: Storage accounts using deprecated TLS versions (TLS 1.0/1.1)
   - name: leftsize-storage-outdated-tls
@@ -155,6 +161,9 @@ policies:
       - type: tag
         tag: leftsize-storage-outdated-tls-notify
         value: 'leftsize-flagged'
+    metadata:
+      category: governance
+      tier: pro
 
   # MEDIUM: Public network access without restrictions (defense-in-depth recommendation)
   - name: leftsize-storage-public-network-access
@@ -208,6 +217,9 @@ policies:
       - type: tag
         tag: leftsize-storage-public-network-notify
         value: 'leftsize-flagged'
+    metadata:
+      category: governance
+      tier: pro
 
   # MEDIUM: Public storage access enabled - allows anonymous container access configuration
   - name: leftsize-public-storage-access
@@ -263,6 +275,9 @@ policies:
       - type: tag
         tag: leftsize-public-storage-access-notify
         value: 'leftsize-flagged'
+    metadata:
+      category: governance
+      tier: pro
 
   - name: leftsize-unencrypted-storage
     description: |
@@ -313,6 +328,9 @@ policies:
       - type: tag
         tag: leftsize-unencrypted-storage-notify
         value: 'leftsize-flagged'
+    metadata:
+      category: governance
+      tier: pro
 
   # ========================================
   # 🔒 NETWORK SECURITY
@@ -386,6 +404,9 @@ policies:
       - type: tag
         tag: leftsize-open-ports-notify
         value: 'leftsize-flagged'
+    metadata:
+      category: governance
+      tier: pro
 
   # ========================================
   # 💿 DISK ENCRYPTION
@@ -437,6 +458,9 @@ policies:
       - type: tag
         tag: leftsize-unencrypted-disk-notify
         value: 'leftsize-flagged'
+    metadata:
+      category: governance
+      tier: pro
 
   # ========================================
   # 🏷️ OWNERSHIP TAG COMPLIANCE
@@ -491,6 +515,9 @@ policies:
       - type: tag
         tag: leftsize-ownership-tags-notify
         value: 'leftsize-flagged'
+    metadata:
+      category: governance
+      tier: pro
 
   # Apply same ownership tag check to Storage Accounts
   - name: leftsize-missing-ownership-tags-storage
@@ -520,6 +547,9 @@ policies:
       - type: tag
         tag: leftsize-ownership-tags-notify
         value: 'leftsize-flagged'
+    metadata:
+      category: governance
+      tier: pro
 
   # Apply same ownership tag check to SQL Databases
   - name: leftsize-missing-ownership-tags-sql
@@ -549,6 +579,9 @@ policies:
       - type: tag
         tag: leftsize-ownership-tags-notify
         value: 'leftsize-flagged'
+    metadata:
+      category: governance
+      tier: pro
 
   # Apply same ownership tag check to Managed Disks
   - name: leftsize-missing-ownership-tags-disk
@@ -578,6 +611,9 @@ policies:
       - type: tag
         tag: leftsize-ownership-tags-notify
         value: 'leftsize-flagged'
+    metadata:
+      category: governance
+      tier: pro
 
   # Apply same ownership tag check to AKS Clusters
   - name: leftsize-missing-ownership-tags-aks
@@ -607,6 +643,9 @@ policies:
       - type: tag
         tag: leftsize-ownership-tags-notify
         value: 'leftsize-flagged'
+    metadata:
+      category: governance
+      tier: pro
 
   # Apply same ownership tag check to Resource Groups
   - name: leftsize-missing-ownership-tags-resourcegroup
@@ -637,6 +676,9 @@ policies:
       - type: tag
         tag: leftsize-ownership-tags-notify
         value: 'leftsize-flagged'
+    metadata:
+      category: governance
+      tier: pro
 
   # ========================================
   # 📜 CERTIFICATE MANAGEMENT
@@ -727,7 +769,7 @@ policies:
     metadata:
       category: security
       severity: high
-      tier: free
+      tier: pro
 
   # ZS2: SQL Auditing Disabled - Compliance and forensics gap
   - name: leftsize-sql-auditing-disabled
@@ -751,7 +793,7 @@ policies:
     metadata:
       category: security
       severity: high
-      tier: free
+      tier: pro
 
   # ZS5: Key Vault Soft Delete Disabled - Data loss risk
   - name: leftsize-keyvault-soft-delete-disabled
@@ -783,4 +825,4 @@ policies:
     metadata:
       category: security
       severity: critical
-      tier: free
+      tier: pro

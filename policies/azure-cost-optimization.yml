@@ -22,6 +22,9 @@ policies:
       - type: tag
         tag: leftsize-idle-vm-stop
         value: 'leftsize-flagged'
+    metadata:
+      category: cost-optimization
+      tier: free
 
   # ========================================
   # 🌐 APP SERVICE PLANS  
@@ -43,6 +46,9 @@ policies:
       - type: tag
         tag: leftsize-empty-asp-delete
         value: 'leftsize-flagged'
+    metadata:
+      category: cost-optimization
+      tier: free
 
   - name: leftsize-idle-app-service-plan
     description: "Find underutilized App Service Plans with low resource usage"
@@ -78,6 +84,9 @@ policies:
       - type: tag
         tag: leftsize-idle-asp-review
         value: 'leftsize-flagged'
+    metadata:
+      category: cost-optimization
+      tier: free
 
   - name: leftsize-outdated-app-service-plan
     description: "App Service Plan is using a legacy Basic or Standard SKU. Migrate to Premium v3 (P1v3/P2v3/P3v3) for better performance and cost."
@@ -97,6 +106,9 @@ policies:
       - type: tag
         tag: leftsize-outdated-asp-upgrade
         value: 'leftsize-flagged'
+    metadata:
+      category: cost-optimization
+      tier: free
 
   # ========================================
   # 💾 STORAGE & DISKS
@@ -122,6 +134,9 @@ policies:
       - type: tag
         tag: leftsize-unattached-disk-delete
         value: 'leftsize-flagged'
+    metadata:
+      category: cost-optimization
+      tier: free
 
   # ========================================
   # 🌐 NETWORKING
@@ -143,6 +158,9 @@ policies:
       - type: tag
         tag: leftsize-unused-ip-delete
         value: 'leftsize-flagged'
+    metadata:
+      category: cost-optimization
+      tier: free
 
   # ========================================
   # ⚖️ LOAD BALANCERS
@@ -186,6 +204,9 @@ policies:
       - type: tag
         tag: leftsize-inactive-lb-delete
         value: 'leftsize-flagged'
+    metadata:
+      category: cost-optimization
+      tier: free
 
   # ========================================
   # 💰 COST OPTIMIZATION - Advanced Rules
@@ -218,6 +239,9 @@ policies:
       - type: tag
         tag: leftsize-hybrid-benefit-review
         value: 'leftsize-flagged'
+    metadata:
+      category: cost-optimization
+      tier: free
 
   # VM Outdated Series - 10-20% savings + better performance
   # VM Scheduled Shutdown - 30-70% savings for non-prod
@@ -251,6 +275,9 @@ policies:
       - type: tag
         tag: leftsize-auto-shutdown-review
         value: 'leftsize-flagged'
+    metadata:
+      category: cost-optimization
+      tier: free
 
   # Old Snapshots - review for cleanup
   # Note: Only checks age >30 days. Cannot verify whether source disk still exists
@@ -269,6 +296,9 @@ policies:
       - type: tag
         tag: leftsize-snapshot-cleanup
         value: 'leftsize-flagged'
+    metadata:
+      category: cost-optimization
+      tier: free
 
   # Storage Suboptimal Tier - 50%+ storage savings
   - name: leftsize-storage-suboptimal-tier
@@ -302,6 +332,9 @@ policies:
       - type: tag
         tag: leftsize-storage-tier-review
         value: 'leftsize-flagged'
+    metadata:
+      category: cost-optimization
+      tier: free
 
   # VM ARM Architecture - 30-50% savings with ARM-based VMs
   - name: leftsize-vm-arm-architecture
@@ -329,6 +362,9 @@ policies:
       - type: tag
         tag: leftsize-arm-architecture-review
         value: 'leftsize-flagged'
+    metadata:
+      category: cost-optimization
+      tier: free
 
   # SQL Business Critical Tier in Non-Prod - 60%+ savings
   - name: leftsize-sql-business-critical-nonprod
@@ -365,7 +401,7 @@ policies:
     metadata:
       category: cost-optimization
       severity: medium
-      tier: pro
+      tier: free
 
   # Stopped VMs with Storage Costs - Often overlooked costs
   - name: leftsize-stopped-vm-storage-costs
@@ -388,6 +424,9 @@ policies:
       - type: tag
         tag: leftsize-stopped-vm-review
         value: 'leftsize-flagged'
+    metadata:
+      category: cost-optimization
+      tier: free
 
   # ========================================
   # 💾 DISK & STORAGE OPTIMIZATION
@@ -412,6 +451,9 @@ policies:
       - type: tag
         tag: leftsize-standard-lrs-attached-disk
         value: 'leftsize-flagged'
+    metadata:
+      category: cost-optimization
+      tier: free
 
   # ========================================
   # 🗄️ SQL DATABASE OPTIMIZATION
@@ -444,6 +486,9 @@ policies:
       - type: tag
         tag: leftsize-empty-elastic-pool-delete
         value: 'leftsize-flagged'
+    metadata:
+      category: cost-optimization
+      tier: free
 
   # SQL Hybrid Benefit Missing - Up to 40% savings
   # Note: azure.sql-database doesn't support tag/mark-for-op, using notify action
@@ -474,7 +519,7 @@ policies:
     metadata:
       category: cost-optimization
       severity: medium
-      tier: pro
+      tier: free
 
   # ========================================
   # 🐳 CONTAINER REGISTRY OPTIMIZATION
@@ -503,7 +548,7 @@ policies:
     metadata:
       category: cost-optimization
       severity: medium
-      tier: pro
+      tier: free
 
   # ========================================
   # 💰 COST OPTIMIZATION - Phase 2
@@ -530,6 +575,9 @@ policies:
       - type: tag
         tag: leftsize-app-gateway-idle-review
         value: 'leftsize-flagged'
+    metadata:
+      category: cost-optimization
+      tier: free
 
   # Underutilized SQL Elastic Pools - 50%+ savings by downsizing
   # DISABLED: azure.sql-elasticpool is not a registered Cloud Custodian resource type.
@@ -578,6 +626,9 @@ policies:
       - type: tag
         tag: leftsize-redis-downsize-review
         value: 'leftsize-flagged'
+    metadata:
+      category: cost-optimization
+      tier: free
 
   # ========================================
   # 💰 COST OPTIMIZATION - Phase 3 (New Rules)
@@ -622,7 +673,7 @@ policies:
     metadata:
       category: cost-optimization
       severity: medium
-      tier: pro
+      tier: free
 
   # Z4: Overprovisioned Azure SQL Database - Low DTU utilization
   - name: leftsize-azure-sql-overprovisioned
@@ -649,7 +700,7 @@ policies:
     metadata:
       category: cost-optimization
       severity: medium
-      tier: pro
+      tier: free
 
   # Z16: Cosmos DB Overprovisioned Throughput - Low RU consumption
   - name: leftsize-cosmos-overprovisioned-throughput
@@ -678,7 +729,7 @@ policies:
     metadata:
       category: cost-optimization
       severity: medium
-      tier: pro
+      tier: free
 
   # ========================================
   # 💶 REGIONAL PRICE CHANGES
@@ -804,7 +855,7 @@ policies:
     metadata:
       category: cost-optimization
       severity: medium
-      tier: pro
+      tier: free
 
   # SFTP enabled on a storage account - flat hourly charge, used or not
   - name: leftsize-storage-sftp-enabled
@@ -821,4 +872,4 @@ policies:
     metadata:
       category: cost-optimization
       severity: medium
-      tier: pro
+      tier: free
