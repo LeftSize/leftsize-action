@@ -162,6 +162,11 @@ CASES: Dict[str, List[Tuple[str, Dict[str, Any], bool]]] = {
  'leftsize-orphaned-snapshots': [
    ('45 days old', {'properties': {'timeCreated': ago(45)}}, True),
    ('10 days old', {'properties': {'timeCreated': ago(10)}}, False),
+   # Tags seen on AKS CSI driver snapshots in a real subscription
+   ('45 days old, made by the AKS CSI driver', {'properties': {'timeCreated': ago(45)},
+                                                 'tags': {'k8s-azure-created-by': 'kubernetes-azure-dd',
+                                                          'source_volume_id': '/subscriptions/s/x/disks/pvc-1'}}, False),
+   ('45 days old, other tags', {'properties': {'timeCreated': ago(45)}, 'tags': {'owner': 'team-a'}}, True),
  ],
  'leftsize-storage-suboptimal-tier': [
    ('Hot GPv2, 5 transactions', {'kind': 'StorageV2', 'properties': {'accessTier': 'Hot', 'creationTime': ago(200)},

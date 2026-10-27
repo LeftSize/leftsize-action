@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `sql-database-dtu-model` is now a cost rule (Free) for Standard S3+ and Premium databases only.
 - `standard-lrs-attached-disk` is now a governance rule (reliability, not a saving).
 - `s3-bucket-logging-disabled` skips log destination buckets and has severity low.
+- `orphaned-snapshots` skips snapshots made by the AKS disk CSI driver (Kubernetes VolumeSnapshots, e.g. Velero backups).
 - `vm-scheduled-shutdown-missing` now skips VMs with an enabled auto-shutdown schedule (one read-only Resource Graph query per subscription, covered by Reader). If the query fails, no VM is reported.
 
 ## [1.0.3] - 2026-04-16

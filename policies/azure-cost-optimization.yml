@@ -317,6 +317,11 @@ policies:
         op: 'ge'
         value_type: age
         value: 30
+      # Skip snapshots made by the AKS disk CSI driver (VolumeSnapshots, e.g. from
+      # Velero or another Kubernetes backup tool): their lifecycle belongs to Kubernetes
+      - type: value
+        key: 'tags."k8s-azure-created-by"'
+        value: absent
     actions:
       - type: tag
         tag: leftsize-snapshot-cleanup
