@@ -1014,10 +1014,8 @@ def execute_single_policy_file(policies_file: str, config: Dict[str, Any]) -> Li
         # runner's default region (the region of the aws-actions login step)
         cmd.extend(custodian_region_args(config))
         
-        # Add dry-run flag if configured
-        if config.get('execution', {}).get('dry_run', True):
-            cmd.append('--dry-run')
-            logger.info("Running in dry-run mode")
+        # Always dry-run: LeftSize only reads, so policy actions (such as tags) never run
+        cmd.append('--dry-run')
         
         # Note: Cloud Custodian doesn't support --var for Azure provider
         # Subscription is configured via environment variables

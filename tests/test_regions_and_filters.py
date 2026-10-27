@@ -90,11 +90,24 @@ class TestPolicyFilters:
                                   str(tmp_path)) == str(POLICIES_DIR / 'aws-security.yml')
 
     def test_include_category_keeps_only_matching_policies(self, tmp_path):
-        # azure-governance.yml mixes governance and security policies
+        governance = yaml.safe_load(open(POLICIES_DIR / 'azure-governance.yml'))['policies']
+        security = yaml.safe_load(open(POLICIES_DIR / 'azure-security.yml'))['policies']
+        mixed = tmp_path / 'mixed.yml'
+        mixed.write_text(yaml.safe_dump({'policies': governance[:2] + security[:2]}))
+        work = tmp_path / 'out'
+        work.mkdir()
         config = {'policies': {'include_categories': ['security']}}
-        out = filter_policy_file(str(POLICIES_DIR / 'azure-governance.yml'), config, str(tmp_path))
+        out = filter_policy_file(str(mixed), config, str(work))
         kept = yaml.safe_load(open(out))['policies']
-        assert kept and all(p['metadata']['category'] == 'security' for p in kept)
+        assert [p['name'] for p in kept] == [p['name'] for p in security[:2]]
+
+    def test_include_category_skips_files_without_matches(self, tmp_path):
+        config = {'policies': {'include_categories': ['security']}}
+        assert filter_policy_file(str(POLICIES_DIR / 'azure-governance.yml'), config, str(tmp_path)) is None
+        config = {'policies': {'include_categories': ['security']}}
+        assert filter_policy_file(str(POLICIES_DIR / 'azure-security.yml'), config, str(tmp_path)) == str(
+            POLICIES_DIR / 'azure-security.yml'
+        )
 
     def test_exclude_rule_with_or_without_prefix(self, tmp_path):
         source = yaml.safe_load(open(POLICIES_DIR / 'aws-security.yml'))['policies']

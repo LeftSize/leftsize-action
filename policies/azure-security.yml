@@ -1,0 +1,489 @@
+# LeftSize Azure security policies
+# Public exposure, encryption, network access, auditing and data protection.
+# Category: security (Team and Business plans).
+
+policies:
+  # CRITICAL: Anonymous blob access allows anyone to read data without authentication
+  - name: leftsize-anonymous-blob-access
+    description: |
+      CRITICAL: Detect Azure Storage Accounts that allow anonymous blob access.
+      
+      When allowBlobPublicAccess is enabled, containers can be configured for anonymous
+      read access, allowing anyone on the internet to read data without authentication.
+      This is the #1 cause of cloud data breaches.
+      
+      Detection criteria:
+      - allowBlobPublicAccess property is set to true
+      - Containers can be configured for anonymous access
+      
+      Security impact: CRITICAL - Direct data breach risk, no authentication required
+      Compliance: CIS Azure Foundations, ISO 27001, SOC2, GDPR Article 32
+    
+    resource: azure.storage
+    
+    filters:
+      # Allow blob public access is enabled
+      - type: value
+        key: properties.allowBlobPublicAccess
+        value: true
+    
+    actions:
+      - type: tag
+        tag: 'leftsize-security-issue'
+        value: 'anonymous-blob-access'
+      
+      - type: tag
+        tag: 'leftsize-severity'
+        value: 'critical'
+      
+      - type: tag
+        tag: 'leftsize-compliance'
+        value: 'CIS-Azure-Foundations'
+      
+      - type: tag
+        tag: 'leftsize-detected-date'
+        value: '{now:%Y-%m-%d}'
+      
+      - type: tag
+        tag: leftsize-anonymous-blob-access-notify
+        value: 'leftsize-flagged'
+    metadata:
+      category: security
+      tier: pro
+
+  # HIGH: HTTP traffic allowed creates man-in-the-middle attack risk
+  - name: leftsize-storage-http-allowed
+    description: |
+      Detect Azure Storage Accounts that allow unencrypted HTTP traffic.
+      
+      When supportsHttpsTrafficOnly is false, the storage account accepts HTTP
+      connections without encryption, exposing data to interception and tampering.
+      
+      Detection criteria:
+      - supportsHttpsTrafficOnly property is false
+      - HTTP (unencrypted) connections are allowed
+      
+      Security impact: HIGH - Man-in-the-middle attacks, data interception
+      Compliance: CIS Azure Foundations, PCI-DSS 4.1, SOC2, ISO 27001
+    
+    resource: azure.storage
+    
+    filters:
+      # HTTPS only is NOT enforced
+      - type: value
+        key: properties.supportsHttpsTrafficOnly
+        value: false
+    
+    actions:
+      - type: tag
+        tag: 'leftsize-security-issue'
+        value: 'http-allowed'
+      
+      - type: tag
+        tag: 'leftsize-severity'
+        value: 'high'
+      
+      - type: tag
+        tag: 'leftsize-compliance'
+        value: 'CIS-Azure-Foundations'
+      
+      - type: tag
+        tag: 'leftsize-detected-date'
+        value: '{now:%Y-%m-%d}'
+      
+      - type: tag
+        tag: leftsize-storage-http-allowed-notify
+        value: 'leftsize-flagged'
+    metadata:
+      category: security
+      tier: pro
+
+  # CRITICAL: Storage accounts using deprecated TLS versions (TLS 1.0/1.1)
+  - name: leftsize-storage-outdated-tls
+    description: |
+      CRITICAL: Detect Azure Storage Accounts using deprecated TLS 1.0 or TLS 1.1.
+      
+      As of February 3, 2026, Azure Blob Storage no longer supports TLS 1.0 and 1.1.
+      Storage accounts must use TLS 1.2 as the minimum version. Accounts still configured
+      for older TLS versions will experience connection failures.
+      
+      Detection criteria:
+      - minimumTlsVersion property is 'TLS1_0' or 'TLS1_1'
+      - Storage account allows connections using deprecated TLS versions
+      
+      Security impact: CRITICAL - Service disruption, deprecated protocol vulnerabilities
+      Compliance: CIS Azure Foundations, PCI-DSS 4.1, NIST 800-52, FedRAMP
+      
+      Reference: https://learn.microsoft.com/en-us/azure/storage/common/transport-layer-security-configure-migrate-to-tls2
+    
+    resource: azure.storage
+    
+    filters:
+      # Minimum TLS version is older than TLS 1.2
+      - or:
+        - type: value
+          key: properties.minimumTlsVersion
+          value: 'TLS1_0'
+        - type: value
+          key: properties.minimumTlsVersion
+          value: 'TLS1_1'
+    
+    actions:
+      - type: tag
+        tag: 'leftsize-security-issue'
+        value: 'outdated-tls'
+      
+      - type: tag
+        tag: 'leftsize-severity'
+        value: 'critical'
+      
+      - type: tag
+        tag: 'leftsize-compliance'
+        value: 'CIS-Azure-Foundations'
+      
+      - type: tag
+        tag: 'leftsize-detected-date'
+        value: '{now:%Y-%m-%d}'
+      
+      - type: tag
+        tag: leftsize-storage-outdated-tls-notify
+        value: 'leftsize-flagged'
+    metadata:
+      category: security
+      tier: pro
+
+  # MEDIUM: Public network access without restrictions (defense-in-depth recommendation)
+  - name: leftsize-storage-public-network-access
+    description: |
+      Detect Azure Storage Accounts accessible from public internet without network restrictions.
+      
+      When publicNetworkAccess is enabled without firewall rules or private endpoints,
+      the storage account is reachable from any IP address on the internet. While
+      authentication is still required, this increases attack surface.
+      
+      Detection criteria:
+      - publicNetworkAccess is 'Enabled'
+      - Network ACL default action is 'Allow' (no IP restrictions)
+      
+      Security impact: MEDIUM - Increased attack surface, authentication still required
+      Compliance: CIS Azure Foundations, ISO 27001
+      
+      Note: This is a defense-in-depth recommendation. Consider using private endpoints
+      or firewall rules for production storage accounts containing sensitive data.
+    
+    resource: azure.storage
+    
+    filters:
+      # Public network access is enabled
+      - type: value
+        key: properties.publicNetworkAccess
+        value: 'Enabled'
+      
+      # No firewall restrictions (default action is Allow)
+      - type: value
+        key: properties.networkAcls.defaultAction
+        value: 'Allow'
+    
+    actions:
+      - type: tag
+        tag: 'leftsize-security-issue'
+        value: 'public-network-access'
+      
+      - type: tag
+        tag: 'leftsize-severity'
+        value: 'medium'
+      
+      - type: tag
+        tag: 'leftsize-compliance'
+        value: 'CIS-Azure-Foundations'
+      
+      - type: tag
+        tag: 'leftsize-detected-date'
+        value: '{now:%Y-%m-%d}'
+      
+      - type: tag
+        tag: leftsize-storage-public-network-notify
+        value: 'leftsize-flagged'
+    metadata:
+      category: security
+      tier: pro
+
+  # MEDIUM: Public storage access enabled - allows anonymous container access configuration
+
+
+  # ========================================
+  # 🔒 NETWORK SECURITY
+  # ========================================
+  
+
+  - name: leftsize-open-network-ports
+    description: |
+      Identify Network Security Groups with inbound rules exposing sensitive ports to the internet.
+      
+      Inbound rules allowing 0.0.0.0/0 or * on admin/database ports are a major attack surface.
+      These misconfigurations are often unnecessary and lead to intrusion or data loss.
+      
+      Detection criteria:
+      - Inbound rules from 0.0.0.0/0 or Internet tag
+      - Sensitive ports: SSH (22), RDP (3389), SQL (1433, 3306, 5432), Elasticsearch (9200)
+      - Rule priority allows access
+      
+      Security impact: CRITICAL - Direct intrusion risk
+      Compliance: CIS Azure Foundations, PCI-DSS, NIST
+    
+    resource: azure.networksecuritygroup
+    
+    filters:
+      # An inbound Allow rule from any source reaches a sensitive port, taking rule priority and deny rules into account
+      - or:
+          - {type: ingress, ports: '22,1433,3306,3389,5432,9200,27017', match: any, access: Allow, source: '*'}
+          - {type: ingress, ports: '22,1433,3306,3389,5432,9200,27017', match: any, access: Allow, source: 'Internet'}
+          - {type: ingress, ports: '22,1433,3306,3389,5432,9200,27017', match: any, access: Allow, source: '0.0.0.0/0'}
+
+    actions:
+      - type: tag
+        tag: 'leftsize-security-issue'
+        value: 'open-network-ports'
+      
+      - type: tag
+        tag: 'leftsize-severity'
+        value: 'critical'
+      
+      - type: tag
+        tag: 'leftsize-compliance'
+        value: 'CIS-Azure-Foundations'
+      
+      - type: tag
+        tag: 'leftsize-detected-date'
+        value: '{now:%Y-%m-%d}'
+      
+      - type: tag
+        tag: leftsize-open-ports-notify
+        value: 'leftsize-flagged'
+    metadata:
+      category: security
+      tier: pro
+
+  # ========================================
+  # 💿 DISK ENCRYPTION
+  # ========================================
+  
+
+  - name: leftsize-unencrypted-disks
+    description: |
+      Ensure all Azure Managed Disks have encryption enabled.
+      
+      Unencrypted disks violate security best practices and can breach regulatory standards.
+      Encryption at rest protects against unauthorized data access.
+      
+      Detection criteria:
+      - Managed disks without encryption enabled
+      - OS and data disks checked
+      
+      Security impact: HIGH - Data exposure risk
+      Compliance: CIS Azure Foundations, ISO 27001, PCI-DSS
+    
+    resource: azure.disk
+    
+    filters:
+      # Flag attached disks not using Customer-Managed Keys (CMK)
+      - type: value
+        key: properties.encryption.type
+        op: ne
+        value: 'EncryptionAtRestWithCustomerKey'
+      - type: value
+        key: properties.diskState
+        value: 'Attached'
+    
+    actions:
+      - type: tag
+        tag: 'leftsize-security-issue'
+        value: 'unencrypted-disk'
+      
+      - type: tag
+        tag: 'leftsize-severity'
+        value: 'high'
+      
+      - type: tag
+        tag: 'leftsize-compliance'
+        value: 'CIS-Azure-Foundations'
+      
+      - type: tag
+        tag: 'leftsize-detected-date'
+        value: '{now:%Y-%m-%d}'
+      
+      - type: tag
+        tag: leftsize-unencrypted-disk-notify
+        value: 'leftsize-flagged'
+    metadata:
+      category: security
+      tier: pro
+
+  # ========================================
+  # 🏷️ OWNERSHIP TAG COMPLIANCE
+  # ========================================
+  
+
+  # ZS1: Defender for Cloud Disabled - Critical security gap
+  - name: leftsize-defender-for-cloud-disabled
+    description: |
+      Detect Azure Defender (Microsoft Defender for Cloud) plans set to Free tier.
+      The Free tier provides basic security but lacks threat protection, vulnerability
+      assessment, and advanced security features. This creates a critical visibility
+      gap for security threats.
+      
+      Security impact: HIGH - No advanced threat detection, no vulnerability scanning
+      Compliance: CIS Azure Foundations, ISO 27001, SOC2
+    resource: azure.defender-pricing
+    filters:
+      # Defender pricing tier is Free (disabled)
+      - type: value
+        key: 'properties.pricingTier'
+        value: 'Free'
+    metadata:
+      category: security
+      severity: high
+      tier: pro
+
+  # ZS2: SQL Auditing Disabled - Compliance and forensics gap
+  - name: leftsize-sql-auditing-disabled
+    description: |
+      Detect Azure SQL Servers with auditing disabled.
+      SQL Server auditing tracks database events to an audit log, enabling forensic
+      analysis, compliance monitoring, and security investigation. Without auditing,
+      unauthorized access and data breaches go undetected.
+      
+      Security impact: HIGH - No forensic trail, compliance violations
+      Compliance: CIS Azure Foundations, PCI-DSS 10.1, SOC2, ISO 27001
+    resource: azure.sqlserver
+    filters:
+      # Server auditing is not enabled
+      - type: auditing
+        enabled: false
+    actions:
+      - type: tag
+        tag: leftsize-sql-auditing-disabled-review
+        value: 'leftsize-flagged'
+    metadata:
+      category: security
+      severity: high
+      tier: pro
+
+  # ZS5: Key Vault Soft Delete Disabled - Data loss risk
+
+  # ========================================
+  # 🔐 IDENTITY, NETWORK AND DATA PROTECTION
+  # ========================================
+
+  # SQL server firewall open to the whole internet
+  - name: leftsize-sql-server-open-to-internet
+    description: |
+      Find Azure SQL logical servers with a firewall rule that allows every
+      IPv4 address (0.0.0.0 - 255.255.255.255) while public network access is
+      enabled. Anyone on the internet can then attempt to sign in. The
+      "Allow Azure services" rule (0.0.0.0 - 0.0.0.0) is a different setting
+      and is not flagged by this rule.
+    resource: azure.sqlserver
+    filters:
+      - not:
+          - type: value
+            key: 'properties.publicNetworkAccess'
+            value_type: normalize
+            value: 'disabled'
+      - type: firewall-rules
+        include: ['0.0.0.0-255.255.255.255']
+    metadata:
+      category: security
+      severity: high
+      tier: pro
+
+  # Storage accounts that still accept account keys (Shared Key)
+  - name: leftsize-storage-shared-key-access-enabled
+    description: |
+      Find storage accounts that allow Shared Key authorization (account keys
+      and SAS tokens signed with them). Account keys give full access to all
+      data and are hard to rotate and audit; Microsoft Entra ID authorization
+      can replace them. Accounts where allowSharedKeyAccess is not set allow
+      Shared Key by default.
+    resource: azure.storage
+    filters:
+      - not:
+          - type: value
+            key: 'properties.allowSharedKeyAccess'
+            value: false
+    metadata:
+      category: security
+      severity: medium
+      tier: pro
+
+  # Key Vaults that can be purged before the retention period ends
+  - name: leftsize-keyvault-purge-protection-disabled
+    description: |
+      Find Key Vaults without purge protection. With soft delete alone, a
+      deleted vault, key, secret or certificate can still be purged
+      (permanently deleted) during the retention period, for example by an
+      attacker or by mistake. Purge protection blocks purging until the
+      retention period ends. Enabling it cannot be undone.
+    resource: azure.keyvault
+    filters:
+      - not:
+          - type: value
+            key: 'properties.enablePurgeProtection'
+            value: true
+    metadata:
+      category: security
+      severity: medium
+      tier: pro
+
+  # App Service / Function apps that still serve plain HTTP
+  - name: leftsize-webapp-https-only-disabled
+    description: |
+      Find App Service web apps and function apps that accept unencrypted HTTP
+      requests (HTTPS Only is off). Traffic, cookies and tokens can then be
+      read or changed in transit.
+    resource: azure.webapp
+    filters:
+      - not:
+          - type: value
+            key: 'properties.httpsOnly'
+            value: true
+    metadata:
+      category: security
+      severity: medium
+      tier: pro
+
+  # App Service / Function apps that allow TLS 1.0 or 1.1
+  - name: leftsize-webapp-outdated-tls
+    description: |
+      Find App Service web apps and function apps whose minimum inbound TLS
+      version is 1.0 or 1.1. These protocol versions have known weaknesses and
+      are deprecated; TLS 1.2 is the minimum recommended version.
+    resource: azure.webapp
+    filters:
+      - type: configuration
+        key: 'minTlsVersion'
+        op: in
+        value: ['1.0', '1.1']
+    metadata:
+      category: security
+      severity: medium
+      tier: pro
+
+  # AKS clusters that still allow local (non-Entra) accounts
+  - name: leftsize-aks-local-accounts-enabled
+    description: |
+      Find AKS clusters where local accounts are enabled. The local cluster
+      admin credentials bypass Microsoft Entra ID authentication, conditional
+      access and Kubernetes RBAC based on Entra identities, and are hard to
+      audit. Disabling local accounts requires Microsoft Entra ID integration
+      on the cluster.
+    resource: azure.aks
+    filters:
+      - not:
+          - type: value
+            key: 'properties.disableLocalAccounts'
+            value: true
+    metadata:
+      category: security
+      severity: medium
+      tier: pro
