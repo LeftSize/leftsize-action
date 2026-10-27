@@ -124,6 +124,20 @@ class TestPartialCustodianFailure:
         assert not parse.called
         assert findings == []
 
+    def test_debug_logs_custodian_stderr_on_success(self, tmp_path, monkeypatch):
+        # Custodian logs per-policy counts and access warnings to stderr
+        monkeypatch.setenv("LEFTSIZE_DEBUG", "true")
+        with mock.patch.object(run, "logger") as logger:
+            self._run(tmp_path, 0)
+        events = [c.args[0] for c in logger.debug.call_args_list]
+        assert "Custodian stderr" in events
+
+    def test_no_custodian_output_without_debug(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("LEFTSIZE_DEBUG", raising=False)
+        with mock.patch.object(run, "logger") as logger:
+            self._run(tmp_path, 0)
+        assert "Custodian stderr" not in [c.args[0] for c in logger.debug.call_args_list]
+
 
 class TestDerivedFields:
 

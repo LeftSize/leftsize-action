@@ -1053,9 +1053,12 @@ def execute_single_policy_file(policies_file: str, config: Dict[str, Any]) -> Li
                 return []
             else:
                 logger.info("Custodian execution completed")
-            # Only log stdout when LEFTSIZE_DEBUG is enabled
+            # Only log Custodian's output when LEFTSIZE_DEBUG is enabled. Its log (per-policy
+            # counts, "unable to invoke method" access warnings) goes to stderr.
             if os.environ.get("LEFTSIZE_DEBUG", "").lower() in ("1", "true", "yes"):
                 logger.debug("Custodian output", stdout=result.stdout)
+                if result.returncode == 0:
+                    logger.debug("Custodian stderr", stderr=result.stderr)
             
             # Parse Custodian output
             findings = parse_custodian_output(output_dir, config)
