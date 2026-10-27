@@ -275,22 +275,20 @@ policies:
 
   - name: leftsize-unencrypted-disks
     description: |
-      Ensure all Azure Managed Disks have encryption enabled.
-      
-      Unencrypted disks violate security best practices and can breach regulatory standards.
-      Encryption at rest protects against unauthorized data access.
-      
-      Detection criteria:
-      - Managed disks without encryption enabled
-      - OS and data disks checked
-      
-      Security impact: HIGH - Data exposure risk
-      Compliance: CIS Azure Foundations, ISO 27001, PCI-DSS
-    
+      Find attached managed disks that are not encrypted with a customer-managed key (CMK).
+
+      All managed disks are encrypted at rest; by default Azure uses platform-managed keys.
+      This rule is for teams whose security policy requires their own keys in Key Vault
+      (through a disk encryption set), so they control rotation and can revoke access.
+      It is a compliance choice, not a vulnerability, so the severity is low. Teams without
+      such a requirement can ignore or exclude it.
+
+      Detection: properties.encryption.type is not EncryptionAtRestWithCustomerKey or
+      EncryptionAtRestWithPlatformAndCustomerKeys, and the disk is attached.
+
+      Reference: https://learn.microsoft.com/en-us/azure/virtual-machines/disk-encryption
     resource: azure.disk
-    
     filters:
-      # Flag attached disks not using Customer-Managed Keys (CMK)
       - type: value
         key: properties.encryption.type
         op: not-in
@@ -298,29 +296,9 @@ policies:
       - type: value
         key: properties.diskState
         value: 'Attached'
-    
-    actions:
-      - type: tag
-        tag: 'leftsize-security-issue'
-        value: 'unencrypted-disk'
-      
-      - type: tag
-        tag: 'leftsize-severity'
-        value: 'high'
-      
-      - type: tag
-        tag: 'leftsize-compliance'
-        value: 'CIS-Azure-Foundations'
-      
-      - type: tag
-        tag: 'leftsize-detected-date'
-        value: '{now:%Y-%m-%d}'
-      
-      - type: tag
-        tag: leftsize-unencrypted-disk-notify
-        value: 'leftsize-flagged'
     metadata:
       category: security
+      severity: low
       tier: pro
 
   # ========================================
