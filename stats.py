@@ -25,26 +25,24 @@ def fetch_stats(
 ) -> Dict[str, Any]:
     """
     Fetch statistics from the LeftSize backend API
-    
+
+    The API returns JSON; the markdown report is rendered here.
+
     Returns a dict with:
     - success: bool
     - report: str (markdown or json content)
-    - stats: dict (raw stats data, only for json format)
+    - stats: dict (raw stats data)
     - error: str (if success is False)
     """
-    
+
     url = f"{backend_url}/api/stats/{installation_id}/{owner}/{repo}"
-    params = {
-        'period': period,
-        'format': format,
-        'report': report
-    }
+    params = {'period': period}
     headers = {
         'Authorization': f'Bearer {repository_token}',
         'User-Agent': 'LeftSize-Action/1.0',
-        'Accept': 'text/markdown' if format == 'markdown' else 'application/json'
+        'Accept': 'application/json'
     }
-    
+
     logger.info(
         "Fetching stats from backend",
         url=url,
@@ -52,27 +50,24 @@ def fetch_stats(
         format=format,
         report=report
     )
-    
+
     try:
         response = requests.get(url, params=params, headers=headers, timeout=30)
         response.raise_for_status()
-        
+        stats_data = response.json()
+
         if format == 'markdown':
-            return {
-                'success': True,
-                'report': response.text,
-                'stats': None
-            }
+            content = render_markdown_report(stats_data, f"{owner}/{repo}", report)
         else:
-            stats_data = response.json()
-            return {
-                'success': True,
-                'report': json.dumps(stats_data, indent=2, default=str),
-                'stats': stats_data
-            }
-            
+            content = json.dumps(stats_data, indent=2, default=str)
+        return {
+            'success': True,
+            'report': content,
+            'stats': stats_data
+        }
+
     except requests.exceptions.HTTPError as e:
-        status_code = e.response.status_code if e.response else 'unknown'
+        status_code = e.response.status_code if e.response is not None else 'unknown'
         logger.error("HTTP error fetching stats", status_code=status_code, error=str(e))
         return {
             'success': False,
@@ -98,7 +93,21 @@ def fetch_stats(
         }
 
 
-def extract_key_metrics(stats: Dict[str, Any]) -> Dict[str, Any]:
+def _primary_amount(entries: Any) -> tuple[float, str]:
+    """Largest amount in a [{Currency, TotalAmount}] list, with its currency."""
+    if not entries:
+        return 0.0, 'USD'
+    best = max(entries, key=lambda e: e.get('TotalAmount') or 0)
+    return float(best.get('TotalAmount') or 0), best.get('Currency') or 'USD'
+
+
+def _format_amount(amount: float) -> str:
+    """Round to cents; whole amounts without a decimal part (50, not 50.0)."""
+    value = round(amount, 2)
+    return str(int(value)) if value == int(value) else str(value)
+
+
+def extract_key_metrics(stats: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     """
     Extract key metrics from stats response for GitHub Action outputs
     """
@@ -110,18 +119,76 @@ def extract_key_metrics(stats: Dict[str, Any]) -> Dict[str, Any]:
             'currency': 'USD',
             'currency_symbol': '$'
         }
-    
-    overview = stats.get('Overview', {})
-    savings = stats.get('Savings', {})
-    currency = savings.get('Currency', 'USD')
-    
+
+    total = stats.get('TotalFindings') or 0
+    by_status = {s.get('Status'): s.get('Count') or 0 for s in stats.get('FindingsByStatus') or []}
+    resolved = total - by_status.get('open', 0)
+    potential, currency = _primary_amount(stats.get('EstimatedSavings'))
+    realized = next((float(e.get('TotalAmount') or 0) for e in stats.get('RealizedSavings') or []
+                     if e.get('Currency') == currency), 0.0)
+
     return {
-        'fix_ratio': str(round(overview.get('FixRatio', 0) * 100, 1)),
-        'potential_savings': str(round(savings.get('PotentialMonthlySavings', 0), 2)),
-        'realized_savings': str(round(savings.get('RealizedMonthlySavings', 0), 2)),
+        'fix_ratio': str(round(resolved / total * 100, 1)) if total else '0',
+        'potential_savings': _format_amount(potential),
+        'realized_savings': _format_amount(realized),
         'currency': currency,
         'currency_symbol': get_currency_symbol(currency)
     }
+
+
+PERIOD_LABELS = {'7d': 'last 7 days', '30d': 'last 30 days', '90d': 'last 90 days', 'all': 'all time'}
+
+
+def render_markdown_report(stats: Dict[str, Any], repository: str, report: str = 'summary') -> str:
+    """Render the stats response as a markdown report.
+
+    summary:   key numbers; detailed: plus breakdowns by status and cloud;
+    executive: two lines for status updates.
+    """
+    metrics = extract_key_metrics(stats)
+    symbol = metrics['currency_symbol']
+    period = PERIOD_LABELS.get(stats.get('Period') or 'all', stats.get('Period') or 'all time')
+    total = stats.get('TotalFindings') or 0
+    open_issues = stats.get('OpenIssues') or 0
+    savings = f"{symbol}{float(metrics['potential_savings']):,.2f}"
+    last_scan = stats.get('LastScanAt') or 'never'
+
+    if report == 'executive':
+        return (
+            f"## LeftSize: {repository}\n\n"
+            f"**{open_issues}** open LeftSize issues, **{savings}/month** in estimated savings "
+            f"({total} findings, {period}).\n"
+        )
+
+    lines = [
+        f"# LeftSize Report: {repository}",
+        "",
+        f"_Findings seen in the {period}. Last scan: {last_scan}._" if period != 'all time'
+        else f"_All findings. Last scan: {last_scan}._",
+        "",
+        "| Metric | Value |",
+        "|---|---|",
+        f"| Findings | {total} |",
+        f"| Open LeftSize issues | {open_issues} |",
+        f"| Estimated monthly savings | {savings} |",
+    ]
+    for entry in stats.get('EstimatedSavings') or []:
+        if entry.get('Currency') != metrics['currency']:
+            lines.append(f"| Estimated monthly savings ({entry.get('Currency')}) | "
+                         f"{float(entry.get('TotalAmount') or 0):,.2f} |")
+
+    if report == 'detailed':
+        by_status = stats.get('FindingsByStatus') or []
+        by_provider = stats.get('FindingsByProvider') or []
+        if by_status:
+            lines += ["", "## Findings by status", "", "| Status | Findings |", "|---|---|"]
+            lines += [f"| {s.get('Status')} | {s.get('Count')} |" for s in by_status]
+        if by_provider:
+            lines += ["", "## Findings by cloud", "", "| Cloud | Findings |", "|---|---|"]
+            lines += [f"| {str(p.get('Provider')).upper()} | {p.get('Count')} |" for p in by_provider]
+
+    lines += ["", "Open issues have the `leftsize` label; each one explains how to fix it."]
+    return "\n".join(lines) + "\n"
 
 
 def get_currency_symbol(currency_code: str) -> str:
@@ -265,7 +332,7 @@ def stats_main() -> int:
     report_content = result.get('report', '')
     set_github_output('report', report_content)
     
-    # If we have raw stats (json format), set additional outputs
+    # Raw stats come back for both formats
     stats_data = result.get('stats')
     if stats_data:
         set_github_output('stats-json', json.dumps(stats_data, default=str))
@@ -276,34 +343,12 @@ def stats_main() -> int:
         set_github_output('currency', metrics['currency'])
         set_github_output('currency-symbol', metrics['currency_symbol'])
     else:
-        # For markdown format, we need to make another request to get raw stats
-        # for the additional outputs
-        json_result = fetch_stats(
-            backend_url=backend_url,
-            installation_id=installation_id,
-            repository_token=repository_token,
-            owner=owner,
-            repo=repo,
-            period=period,
-            format='json',
-            report=report
-        )
-        if json_result['success'] and json_result.get('stats'):
-            stats_data = json_result['stats']
-            set_github_output('stats-json', json.dumps(stats_data, default=str))
-            metrics = extract_key_metrics(stats_data)
-            set_github_output('fix-ratio', metrics['fix_ratio'])
-            set_github_output('potential-savings', metrics['potential_savings'])
-            set_github_output('realized-savings', metrics['realized_savings'])
-            set_github_output('currency', metrics['currency'])
-            set_github_output('currency-symbol', metrics['currency_symbol'])
-        else:
-            set_github_output('stats-json', '{}')
-            set_github_output('fix-ratio', '0')
-            set_github_output('potential-savings', '0')
-            set_github_output('realized-savings', '0')
-            set_github_output('currency', 'USD')
-            set_github_output('currency-symbol', '$')
+        set_github_output('stats-json', '{}')
+        set_github_output('fix-ratio', '0')
+        set_github_output('potential-savings', '0')
+        set_github_output('realized-savings', '0')
+        set_github_output('currency', 'USD')
+        set_github_output('currency-symbol', '$')
     
     # Print summary to GitHub Actions job summary
     print_stats_summary(report_content, format)

@@ -133,8 +133,11 @@ def validate_aws_region(region: str) -> bool:
     """Validate AWS region format"""
     if not region or not region.strip():
         return False
-    # AWS region pattern: us-east-1, eu-west-2, etc.
-    region_pattern = r'^[a-z]{2}-[a-z]+-\d+$'
+    # 'all' scans every region enabled for the account
+    if region.strip() == 'all':
+        return True
+    # AWS region pattern: us-east-1, eu-west-2, us-gov-west-1, etc.
+    region_pattern = r'^[a-z]{2}(-gov|-iso[a-z]?)?-[a-z]+-\d+$'
     return re.match(region_pattern, region.strip()) is not None
 
 
@@ -287,7 +290,14 @@ def github_action_main():
                 logger.error("Invalid policy category name(s)", invalid=invalid_cats)
                 set_github_output('findings-submitted', 'false')
                 return 1
-            config_data.setdefault('policies', {})['include_categories'] = categories
+            unknown_cats = [c for c in categories if normalize_policy_category(c) is None]
+            if unknown_cats:
+                logger.error("Unknown policy category. Use: cost-optimization, deprecation, governance, security",
+                             invalid=unknown_cats)
+                set_github_output('findings-submitted', 'false')
+                return 1
+            config_data.setdefault('policies', {})['include_categories'] = [
+                normalize_policy_category(c) for c in categories]
             
         if exclude_policies:
             rules = [r.strip() for r in exclude_policies.split(',') if r.strip()]
@@ -863,6 +873,52 @@ def detect_azure_currency(subscription_id: str = None) -> str:
         return "USD"
 
 
+POLICY_CATEGORIES = ('cost-optimization', 'deprecation', 'governance', 'security')
+POLICY_CATEGORY_ALIASES = {
+    'cost': 'cost-optimization',
+    'aks-optimization': 'cost-optimization',
+    'deprecations': 'deprecation',
+}
+
+
+def normalize_policy_category(category: str) -> Optional[str]:
+    """Map an include-policies value to a policy metadata category (None if unknown)."""
+    value = category.strip().lower()
+    value = POLICY_CATEGORY_ALIASES.get(value, value)
+    return value if value in POLICY_CATEGORIES else None
+
+
+def filter_policy_file(policy_path: str, config: Dict[str, Any], work_dir: str) -> Optional[str]:
+    """Apply include-policies / exclude-policies to one policy file.
+
+    Returns the path to run: the original file when no filter applies, a
+    filtered copy in work_dir, or None when no policy of the file is left.
+    """
+    filters = config.get('policies', {})
+    include = set(filters.get('include_categories') or [])
+    exclude = {r if r.startswith('leftsize-') else f'leftsize-{r}' for r in filters.get('exclude_rules') or []}
+    if not include and not exclude:
+        return policy_path
+
+    with open(policy_path) as f:
+        data = yaml.safe_load(f) or {}
+    policies = data.get('policies') or []
+    kept = [
+        p for p in policies
+        if (not include or (p.get('metadata') or {}).get('category') in include)
+        and p.get('name') not in exclude
+    ]
+    if not kept:
+        return None
+    if len(kept) == len(policies):
+        return policy_path
+    filtered_path = os.path.join(work_dir, os.path.basename(policy_path))
+    with open(filtered_path, 'w') as f:
+        yaml.safe_dump({**data, 'policies': kept}, f, sort_keys=False)
+    logger.info("Filtered policy file", file=os.path.basename(policy_path), kept=len(kept), total=len(policies))
+    return filtered_path
+
+
 def execute_custodian_policies(policies_dir: str, config: Dict[str, Any]) -> List[Dict[str, Any]]:
     """Execute Cloud Custodian policies and collect findings"""
     logger.info("Executing Cloud Custodian policies", policies_dir=policies_dir)
@@ -896,25 +952,42 @@ def execute_custodian_policies(policies_dir: str, config: Dict[str, Any]) -> Lis
     
     all_findings = []
     
-    # Execute each policy file
-    for policy_file in policy_files:
-        policy_path = os.path.join(policies_dir, policy_file)
-        
-        if not os.path.exists(policy_path):
-            logger.warning("Policy file not found, skipping", file=policy_file, path=policy_path)
-            continue
-        
-        logger.info("Executing policy file", file=policy_file)
-        findings = execute_single_policy_file(policy_path, config)
-        
-        if findings:
-            logger.info("Policy file completed", file=policy_file, findings_count=len(findings))
-            all_findings.extend(findings)
-        else:
-            logger.info("Policy file completed with no findings", file=policy_file)
+    # Execute each policy file (filtered copies of include/exclude-policies go to filter_dir)
+    with tempfile.TemporaryDirectory() as filter_dir:
+        for policy_file in policy_files:
+            policy_path = os.path.join(policies_dir, policy_file)
+            
+            if not os.path.exists(policy_path):
+                logger.warning("Policy file not found, skipping", file=policy_file, path=policy_path)
+                continue
+            
+            run_path = filter_policy_file(policy_path, config, filter_dir)
+            if run_path is None:
+                logger.info("All policies of file filtered out, skipping", file=policy_file)
+                continue
+            
+            logger.info("Executing policy file", file=policy_file)
+            findings = execute_single_policy_file(run_path, config)
+            
+            if findings:
+                logger.info("Policy file completed", file=policy_file, findings_count=len(findings))
+                all_findings.extend(findings)
+            else:
+                logger.info("Policy file completed with no findings", file=policy_file)
     
     logger.info("All policies executed", total_findings=len(all_findings))
     return all_findings
+
+
+def custodian_region_args(config: Dict[str, Any]) -> List[str]:
+    """--region flags for the configured AWS regions (none for Azure or when unset)."""
+    if config.get('cloud_provider') != 'aws':
+        return []
+    regions = config.get('targets', {}).get('aws', {}).get('regions', [])
+    args: List[str] = []
+    for region in regions:
+        args.extend(['--region', region])
+    return args
 
 
 def execute_single_policy_file(policies_file: str, config: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -936,6 +1009,10 @@ def execute_single_policy_file(policies_file: str, config: Dict[str, Any]) -> Li
             '--cache-period', '0',  # Disable caching for fresh results
             policies_file
         ]
+        
+        # AWS: scan the configured regions; without any, Custodian uses the
+        # runner's default region (the region of the aws-actions login step)
+        cmd.extend(custodian_region_args(config))
         
         # Add dry-run flag if configured
         if config.get('execution', {}).get('dry_run', True):
@@ -993,6 +1070,21 @@ def execute_single_policy_file(policies_file: str, config: Dict[str, Any]) -> Li
     return findings
 
 
+def default_aws_region(config: Dict[str, Any]) -> str:
+    """Region to attribute an AWS resource to when the resource itself doesn't say.
+
+    While parsing one region's output of a multi-region run this is that region;
+    otherwise the first configured region, else the runner's AWS_REGION.
+    """
+    scan_region = config.get('_scan_region')
+    if scan_region:
+        return scan_region
+    regions = config.get('targets', {}).get('aws', {}).get('regions', [])
+    if regions and regions[0] != 'all':
+        return regions[0]
+    return os.getenv('AWS_REGION', 'us-east-1')
+
+
 def build_scope_from_resource_id(resource_id: str, config: Dict[str, Any]) -> str:
     """Build LeftSize scope from resource ID - handles Azure and AWS formats.
     
@@ -1007,10 +1099,7 @@ def build_scope_from_resource_id(resource_id: str, config: Dict[str, Any]) -> st
     
     # Helper to get AWS region from config or environment
     def get_aws_region_from_config() -> str:
-        regions = config.get('targets', {}).get('aws', {}).get('regions', [])
-        if regions:
-            return regions[0]
-        return os.getenv('AWS_REGION', 'us-east-1')
+        return default_aws_region(config)
     
     try:
         if cloud_provider == 'aws':
@@ -1098,17 +1187,34 @@ def read_policy_info(policy_dir: Path) -> Dict[str, Optional[str]]:
     return info
 
 
+def _policy_output_dirs(output_dir: Path, config: Dict[str, Any]):
+    """Yield (policy_dir, config) for every policy output directory.
+
+    Custodian writes <output>/<policy>/ for a single region and
+    <output>/<region>/<policy>/ when it runs several regions; for the latter the
+    config is copied with the region set, so resources get the right region.
+    """
+    for child in sorted(output_dir.iterdir()):
+        if not child.is_dir():
+            continue
+        if (child / 'resources.json').exists() or (child / 'metadata.json').exists():
+            yield child, config
+            continue
+        region_config = dict(config)
+        region_config['_scan_region'] = child.name
+        for policy_dir in sorted(child.iterdir()):
+            if policy_dir.is_dir():
+                yield policy_dir, region_config
+
+
 def parse_custodian_output(output_dir: str, config: Dict[str, Any]) -> List[Dict[str, Any]]:
     """Parse Cloud Custodian output and convert to LeftSize findings"""
     logger.info("Parsing Custodian output", output_dir=output_dir)
     
     findings = []
     
-    # Iterate through policy output directories
-    for policy_dir in Path(output_dir).iterdir():
-        if not policy_dir.is_dir():
-            continue
-            
+    # A run over several regions nests output per region: <output>/<region>/<policy>/
+    for policy_dir, policy_config in _policy_output_dirs(Path(output_dir), config):
         policy_name = policy_dir.name
         resources_file = policy_dir / 'resources.json'
         
@@ -1130,7 +1236,7 @@ def parse_custodian_output(output_dir: str, config: Dict[str, Any]) -> List[Dict
 
             # Convert Custodian resources to LeftSize findings
             for resource in resources:
-                finding = convert_resource_to_finding(policy_name, resource, config,
+                finding = convert_resource_to_finding(policy_name, resource, policy_config,
                                                       policy_info['resource_type'])
                 if finding:
                     if policy_info['severity']:
@@ -1168,50 +1274,50 @@ def extract_resource_id(resource: Dict[str, Any], config: Dict[str, Any]) -> str
         # EC2 instances use 'InstanceId'
         if resource.get('InstanceId'):
             instance_id = resource['InstanceId']
-            region = resource.get('Region', os.getenv('AWS_REGION', 'us-east-1'))
+            region = resource.get('Region', default_aws_region(config))
             # Note: Account ID not available, using placeholder
             return f"arn:aws:ec2:{region}::instance/{instance_id}"
         
         # EBS volumes use 'VolumeId'
         if resource.get('VolumeId'):
             volume_id = resource['VolumeId']
-            region = resource.get('Region', os.getenv('AWS_REGION', 'us-east-1'))
+            region = resource.get('Region', default_aws_region(config))
             return f"arn:aws:ec2:{region}::volume/{volume_id}"
         
         # EBS snapshots use 'SnapshotId'
         if resource.get('SnapshotId'):
             snapshot_id = resource['SnapshotId']
-            region = resource.get('Region', os.getenv('AWS_REGION', 'us-east-1'))
+            region = resource.get('Region', default_aws_region(config))
             return f"arn:aws:ec2:{region}::snapshot/{snapshot_id}"
 
         # VPCs use 'VpcId'
         if resource.get('VpcId') and not resource.get('VpcEndpointId'):
             vpc_id = resource['VpcId']
-            region = resource.get('Region', os.getenv('AWS_REGION', 'us-east-1'))
+            region = resource.get('Region', default_aws_region(config))
             return f"arn:aws:ec2:{region}::vpc/{vpc_id}"
 
         # VPC Endpoints use 'VpcEndpointId'
         if resource.get('VpcEndpointId'):
             endpoint_id = resource['VpcEndpointId']
-            region = resource.get('Region', os.getenv('AWS_REGION', 'us-east-1'))
+            region = resource.get('Region', default_aws_region(config))
             return f"arn:aws:ec2:{region}::vpc-endpoint/{endpoint_id}"
 
         # AMIs use 'ImageId'
         if resource.get('ImageId'):
             image_id = resource['ImageId']
-            region = resource.get('Region', os.getenv('AWS_REGION', 'us-east-1'))
+            region = resource.get('Region', default_aws_region(config))
             return f"arn:aws:ec2:{region}::image/{image_id}"
 
         # EFS filesystems
         if resource.get('FileSystemId'):
             fs_id = resource['FileSystemId']
-            region = resource.get('Region', os.getenv('AWS_REGION', 'us-east-1'))
+            region = resource.get('Region', default_aws_region(config))
             return f"arn:aws:elasticfilesystem:{region}::file-system/{fs_id}"
 
         # ElastiCache cache clusters
         if resource.get('CacheClusterId'):
             cache_id = resource['CacheClusterId']
-            region = resource.get('Region', os.getenv('AWS_REGION', 'us-east-1'))
+            region = resource.get('Region', default_aws_region(config))
             return f"arn:aws:elasticache:{region}::cluster/{cache_id}"
 
         # RDS snapshots
@@ -1219,7 +1325,7 @@ def extract_resource_id(resource: Dict[str, Any], config: Dict[str, Any]) -> str
             return resource['DBSnapshotArn']
         if resource.get('DBSnapshotIdentifier'):
             snap_id = resource['DBSnapshotIdentifier']
-            region = resource.get('Region', os.getenv('AWS_REGION', 'us-east-1'))
+            region = resource.get('Region', default_aws_region(config))
             return f"arn:aws:rds:{region}::snapshot/{snap_id}"
 
         # EKS clusters (c7n returns 'name' + 'arn')
@@ -1228,7 +1334,7 @@ def extract_resource_id(resource: Dict[str, Any], config: Dict[str, Any]) -> str
 
         # WorkSpaces carry a 'UserName' too, so handle them before the IAM user branch
         if resource.get('WorkspaceId'):
-            region = resource.get('Region', os.getenv('AWS_REGION', 'us-east-1'))
+            region = resource.get('Region', default_aws_region(config))
             return f"arn:aws:workspaces:{region}::workspace/{resource['WorkspaceId']}"
 
         # IAM users expose 'UserName' and 'Arn' (fallback Arn handles it, but ensure UserName path works)
@@ -1239,7 +1345,7 @@ def extract_resource_id(resource: Dict[str, Any], config: Dict[str, Any]) -> str
         # RDS instances use 'DBInstanceIdentifier'
         if resource.get('DBInstanceIdentifier'):
             db_id = resource['DBInstanceIdentifier']
-            region = resource.get('Region', os.getenv('AWS_REGION', 'us-east-1'))
+            region = resource.get('Region', default_aws_region(config))
             return f"arn:aws:rds:{region}::db/{db_id}"
         
         # Lambda functions use 'FunctionName' or 'FunctionArn'
@@ -1247,13 +1353,13 @@ def extract_resource_id(resource: Dict[str, Any], config: Dict[str, Any]) -> str
             return resource['FunctionArn']
         if resource.get('FunctionName'):
             func_name = resource['FunctionName']
-            region = resource.get('Region', os.getenv('AWS_REGION', 'us-east-1'))
+            region = resource.get('Region', default_aws_region(config))
             return f"arn:aws:lambda:{region}::function/{func_name}"
         
         # NAT Gateways use 'NatGatewayId'
         if resource.get('NatGatewayId'):
             nat_id = resource['NatGatewayId']
-            region = resource.get('Region', os.getenv('AWS_REGION', 'us-east-1'))
+            region = resource.get('Region', default_aws_region(config))
             return f"arn:aws:ec2:{region}::natgateway/{nat_id}"
         
         # Generic fallback for AWS - try common ARN/ID patterns across many c7n
@@ -1286,7 +1392,7 @@ def extract_resource_id(resource: Dict[str, Any], config: Dict[str, Any]) -> str
                 return val
 
         # Resources without ARNs in their payload — build one from identifier + region
-        region = resource.get('Region', os.getenv('AWS_REGION', 'us-east-1'))
+        region = resource.get('Region', default_aws_region(config))
         if resource.get('AutoScalingGroupName'):
             return f"arn:aws:autoscaling:{region}::autoScalingGroup/{resource['AutoScalingGroupName']}"
         if resource.get('LoadBalancerName'):  # classic ELB

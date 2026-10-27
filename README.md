@@ -123,10 +123,10 @@ jobs:
 | `repository-token` | ✅ Yes | - | Secure repository token from LeftSize onboarding |
 | `backend-url` | No | `https://api.leftsize.com` | LeftSize backend API URL |
 | `cloud-provider` | No | `azure` | Cloud provider: `azure` or `aws` |
-| `azure-subscription-ids` | No | All accessible | Comma-separated Azure subscription IDs to scan |
-| `aws-regions` | No | All accessible | Comma-separated AWS regions to scan |
-| `include-policies` | No | All | Policy categories: `cost-optimization`, `governance`, `security` |
-| `exclude-policies` | No | None | Specific policy names to skip (comma-separated) |
+| `azure-subscription-ids` | No | Login subscription | Subscription ID used for scoping and currency detection. The scan covers the subscription selected by `azure/login`; scan more subscriptions with a matrix (one job per subscription). |
+| `aws-regions` | No | Login region | Comma-separated AWS regions to scan, or `all` for every enabled region |
+| `include-policies` | No | All | Rule categories: `cost-optimization`, `deprecation`, `governance`, `security` |
+| `exclude-policies` | No | None | Rule names to skip (comma-separated, with or without the `leftsize-` prefix) |
 | `verbose` | No | `false` | Enable verbose logging |
 
 ### Outputs
@@ -141,6 +141,8 @@ jobs:
 
 ### Multi-Subscription Azure Scan
 
+Each job scans the subscription it logs in to, so use a matrix with one entry per subscription:
+
 ```yaml
 permissions:
   id-token: write        # Required for OIDC
@@ -149,12 +151,20 @@ permissions:
 jobs:
   leftsize-scan:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        environment: [PROD, DEV]
     steps:
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets[format('AZURE_CLIENT_ID_{0}', matrix.environment)] }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets[format('AZURE_SUBSCRIPTION_ID_{0}', matrix.environment)] }}
       - uses: leftsize/leftsize-action@v1
         with:
           installation-id: ${{ secrets.LEFTSIZE_INSTALLATION_ID }}
           repository-token: ${{ secrets.LEFTSIZE_REPOSITORY_TOKEN }}
-          azure-subscription-ids: "sub-id-1,sub-id-2,sub-id-3"
+          environment-name: ${{ matrix.environment }}
 ```
 
 ### AWS Multi-Region Scan
@@ -191,8 +201,8 @@ jobs:
         with:
           installation-id: ${{ secrets.LEFTSIZE_INSTALLATION_ID }}
           repository-token: ${{ secrets.LEFTSIZE_REPOSITORY_TOKEN }}
-          include-policies: cost-optimization,governance  # Only cost and governance policies
-          exclude-policies: leftsize-idle-vm              # Skip specific rule
+          include-policies: cost-optimization,governance  # Only cost and governance rules
+          exclude-policies: leftsize-idle-vm              # Skip a specific rule
 ```
 
 ### Custom Processing of Findings
@@ -398,10 +408,10 @@ Findings are saved as artifacts even if submission fails.
 
 ## Support
 
-- 📚 [Documentation](https://docs.leftsize.io)
+- 📚 [Documentation](https://support.leftsize.com)
 - 💬 [GitHub Discussions](https://github.com/leftsize/leftsize-action/discussions)
 - 🐛 [Report Issues](https://github.com/leftsize/leftsize-action/issues)
-- 📧 Email: support@leftsize.io
+- 📧 Email: support@leftsize.com
 
 ## License
 

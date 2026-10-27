@@ -9,10 +9,23 @@ from unittest.mock import patch, MagicMock
 from stats import (
     fetch_stats,
     extract_key_metrics,
+    render_markdown_report,
     get_repo_info,
     set_github_output,
     stats_main
 )
+
+
+API_STATS = {
+    'TotalFindings': 10,
+    'FindingsByStatus': [{'Status': 'open', 'Count': 8}, {'Status': 'closed', 'Count': 2}],
+    'FindingsByProvider': [{'Provider': 'aws', 'Count': 10}],
+    'EstimatedSavings': [{'Currency': 'USD', 'TotalAmount': 1234.5}],
+    'RealizedSavings': [{'Currency': 'USD', 'TotalAmount': 100.25}],
+    'LastScanAt': '2026-10-26T07:00:00.000Z',
+    'OpenIssues': 4,
+    'Period': '30d',
+}
 
 
 class TestFetchStats:
@@ -20,9 +33,9 @@ class TestFetchStats:
 
     @patch('stats.requests.get')
     def test_fetch_stats_markdown_success(self, mock_get):
-        """Test successful markdown format fetch"""
+        """Markdown is rendered locally from the JSON the API returns"""
         mock_response = MagicMock()
-        mock_response.text = "# Report\n\nSome markdown content"
+        mock_response.json.return_value = API_STATS
         mock_response.raise_for_status = MagicMock()
         mock_get.return_value = mock_response
 
@@ -38,8 +51,11 @@ class TestFetchStats:
         )
 
         assert result['success'] is True
-        assert result['report'] == "# Report\n\nSome markdown content"
-        assert result['stats'] is None
+        assert result['report'].startswith('# LeftSize Report: testowner/testrepo')
+        assert '| Open LeftSize issues | 4 |' in result['report']
+        assert '$1,234.50' in result['report']
+        assert result['stats'] == API_STATS
+        assert mock_get.call_args.kwargs['params'] == {'period': '30d'}
 
     @patch('stats.requests.get')
     def test_fetch_stats_json_success(self, mock_get):
@@ -109,20 +125,13 @@ class TestExtractKeyMetrics:
     """Tests for the extract_key_metrics function"""
 
     def test_extract_metrics_success(self):
-        """Test successful metric extraction"""
-        stats = {
-            'Overview': {'FixRatio': 0.75},
-            'Savings': {
-                'PotentialMonthlySavings': 150.50,
-                'RealizedMonthlySavings': 100.25
-            }
-        }
+        """Test successful metric extraction from the API shape"""
+        metrics = extract_key_metrics(API_STATS)
 
-        metrics = extract_key_metrics(stats)
-
-        assert metrics['fix_ratio'] == '75.0'
-        assert metrics['potential_savings'] == '150.5'
+        assert metrics['fix_ratio'] == '20.0'
+        assert metrics['potential_savings'] == '1234.5'
         assert metrics['realized_savings'] == '100.25'
+        assert metrics['currency'] == 'USD'
 
     def test_extract_metrics_empty_stats(self):
         """Test with empty stats"""
@@ -142,17 +151,20 @@ class TestExtractKeyMetrics:
 
     def test_extract_metrics_missing_fields(self):
         """Test with partially missing fields"""
-        stats = {
-            'Overview': {},
-            'Savings': {'PotentialMonthlySavings': 50}
-        }
+        stats = {'EstimatedSavings': [{'Currency': 'EUR', 'TotalAmount': 50}]}
 
         metrics = extract_key_metrics(stats)
 
         assert metrics['fix_ratio'] == '0'
-        # Note: round(50.0, 2) = 50 (no trailing decimal)
         assert float(metrics['potential_savings']) == 50.0
         assert metrics['realized_savings'] == '0'
+        assert metrics['currency_symbol'] == '€'
+
+    def test_render_detailed_and_executive_reports(self):
+        detailed = render_markdown_report(API_STATS, 'o/r', 'detailed')
+        assert '## Findings by cloud' in detailed and '| AWS | 10 |' in detailed
+        executive = render_markdown_report(API_STATS, 'o/r', 'executive')
+        assert executive.count('\n') <= 4 and '**4** open LeftSize issues' in executive
 
 
 class TestGetRepoInfo:

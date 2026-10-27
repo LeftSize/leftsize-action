@@ -29,7 +29,7 @@ inputs:
   
   # Stats mode inputs
   period:
-    description: 'Stats period: 7d, 30d, 90d, or all (stats mode only)'
+    description: 'Stats period: 7d, 30d, 90d, or all; counts findings scans reported in that period (stats mode only)'
     required: false
     default: '30d'
   
@@ -39,7 +39,7 @@ inputs:
     default: 'markdown'
   
   report:
-    description: 'Report type: summary, detailed, or executive (stats mode only)'
+    description: 'Markdown report type: summary, detailed (adds breakdowns by status and cloud), or executive (two lines) (stats mode only)'
     required: false
     default: 'summary'
   
@@ -51,12 +51,12 @@ inputs:
   
   # Azure-specific inputs
   azure-subscription-ids:
-    description: 'Comma-separated Azure subscription IDs to scan (empty = all accessible)'
+    description: 'Azure subscription ID(s) used for scoping and currency detection. The scan covers the subscription selected by azure/login.'
     required: false
   
   # AWS-specific inputs
   aws-regions:
-    description: 'Comma-separated AWS regions to scan (empty = all accessible)'
+    description: 'Comma-separated AWS regions to scan, or "all" for every enabled region (empty = the region of the AWS login step)'
     required: false
   
   # Environment configuration
@@ -71,11 +71,11 @@ inputs:
   
   # Policy configuration
   include-policies:
-    description: 'Comma-separated policy categories to include (e.g., cost-optimization,governance,security)'
+    description: 'Comma-separated rule categories to run: cost-optimization, deprecation, governance, security (empty = all)'
     required: false
   
   exclude-policies:
-    description: 'Comma-separated specific policy names to exclude (e.g., leftsize-idle-vm)'
+    description: 'Comma-separated rule names to skip, with or without the leftsize- prefix (e.g., leftsize-idle-vm,unused-public-ip)'
     required: false
   
   # Execution options
@@ -108,7 +108,7 @@ outputs:
     value: ${{ steps.run.outputs.stats-json }}
   
   fix-ratio:
-    description: 'Fix ratio percentage (stats mode)'
+    description: 'Percentage of findings no longer open (stats mode)'
     value: ${{ steps.run.outputs.fix-ratio }}
   
   potential-savings:
