@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.24] - 2026-10-27
+
+### Fixed
+- `public-s3-access` flagged every bucket in accounts that block public access at account level. Cloud Custodian's check only reads the bucket-level setting; the account-level Block Public Access setting is now read too (one read-only `s3:GetAccountPublicAccessBlock` call per account, covered by ReadOnlyAccess) and a setting counts as on when either level turns it on. Buckets whose own setting can't be read are skipped. Issues list the settings that are off on both levels.
+
 ## [1.0.23] - 2026-10-27
 
 ### Added

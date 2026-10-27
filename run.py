@@ -1535,9 +1535,64 @@ def _vms_without_shutdown_schedule(resources: List[Dict[str, Any]], config: Dict
     return kept
 
 
+# S3 Block Public Access: the account-level setting applies to every bucket on top of
+# the bucket's own setting. Custodian's check-public-block only reads the bucket level
+# (and treats a missing or unreadable setting as "all off"), so it flags every bucket
+# of an account that blocks public access at account level.
+S3_PUBLIC_BLOCK_KEYS = ('BlockPublicAcls', 'IgnorePublicAcls', 'BlockPublicPolicy', 'RestrictPublicBuckets')
+_S3_ACCOUNT_PUBLIC_BLOCK: Dict[str, Optional[Dict[str, bool]]] = {}
+
+
+def _s3_account_public_block(account_id: str, session: Any = None) -> Optional[Dict[str, bool]]:
+    """The account-level Block Public Access settings (all False when none is set);
+    None when they couldn't be read. One read-only s3control call per account."""
+    try:
+        if session is None:
+            import boto3
+            session = boto3.session.Session()
+        client = session.client('s3control', region_name=session.region_name or 'us-east-1')
+        try:
+            config = client.get_public_access_block(AccountId=account_id)['PublicAccessBlockConfiguration']
+        except Exception as e:
+            code = getattr(e, 'response', {}).get('Error', {}).get('Code')
+            if code != 'NoSuchPublicAccessBlockConfiguration':
+                raise
+            config = {}
+        settings = {key: bool(config.get(key)) for key in S3_PUBLIC_BLOCK_KEYS}
+        logger.info("S3 account-level Block Public Access read", account=account_id, **settings)
+        return settings
+    except Exception as e:
+        logger.warning("S3 account-level Block Public Access lookup failed; using bucket settings only",
+                       account=account_id, error=str(e))
+        return None
+
+
+def _s3_public_block_gaps(resources: List[Dict[str, Any]], config: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Buckets where neither the bucket nor the account turns on all four Block Public
+    Access settings. Buckets whose own setting couldn't be read are skipped. The settings
+    that are off on both levels are stored as c7n:PublicAccessBlockOff for the issue."""
+    account_id = config.get('targets', {}).get('aws', {}).get('account_id')
+    account = None
+    if account_id:
+        if account_id not in _S3_ACCOUNT_PUBLIC_BLOCK:
+            _S3_ACCOUNT_PUBLIC_BLOCK[account_id] = _s3_account_public_block(account_id)
+        account = _S3_ACCOUNT_PUBLIC_BLOCK[account_id]
+    kept = []
+    for bucket in resources:
+        if 'GetPublicAccessBlock' in (bucket.get('c7n:DeniedMethods') or []):
+            continue
+        own = bucket.get('c7n:PublicAccessBlock') or {}
+        off = [key for key in S3_PUBLIC_BLOCK_KEYS if not own.get(key) and not (account or {}).get(key)]
+        if off:
+            bucket['c7n:PublicAccessBlockOff'] = off
+            kept.append(bucket)
+    return kept
+
+
 # Checks Custodian filters can't express, applied to a policy's matches after the run
 POLICY_POST_FILTERS = {
     'leftsize-inactive-eks-cluster': _eks_without_compute,
+    'leftsize-public-s3-access': _s3_public_block_gaps,
     # Non-production rules: environment from tags and names (classify_environment)
     'leftsize-ec2-scheduled-shutdown-missing': _non_production_only,
     'leftsize-rds-multiaz-nonprod': _non_production_only,
@@ -2087,7 +2142,8 @@ RESOURCE_FIELD_BUILDERS: Dict[str, Dict[str, Any]] = {
     'aws.asg': {'instanceTypes': _asg_instance_types},
     'aws.ec2': {'avgCpuPercent': _avg_cpu_percent},
     'aws.rds': {'avgCpuPercent': _avg_cpu_percent},
-    'aws.s3': {'region': _s3_bucket_region},
+    'aws.s3': {'region': _s3_bucket_region,
+               'publicAccessBlockOff': lambda r: ', '.join(r.get('c7n:PublicAccessBlockOff') or []) or None},
 }
 
 
