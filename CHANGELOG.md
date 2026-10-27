@@ -8,8 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.0.23] - 2026-10-27
 
 ### Added
-- Environment detection per resource: environment tags on the resource or its Azure resource group, then words in the resource or resource group name (`prod`, `acc`, `uat`, `test`, `dev`, `staging`, …), then a one-letter resource group suffix (`-P`, `-A`, `-T`, `-D`). Any production signal wins; resources without clear non-production evidence count as unknown. Every finding carries `environment` and `environmentSource`, and issues show them.
+- Environment detection per resource: environment tags on the resource or its Azure resource group, then words in the resource, parent resource (such as a database's server) or resource group name (`prod`, `acc`, `uat`, `test`, `dev`, `staging`, …), then a one-letter resource group suffix (`-P`, `-A`, `-T`, `-D`). Any production signal wins; resources without clear non-production evidence count as unknown. Every finding carries `environment` and `environmentSource`, and issues show them.
 - `environment-name` accepts `name=environment` pairs for subscriptions with several environments. Values that are not an environment (such as the onboarding matrix label `MAIN`) are ignored instead of overriding detection.
+- Azure resource group tags are read with one Resource Graph query per subscription, using the same Azure sign-in as the scan (Reader is enough).
 
 ### Changed
 - The non-production rules (`vm-scheduled-shutdown-missing`, `aks-dev-clusters-always-running`, `sql-business-critical-nonprod`, `ec2-scheduled-shutdown-missing`, `rds-multiaz-nonprod`) use this detection instead of tags only. `rds-multiaz-nonprod` no longer matches name fragments such as `devices` or `latest`.
