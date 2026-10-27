@@ -91,6 +91,41 @@ CASES: Dict[str, List[Tuple[str, Dict[str, Any], bool]]] = {
    ('minTlsVersion 1.2', {'properties': {}, 'c7n:configuration': {'minTlsVersion': '1.2'}}, False),
    ('minTlsVersion 1.3', {'properties': {}, 'c7n:configuration': {'minTlsVersion': '1.3'}}, False),
  ],
+ 'leftsize-anonymous-blob-access': [
+   ('allowBlobPublicAccess true', {'properties': {'allowBlobPublicAccess': True}}, True),
+   ('allowBlobPublicAccess not set (older accounts allow it)', {'properties': {}}, True),
+   ('allowBlobPublicAccess false', {'properties': {'allowBlobPublicAccess': False}}, False),
+ ],
+ 'leftsize-storage-http-allowed': [
+   ('HTTPS only off', {'properties': {'supportsHttpsTrafficOnly': False}}, True),
+   ('HTTPS only on', {'properties': {'supportsHttpsTrafficOnly': True}}, False),
+ ],
+ 'leftsize-storage-outdated-tls': [
+   ('TLS1_0', {'properties': {'minimumTlsVersion': 'TLS1_0'}}, True),
+   ('TLS1_1', {'properties': {'minimumTlsVersion': 'TLS1_1'}}, True),
+   ('TLS1_2', {'properties': {'minimumTlsVersion': 'TLS1_2'}}, False),
+ ],
+ 'leftsize-storage-public-network-access': [
+   ('Enabled + default Allow', {'properties': {'publicNetworkAccess': 'Enabled', 'networkAcls': {'defaultAction': 'Allow'}}}, True),
+   ('not set + default Allow', {'properties': {'networkAcls': {'defaultAction': 'Allow'}}}, True),
+   ('Enabled + default Deny', {'properties': {'publicNetworkAccess': 'Enabled', 'networkAcls': {'defaultAction': 'Deny'}}}, False),
+   ('Disabled', {'properties': {'publicNetworkAccess': 'Disabled', 'networkAcls': {'defaultAction': 'Allow'}}}, False),
+   ('SecuredByPerimeter', {'properties': {'publicNetworkAccess': 'SecuredByPerimeter', 'networkAcls': {'defaultAction': 'Allow'}}}, False),
+ ],
+ 'leftsize-unencrypted-disks': [
+   ('attached, platform key', {'properties': {'diskState': 'Attached', 'encryption': {'type': 'EncryptionAtRestWithPlatformKey'}}}, True),
+   ('attached, customer key', {'properties': {'diskState': 'Attached', 'encryption': {'type': 'EncryptionAtRestWithCustomerKey'}}}, False),
+   ('attached, platform and customer keys', {'properties': {'diskState': 'Attached', 'encryption': {'type': 'EncryptionAtRestWithPlatformAndCustomerKeys'}}}, False),
+   ('unattached, platform key', {'properties': {'diskState': 'Unattached', 'encryption': {'type': 'EncryptionAtRestWithPlatformKey'}}}, False),
+ ],
+ 'leftsize-defender-for-cloud-disabled': [
+   ('Free tier', {'properties': {'pricingTier': 'Free'}}, True),
+   ('Standard tier', {'properties': {'pricingTier': 'Standard'}}, False),
+ ],
+ 'leftsize-sql-auditing-disabled': [
+   ('auditing Disabled', {'properties': {'c7n:auditing-settings': {'state': 'Disabled'}}}, True),
+   ('auditing Enabled', {'properties': {'c7n:auditing-settings': {'state': 'Enabled'}}}, False),
+ ],
  'leftsize-aks-local-accounts-enabled': [
    ('disableLocalAccounts false', {'properties': {'disableLocalAccounts': False}}, True),
    ('disableLocalAccounts not set', {'properties': {}}, True),

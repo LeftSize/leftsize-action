@@ -160,6 +160,10 @@ policies:
       API version Cloud Custodian uses does not expose supportPlan, so LTS
       clusters are also flagged; the issue explains how to check.
 
+      From June 1, 2027 AKS automatically upgrades clusters still out of support
+      after a 60-day grace period (ignores maintenance windows and PDBs). An
+      out-of-support cluster can upgrade directly to the lowest supported minor.
+
       MAINTENANCE: update the regex when the next minor version approaches
       end of life (1.35 ends Mar 2027).
 
@@ -195,23 +199,20 @@ policies:
       tier: pro
 
   # ========================================
-  # 🗄️ SQL DATABASE DTU MODEL (Legacy)
+  # 🗄️ SQL DATABASE DTU MODEL (not retired; optimization hint)
   # ========================================
 
   - name: leftsize-sql-database-dtu-model
     description: |
-      Find Azure SQL Databases using the legacy DTU purchasing model.
-      
-      The DTU model is being phased out in favor of vCore:
-      - DTU: Legacy, less flexible, harder to right-size
-      - vCore: Modern, more control, reserved capacity discounts
-      
-      Benefits of migrating to vCore:
-      - Up to 55% savings with reserved capacity
-      - More granular compute/storage sizing
-      - Hybrid benefit support (use existing SQL licenses)
-      - Better performance predictability
-      
+      Find Azure SQL Databases on the DTU purchasing model (Basic, Standard, Premium).
+
+      NOTE: the DTU model is still supported; Microsoft has not announced a
+      retirement (checked 2026-10-27). This is an optimization hint, not a
+      deprecation: reserved capacity and Azure Hybrid Benefit are vCore-only,
+      and vCore allows separate compute/storage sizing. Small databases
+      (Basic, S0-S2) usually cost more on vCore.
+
+      Reference: https://learn.microsoft.com/en-us/azure/azure-sql/database/migrate-dtu-to-vcore
       Reference: https://learn.microsoft.com/en-us/azure/azure-sql/database/service-tiers-dtu
     
     resource: azure.sql-database
@@ -583,13 +584,13 @@ policies:
   # ========================================
 
   # ========================================
-  # 🗄️ STORAGE ACCOUNT KIND RETIREMENT (Oct 2026)
+  # 🗄️ STORAGE ACCOUNT KIND RETIREMENT (retired Oct 13, 2026)
   # ========================================
 
   - name: leftsize-storage-legacy-account-retirement
     description: |
       Find general-purpose v1 (kind 'Storage') and legacy Blob Storage
-      (kind 'BlobStorage') accounts. Both account kinds retire in October 2026.
+      (kind 'BlobStorage') accounts. Both account kinds were retired on October 13, 2026.
 
       Timeline:
       - September 2025: Retirement announced
@@ -599,9 +600,9 @@ policies:
         to GPv2, which "may result in higher billing costs" (transaction pricing
         differs). The GPv1 overview only says "October 2026"; the upgrade page and
         the legacy Blob Storage page give October 13, 2026.
-      - The legacy Blob Storage page ALSO says "After the retirement date, data
-        access will be blocked for all legacy blob storage accounts", which
-        contradicts its own auto-migration wording.
+      - Since retirement (checked 2026-10-27): GPv2 pricing applies from November
+        2026; Microsoft converts remaining accounts in waves from early November
+        2026 into Q1 2027. Converted accounts become StorageV2 and stop matching.
 
       The upgrade to GPv2 is in place, has no downtime, can't be undone, and
       defaults the account access tier to Hot unless you set it.
@@ -827,8 +828,8 @@ policies:
       Timeline:
       - Nov 30, 2025: Azure Linux 2.0 no longer supported on AKS, no security
         updates. Node image frozen at 202512.06.0.
-      - Oct 31, 2026: Azure Linux 2.0 node images are removed. Node pools can no
-        longer scale (scale-out, autoscaler, reimage, redeploy fail).
+      - Starting Oct 31, 2026: Azure Linux 2.0 node images are removed. Node pools
+        can no longer scale (scale-out, autoscaler, reimage, redeploy fail).
 
       Detection uses the pool's nodeImageVersion (AKSAzureLinux-V2* or
       AKSCBLMariner-V2*), because osSKU "AzureLinux" means 2.0 on Kubernetes
@@ -1111,11 +1112,12 @@ policies:
   - name: leftsize-functions-linux-language-end-of-support
     description: |
       Detect Linux function apps whose language stack version is out of support or reaches
-      end of support on or before November 10, 2026 (per the Azure Functions supported-languages table).
+      end of support on or before November 10, 2026 (per the Azure Functions supported-languages table,
+      checked 2026-10-27).
 
       Covered stack versions (linuxFxVersion, case-insensitive):
       - DOTNET-ISOLATED|6.0, 7.0 (ended 2024), 8.0 and 9.0 (end of support November 10, 2026)
-      - PYTHON|3.6 - 3.9 (ended), 3.10 (end of support October 2026)
+      - PYTHON|3.6 - 3.10 (ended; 3.10 ended October 2026)
       - POWERSHELL|7.0, 7.2 (ended), 7.4 (end of support November 10, 2026)
       - NODE|20 and older (Node.js 20 end of support April 30, 2026; only 22 and 24 are listed as supported)
       Not covered: Java (8/11/17 supported until September 2027), Node.js 22 (April 30, 2027).

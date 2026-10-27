@@ -14,6 +14,21 @@ class TestExtractResourceFields:
         assert extract_resource_fields(r, "aws.rds") == {
             "engine": "mysql", "engineVersion": "8.0.35", "instanceClass": "db.r6g.large"}
 
+    def test_ebs_volume_fields_for_templates(self):
+        r = {"VolumeId": "vol-1", "VolumeType": "gp2", "Size": 100, "Iops": 300, "AvailabilityZone": "eu-west-1a",
+             "Attachments": [{"InstanceId": "i-1", "Device": "/dev/xvda"}]}
+        assert extract_resource_fields(r, "aws.ebs") == {
+            "volumeId": "vol-1", "volumeType": "gp2", "volumeSize": 100, "iops": 300, "provisionedIops": 300,
+            "availabilityZone": "eu-west-1a", "instanceId": "i-1", "deviceName": "/dev/xvda"}
+
+    def test_azure_vm_os_disk_fields(self):
+        r = {"properties": {"storageProfile": {"osDisk": {
+            "name": "vm1-os", "diskSizeGB": 128, "managedDisk": {"id": "/subscriptions/s/disks/vm1-os",
+                                                                 "storageAccountType": "Standard_LRS"}}}}}
+        assert extract_resource_fields(r, "azure.vm") == {
+            "osDiskName": "vm1-os", "osDiskId": "/subscriptions/s/disks/vm1-os", "osDiskSize": 128,
+            "osDiskSku": "Standard_LRS"}
+
     def test_nested_and_list_paths(self):
         r = {"WorkspaceProperties": {"OperatingSystemName": "WINDOWS_SERVER_2019", "Protocols": ["PCOIP", "WSP"]}}
         fields = extract_resource_fields(r, "aws.workspaces")

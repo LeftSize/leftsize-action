@@ -19,7 +19,7 @@ policies:
   - name: leftsize-lambda-deprecated-runtime
     description: |
       Find Lambda functions on a runtime that is deprecated, or will be deprecated
-      within ~6 months (verified 2026-10-04).
+      within ~6 months (verified 2026-10-27).
 
       Lambda lifecycle: at the deprecation date AWS stops security patches and
       technical support. Later, Lambda blocks function create, then function update.
@@ -41,7 +41,7 @@ policies:
       - ruby3.3: 2027-03-31
 
       NOT yet included (add when inside the 6-month window):
-      - nodejs22.x (deprecation 2027-04-30) -> add after 2026-10-31
+      - nodejs22.x (deprecation 2027-04-30) -> add on/after 2026-10-31
       - python3.11, java11, java17, java8.al2 (deprecation 2027-06-30) -> add after 2026-12-31
       Container-image functions have no Runtime field and are never matched.
 
@@ -190,7 +190,7 @@ policies:
       - Extended support: $0.60 per cluster per hour (standard + $0.50)
       - Difference: $0.50/hour = ~$365 per cluster per month (730 h)
 
-      Amazon EKS release calendar (verified 2026-10-04, dates UTC):
+      Amazon EKS release calendar (verified 2026-10-27, dates UTC):
 
       | Version | End of standard support | End of extended support |
       |---------|-------------------------|-------------------------|
@@ -238,29 +238,30 @@ policies:
 
   - name: leftsize-pinpoint-deprecated
     description: |
-      Find Amazon Pinpoint applications that need migration before service shutdown.
-      
-      CRITICAL: Amazon Pinpoint is being discontinued.
-      
+      Find Amazon Pinpoint applications (projects).
+
       Timeline:
-      - May 20, 2025: No longer accepting new customers
-      - October 30, 2026: Service END OF LIFE - all access removed
-      
-      After October 30, 2026, you will lose access to:
-      - Amazon Pinpoint console
-      - All Pinpoint resources (endpoints, segments, campaigns, journeys, analytics)
-      
-      Migration Options:
-      - Engagement features → Amazon SNS + Amazon SES
-      - SMS messaging → Amazon SNS SMS
-      - Email campaigns → Amazon SES
-      - Push notifications → Amazon SNS Mobile Push
-      - Analytics → Amazon CloudWatch + custom dashboards
-      
-      Reference: https://aws.amazon.com/pinpoint/
+      - 2025-05-20: Pinpoint closed to new customers
+      - 2026-10-30: AWS ends support for the Pinpoint engagement features: endpoints,
+        segments, campaigns, journeys, analytics/KPI APIs, in-app messaging,
+        recommenders, SendUsersMessages and sending to stored endpoint IDs.
+
+      NOT affected (keep working after 2026-10-30): push notifications and push
+      templates, OTP, phone number validate, SMS/voice/email sending for existing
+      customers, message templates, SendMessages, event/metric delivery. Apps,
+      projects and channel configurations stay. So an app used only for push/OTP/SMS
+      is still valid; this rule cannot tell how an app is used and flags every app.
+
+      Migration (AWS guidance):
+      - Engagement (segments, campaigns, journeys) -> Amazon Connect outbound campaigns
+        + Customer Profiles
+      - Event collection / mobile analytics -> Amazon Kinesis
+      - Email -> Amazon SES; SMS/voice/push -> AWS End User Messaging
+
+      Reference: https://docs.aws.amazon.com/pinpoint/latest/userguide/migrate.html
     resource: aws.pinpoint-app
     filters:
-      # Match all Pinpoint applications - the entire service is deprecated
+      # Match all Pinpoint applications (usage cannot be determined from get-apps)
       - type: value
         key: 'Id'
         op: not-equal
@@ -279,28 +280,17 @@ policies:
 
   - name: leftsize-timestream-deprecated
     description: |
-      Find Amazon Timestream for LiveAnalytics databases that need migration.
-      
-      IMPORTANT: Amazon Timestream for LiveAnalytics is being deprecated.
-      
-      Timeline:
-      - June 20, 2025: No longer accepting new customers
-      - Future: Service will be discontinued (exact date TBD)
-      
-      AWS Recommended Migration:
-      - Amazon Timestream for InfluxDB (similar functionality)
-      - Amazon Managed Service for Prometheus (for metrics)
-      - Amazon OpenSearch Service (for time-series analytics)
-      
-      Timestream for InfluxDB offers:
-      - InfluxDB-compatible API
-      - Better ecosystem support
-      - Similar time-series capabilities
-      
-      Reference: https://aws.amazon.com/timestream/
+      Find Amazon Timestream for LiveAnalytics databases.
+
+      Amazon Timestream for LiveAnalytics closed to new customers on 2025-06-20.
+      AWS states existing workloads are not impacted and it keeps investing in
+      security, availability and performance; no end-of-support date has been
+      announced. AWS points to Amazon Timestream for InfluxDB as the alternative.
+
+      Reference: https://docs.aws.amazon.com/timestream/latest/developerguide/AmazonTimestreamForLiveAnalytics-availability-change.html
     resource: aws.timestream-database
     filters:
-      # Match all Timestream databases - the service variant is deprecated
+      # Match all Timestream for LiveAnalytics databases (closed to new customers)
       - type: value
         key: 'DatabaseName'
         op: not-equal
@@ -311,6 +301,7 @@ policies:
         value: 'leftsize-flagged'
     metadata:
       category: deprecation
+      severity: low
       tier: pro
 
   # ========================================
@@ -672,6 +663,7 @@ policies:
       ECS_AL2_NVIDIA, EKS_AL2 or EKS_AL2_NVIDIA).
 
       Timeline:
+      - 2025-10-27: Batch default AMI for new EKS compute environments changed to AL2023.
       - 2025-11-26: Support ended for Amazon EKS-optimized AL2 AMIs (EKS_AL2*).
       - 2026-01-12: Batch default AMI for new ECS compute environments changed to AL2023.
       - 2026-06-30: Support ended for Amazon ECS-optimized AL2 AMIs (ECS_AL2*); Batch blocks
@@ -797,15 +789,16 @@ policies:
       Core 2016 platform branches.
 
       Timeline:
-      - 2026-09-30: Branches retired. No new environments; existing environments get no
-        security updates, platform updates or bug fixes.
+      - 2026-10-08: Branches retired (announced for 2026-09-30). No new environments;
+        existing environments get no security updates, platform updates or bug fixes.
+      - 2027-01-12: Microsoft ends extended support for Windows Server 2016.
       - 2027-01-15: The default AMIs for these branches become inaccessible. Anything that
         launches a new EC2 instance from them fails: auto scaling, instance replacement,
         and deployments/configuration changes that launch new instances.
 
       Target: Windows Server 2025, 2022 or 2019 with IIS 10.0 (blue/green deployment).
 
-      Reference: https://docs.aws.amazon.com/elasticbeanstalk/latest/platforms/platforms-retiring.html
+      Reference: https://docs.aws.amazon.com/elasticbeanstalk/latest/relnotes/release-2026-10-08-windows-10-2026-retire.html
     resource: aws.elasticbeanstalk-environment
     metadata:
       category: deprecation
@@ -837,6 +830,9 @@ policies:
         to PCoIP WorkSpaces (all Regions, including GovCloud).
       Migration to Amazon DCV (protocol "WSP") is free; WorkSpaces pricing is unchanged.
       PCoIP Zero Client devices cannot use DCV and must be replaced.
+
+      Note: the AWS "Services in Sunset" list shows 2027-06-30; the PCoIP end-of-support
+      page (authoritative, checked 2026-10-27) says 2027-10-31.
 
       Reference: https://docs.aws.amazon.com/workspaces/latest/adminguide/workspaces-pcoip-end-of-support.html
     resource: aws.workspaces
@@ -901,7 +897,9 @@ policies:
               key: 'GlueVersion'
               op: in
               value: ['0.9', '1.0', '2.0']
-            # GlueVersion not set => job runs on Glue 0.9 (botocore Job.GlueVersion docs)
+            # GlueVersion not set: botocore Job.GlueVersion docs say 0.9, but the Glue
+            # release notes now say 5.1 is the default for jobs created without a version.
+            # Old unversioned jobs are 0.9 (EOL); recent ones may be a false positive.
             - type: value
               key: 'GlueVersion'
               value: absent

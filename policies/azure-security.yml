@@ -13,7 +13,8 @@ policies:
       This is the #1 cause of cloud data breaches.
       
       Detection criteria:
-      - allowBlobPublicAccess property is set to true
+      - allowBlobPublicAccess is true or not set (older accounts where the
+        property was never set still permit anonymous access)
       - Containers can be configured for anonymous access
       
       Security impact: CRITICAL - Direct data breach risk, no authentication required
@@ -22,10 +23,11 @@ policies:
     resource: azure.storage
     
     filters:
-      # Allow blob public access is enabled
-      - type: value
-        key: properties.allowBlobPublicAccess
-        value: true
+      # Anonymous access is not explicitly disallowed (true or not set)
+      - not:
+        - type: value
+          key: properties.allowBlobPublicAccess
+          value: false
     
     actions:
       - type: tag
@@ -174,10 +176,12 @@ policies:
     resource: azure.storage
     
     filters:
-      # Public network access is enabled
+      # Public network access is enabled or not set (not set means enabled)
       - type: value
         key: properties.publicNetworkAccess
-        value: 'Enabled'
+        op: not-in
+        value_type: normalize
+        value: ['disabled', 'securedbyperimeter']
       
       # No firewall restrictions (default action is Allow)
       - type: value
@@ -289,8 +293,8 @@ policies:
       # Flag attached disks not using Customer-Managed Keys (CMK)
       - type: value
         key: properties.encryption.type
-        op: ne
-        value: 'EncryptionAtRestWithCustomerKey'
+        op: not-in
+        value: ['EncryptionAtRestWithCustomerKey', 'EncryptionAtRestWithPlatformAndCustomerKeys']
       - type: value
         key: properties.diskState
         value: 'Attached'

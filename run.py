@@ -1276,6 +1276,12 @@ def extract_resource_id(resource: Dict[str, Any], config: Dict[str, Any]) -> str
             # Note: Account ID not available, using placeholder
             return f"arn:aws:ec2:{region}::instance/{instance_id}"
         
+        # EBS snapshots carry the source 'VolumeId' too, so handle them first
+        if resource.get('SnapshotId') and 'Progress' in resource:
+            snapshot_id = resource['SnapshotId']
+            region = resource.get('Region', default_aws_region(config))
+            return f"arn:aws:ec2:{region}::snapshot/{snapshot_id}"
+
         # EBS volumes use 'VolumeId'
         if resource.get('VolumeId'):
             volume_id = resource['VolumeId']
@@ -1287,6 +1293,17 @@ def extract_resource_id(resource: Dict[str, Any], config: Dict[str, Any]) -> str
             snapshot_id = resource['SnapshotId']
             region = resource.get('Region', default_aws_region(config))
             return f"arn:aws:ec2:{region}::snapshot/{snapshot_id}"
+
+        # Load balancers, NAT gateways and security groups also carry a 'VpcId',
+        # so handle them before the VPC branch
+        if resource.get('LoadBalancerArn'):
+            return resource['LoadBalancerArn']
+        if resource.get('NatGatewayId'):
+            region = resource.get('Region', default_aws_region(config))
+            return f"arn:aws:ec2:{region}::natgateway/{resource['NatGatewayId']}"
+        if resource.get('GroupId') and 'IpPermissions' in resource:
+            region = resource.get('Region', default_aws_region(config))
+            return f"arn:aws:ec2:{region}::security-group/{resource['GroupId']}"
 
         # VPCs use 'VpcId'
         if resource.get('VpcId') and not resource.get('VpcEndpointId'):
@@ -1510,21 +1527,38 @@ def convert_resource_to_finding(policy_name: str, resource: Dict[str, Any], conf
 RESOURCE_FIELD_PATHS: Dict[str, Dict[str, List[str]]] = {
     # --- AWS ---
     'aws.rds': {'engine': ['Engine'], 'engineVersion': ['EngineVersion'],
-                'instanceClass': ['DBInstanceClass'], 'dbClusterIdentifier': ['DBClusterIdentifier']},
-    'aws.cache-cluster': {'engineVersion': ['EngineVersion'], 'cacheNodeType': ['CacheNodeType'],
+                'instanceClass': ['DBInstanceClass'], 'dbClusterIdentifier': ['DBClusterIdentifier'],
+                'storageSize': ['AllocatedStorage'], 'storageType': ['StorageType'], 'iops': ['Iops'],
+                'provisionedIops': ['Iops'], 'backupRetentionPeriod': ['BackupRetentionPeriod'],
+                'databaseName': ['DBName'], 'availabilityZone': ['AvailabilityZone']},
+    'aws.rds-snapshot': {'engine': ['Engine'], 'engineVersion': ['EngineVersion'],
+                         'storageSize': ['AllocatedStorage'], 'instanceId': ['DBInstanceIdentifier']},
+    'aws.ebs': {'volumeId': ['VolumeId'], 'volumeType': ['VolumeType'], 'volumeSize': ['Size'],
+                'iops': ['Iops'], 'provisionedIops': ['Iops'], 'availabilityZone': ['AvailabilityZone'],
+                'instanceId': ['Attachments[].InstanceId'], 'deviceName': ['Attachments[].Device']},
+    'aws.ebs-snapshot': {'volumeId': ['VolumeId'], 'volumeSize': ['VolumeSize']},
+    'aws.network-addr': {'ipAddress': ['PublicIp'], 'instanceId': ['InstanceId']},
+    'aws.dynamodb-table': {'billingMode': ['BillingModeSummary.BillingMode']},
+    'aws.vpc-endpoint': {'vpcEndpointType': ['VpcEndpointType'], 'serviceName': ['ServiceName']},
+    'aws.cache-cluster': {'engine': ['Engine'], 'engineVersion': ['EngineVersion'],
+                          'cacheNodeType': ['CacheNodeType'], 'nodeType': ['CacheNodeType'],
+                          'cacheClusterId': ['CacheClusterId'],
                           'replicationGroupId': ['ReplicationGroupId']},
     'aws.elasticsearch': {'engineVersion': ['ElasticsearchVersion'],
                           'instanceType': ['ElasticsearchClusterConfig.InstanceType'],
-                          'instanceCount': ['ElasticsearchClusterConfig.InstanceCount']},
+                          'instanceCount': ['ElasticsearchClusterConfig.InstanceCount'],
+                          'domainName': ['DomainName']},
     'aws.eks': {'kubernetesVersion': ['version'], 'supportType': ['upgradePolicy.supportType']},
     'aws.eks-nodegroup': {'kubernetesVersion': ['version'], 'nodegroupName': ['nodegroupName'],
                           'clusterName': ['clusterName'], 'amiType': ['amiType'],
                           'releaseVersion': ['releaseVersion']},
-    'aws.lambda': {'runtime': ['Runtime'], 'functionName': ['FunctionName']},
+    'aws.lambda': {'runtime': ['Runtime'], 'functionName': ['FunctionName'], 'memory': ['MemorySize']},
     'aws.batch-compute': {'imageType': ['computeResources.ec2Configuration[].imageType'],
                           'allocationStrategy': ['computeResources.allocationStrategy'],
                           'orchestrationType': ['containerOrchestrationType']},
-    'aws.ec2': {'imageId': ['ImageId'], 'instanceType': ['InstanceType']},
+    'aws.ec2': {'imageId': ['ImageId'], 'instanceType': ['InstanceType'], 'instanceId': ['InstanceId'],
+                'availabilityZone': ['Placement.AvailabilityZone'], 'vpcId': ['VpcId'],
+                'ipAddress': ['PublicIpAddress']},
     'aws.ami': {'imageName': ['Name'], 'creationDate': ['CreationDate'],
                 'snapshotIds': ['BlockDeviceMappings[].Ebs.SnapshotId'],
                 'volumeSizesGb': ['BlockDeviceMappings[].Ebs.VolumeSize']},
@@ -1551,6 +1585,15 @@ RESOURCE_FIELD_PATHS: Dict[str, Dict[str, List[str]]] = {
     # --- Azure ---
     'azure.storage': {'kind': ['kind']},
     'azure.disk': {'osType': ['properties.osType']},
+    'azure.vm': {'osDiskName': ['properties.storageProfile.osDisk.name'],
+                 'osDiskId': ['properties.storageProfile.osDisk.managedDisk.id'],
+                 'osDiskSize': ['properties.storageProfile.osDisk.diskSizeGB'],
+                 'osDiskSku': ['properties.storageProfile.osDisk.managedDisk.storageAccountType']},
+    'azure.sql-database': {'databaseName': ['name'], 'currentSku': ['sku.name'], 'skuName': ['sku.name'],
+                           'skuTier': ['sku.tier'], 'capacity': ['sku.capacity']},
+    'azure.sqlserver': {'serverName': ['name']},
+    'azure.keyvault': {'vaultName': ['name']},
+    'azure.snapshot': {'diskSizeGB': ['properties.diskSizeGB'], 'timeCreated': ['properties.timeCreated']},
     'azure.vmss': {'vmSize': ['sku.name'], 'capacity': ['sku.capacity'],
                    'orchestrationMode': ['properties.orchestrationMode'],
                    'upgradePolicyMode': ['properties.upgradePolicy.mode']},

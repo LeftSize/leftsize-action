@@ -22,9 +22,10 @@ policies:
       may be exposed in old code, documentation, or compromised systems. Keys
       should be rotated regularly or removed if not actively used.
       
-      Detection criteria:
+      Detection criteria (from the IAM credential report):
       - Access key status: Active
-      - Last used: 90+ days ago
+      - Last used 90+ days ago, or never used and created/rotated 90+ days ago
+      - Both conditions must hold for the same key
       
       Security impact: HIGH - Credential exposure risk
       Compliance: CIS AWS Foundations
@@ -32,14 +33,53 @@ policies:
     resource: aws.iam-user
     
     filters:
-      - type: access-key
-        key: Status
-        value: Active
-      - type: access-key
-        key: LastUsedDate
-        op: greater-than
-        value_type: age
-        value: 90
+      # list-access-keys has no last-used date, so use the IAM credential report.
+      # This filter loads the report onto the user as "c7n:credential-report".
+      - type: credential
+        key: access_keys.active
+        value: true
+      # Check each key (max two per user) so "active" and "unused" apply to the same key
+      - or:
+        - and:
+          - type: value
+            key: '"c7n:credential-report".access_keys[0].active'
+            value: true
+          - or:
+            - type: value
+              key: '"c7n:credential-report".access_keys[0].last_used_date'
+              value_type: age
+              op: greater-than
+              value: 90
+            # Never used: fall back to the key's creation/rotation date
+            - and:
+              - type: value
+                key: '"c7n:credential-report".access_keys[0].last_used_date'
+                value: absent
+              - type: value
+                key: '"c7n:credential-report".access_keys[0].last_rotated'
+                value_type: age
+                op: greater-than
+                value: 90
+        - and:
+          - type: value
+            key: '"c7n:credential-report".access_keys[1].active'
+            value: true
+          - or:
+            - type: value
+              key: '"c7n:credential-report".access_keys[1].last_used_date'
+              value_type: age
+              op: greater-than
+              value: 90
+            # Never used: fall back to the key's creation/rotation date
+            - and:
+              - type: value
+                key: '"c7n:credential-report".access_keys[1].last_used_date'
+                value: absent
+              - type: value
+                key: '"c7n:credential-report".access_keys[1].last_rotated'
+                value_type: age
+                op: greater-than
+                value: 90
     
     metadata:
       category: security
@@ -84,9 +124,10 @@ policies:
       testing. These orphaned accounts represent security risks if credentials
       are later compromised.
       
-      Detection criteria:
-      - Password not used for 90+ days (if password enabled)
-      - Access keys not used for 90+ days (if any exist)
+      Detection criteria (from the IAM credential report):
+      - User created 90+ days ago
+      - No console sign-in in the last 90 days (or never)
+      - No access key used in the last 90 days (or never)
       
       Security impact: MEDIUM - Orphaned credential risk
       Compliance: CIS AWS Foundations
@@ -94,20 +135,24 @@ policies:
     resource: aws.iam-user
     
     filters:
-      # Both password and access keys are old or absent
-      - type: value
-        key: 'UserName'
-        op: ne
-        value: 'root'
-      - or:
+      # User is older than 90 days
+      - type: credential
+        key: user_creation_time
+        op: greater-than
+        value_type: age
+        value: 90
+      # Password not used in the last 90 days (never used or no password also count)
+      - not:
         - type: credential
           key: password_last_used
-          op: greater-than
+          op: less-than
           value_type: age
           value: 90
-        - type: access-key
-          key: LastUsedDate
-          op: greater-than
+      # No access key used in the last 90 days
+      - not:
+        - type: credential
+          key: access_keys.last_used_date
+          op: less-than
           value_type: age
           value: 90
     
@@ -194,7 +239,8 @@ policies:
       Without logging, you cannot detect unauthorized access or data exfiltration.
       
       Detection criteria:
-      - S3 bucket without server access logging configured
+      - GetBucketLogging returns no LoggingEnabled block
+      - Buckets whose logging configuration could not be read are skipped
       
       Security impact: MEDIUM - No audit trail for access
       Compliance: CIS AWS Foundations
@@ -202,6 +248,10 @@ policies:
     resource: aws.s3
     
     filters:
+      # c7n stores {} when logging is off; the key is missing when the call was denied
+      - type: value
+        key: Logging
+        value: present
       - type: value
         key: Logging
         value: empty
@@ -232,10 +282,10 @@ policies:
     resource: aws.ebs-snapshot
     
     filters:
-      - type: value
-        key: "CreateVolumePermissions[].Group"
-        value: all
-        op: contains
+      # describe-snapshots has no permissions; cross-account calls
+      # describe-snapshot-attribute and everyone_only keeps only the 'all' group
+      - type: cross-account
+        everyone_only: true
     
     metadata:
       category: security
@@ -259,8 +309,9 @@ policies:
     resource: aws.rds-snapshot
     
     filters:
+      # Only snapshots restorable by 'all' (public), not those shared with specific accounts
       - type: cross-account
-        whitelist: []
+        everyone_only: true
     
     metadata:
       category: security

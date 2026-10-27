@@ -64,14 +64,13 @@ policies:
       - type: value
         key: 'properties.powerState.code'
         value: 'Running'
-      # Check if cluster autoscaler is disabled on all node pools
+      # Cluster autoscaler is enabled on none of the node pools
       - type: value
-        key: 'properties.agentPoolProfiles[*].enableAutoScaling'
-        op: 'ne'
-        value: true
-      # Exclude very small dev clusters (1-2 nodes total)
+        key: "length(properties.agentPoolProfiles[?enableAutoScaling] || `[]`)"
+        value: 0
+      # Exclude very small clusters (fewer than 3 nodes across all pools)
       - type: value
-        key: 'properties.agentPoolProfiles[0].count'
+        key: "sum(properties.agentPoolProfiles[].count || `[]`)"
         op: 'gte'
         value: 3
     actions:
@@ -91,9 +90,10 @@ policies:
         key: 'properties.powerState.code'
         value: 'Running'
       # Check for expensive VM series in node pools
+      # Any node pool on one of these sizes
       - type: value
-        key: 'properties.agentPoolProfiles[*].vmSize'
-        op: 'in'
+        key: 'properties.agentPoolProfiles[].vmSize'
+        op: 'intersect'
         value: 
           # Memory-optimized (often overkill for general workloads)
           - 'Standard_E4s_v3'

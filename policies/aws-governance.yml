@@ -22,9 +22,9 @@ policies:
       cost allocation. This rule identifies resources missing the required 'owner' tag.
       
       Detection criteria:
-      - Missing 'owner' tag
-      - Empty or null 'owner' tag value
-      - Applies to all major resource types (EC2, RDS, S3, EBS, etc.)
+      - No 'owner' or 'Owner' tag, or the tag value is empty
+      - This rule covers EC2 instances; sibling rules cover RDS instances,
+        S3 buckets, EBS volumes and Classic Load Balancers
       
       Governance impact: HIGH - Cost attribution, accountability, lifecycle management
       Compliance: FinOps best practices, cost allocation policies
@@ -32,22 +32,22 @@ policies:
     resource: aws.ec2
     
     filters:
-      # Check for missing or empty owner tag
+      # Flag only when neither 'owner' nor 'Owner' has a value.
+      # AWS tag keys are case-sensitive, so both spellings are accepted.
       - or:
-        # Owner tag does not exist
         - type: value
           key: 'tag:owner'
           value: absent
-        
-        # Owner tag exists but is empty
         - type: value
           key: 'tag:owner'
           value: ''
-        
-        # Owner tag is null
+      - or:
         - type: value
-          key: 'tag:owner'
-          value: null
+          key: 'tag:Owner'
+          value: absent
+        - type: value
+          key: 'tag:Owner'
+          value: ''
     
     actions:
       - type: tag
@@ -81,6 +81,8 @@ policies:
     resource: aws.rds
     
     filters:
+      # Flag only when neither 'owner' nor 'Owner' has a value.
+      # AWS tag keys are case-sensitive, so both spellings are accepted.
       - or:
         - type: value
           key: 'tag:owner'
@@ -88,9 +90,13 @@ policies:
         - type: value
           key: 'tag:owner'
           value: ''
+      - or:
         - type: value
-          key: 'tag:owner'
-          value: null
+          key: 'tag:Owner'
+          value: absent
+        - type: value
+          key: 'tag:Owner'
+          value: ''
     
     actions:
       - type: tag
@@ -116,6 +122,8 @@ policies:
     resource: aws.s3
     
     filters:
+      # Flag only when neither 'owner' nor 'Owner' has a value.
+      # AWS tag keys are case-sensitive, so both spellings are accepted.
       - or:
         - type: value
           key: 'tag:owner'
@@ -123,9 +131,13 @@ policies:
         - type: value
           key: 'tag:owner'
           value: ''
+      - or:
         - type: value
-          key: 'tag:owner'
-          value: null
+          key: 'tag:Owner'
+          value: absent
+        - type: value
+          key: 'tag:Owner'
+          value: ''
     
     actions:
       - type: tag
@@ -151,6 +163,8 @@ policies:
     resource: aws.ebs
     
     filters:
+      # Flag only when neither 'owner' nor 'Owner' has a value.
+      # AWS tag keys are case-sensitive, so both spellings are accepted.
       - or:
         - type: value
           key: 'tag:owner'
@@ -158,9 +172,13 @@ policies:
         - type: value
           key: 'tag:owner'
           value: ''
+      - or:
         - type: value
-          key: 'tag:owner'
-          value: null
+          key: 'tag:Owner'
+          value: absent
+        - type: value
+          key: 'tag:Owner'
+          value: ''
     
     actions:
       - type: tag
@@ -187,6 +205,8 @@ policies:
 
     
     filters:
+      # Flag only when neither 'owner' nor 'Owner' has a value.
+      # AWS tag keys are case-sensitive, so both spellings are accepted.
       - or:
         - type: value
           key: 'tag:owner'
@@ -194,9 +214,13 @@ policies:
         - type: value
           key: 'tag:owner'
           value: ''
+      - or:
         - type: value
-          key: 'tag:owner'
-          value: null
+          key: 'tag:Owner'
+          value: absent
+        - type: value
+          key: 'tag:Owner'
+          value: ''
     
     actions:
       - type: tag

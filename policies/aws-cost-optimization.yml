@@ -39,9 +39,22 @@ policies:
     description: "Find ECS services using regular Fargate that could use Fargate Spot for 70% savings"
     resource: aws.ecs-service
     filters:
-      - type: value
-        key: 'LaunchType'
-        value: 'FARGATE'
+      # Regular Fargate, either as launch type or as a capacity provider strategy
+      # without FARGATE_SPOT (describe_services returns camelCase keys)
+      - or:
+        - type: value
+          key: 'launchType'
+          value: 'FARGATE'
+        - and:
+          - type: value
+            key: 'capacityProviderStrategy[].capacityProvider'
+            op: contains
+            value: 'FARGATE'
+          - not:
+            - type: value
+              key: 'capacityProviderStrategy[].capacityProvider'
+              op: contains
+              value: 'FARGATE_SPOT'
       - or:
         - type: value
           key: 'tag:Environment'
@@ -50,6 +63,7 @@ policies:
           - type: value
             key: 'tag:Environment'
             op: in
+            value_type: normalize
             value: ['prod', 'production', 'prd']
       # Services with multiple tasks (better for handling interruptions)
       - type: value
@@ -89,8 +103,6 @@ policies:
       - type: metrics
         name: CPUUtilization
         namespace: AWS/EC2
-        dimensions:
-          InstanceId: instance-id
         op: less-than
         value: 5
         statistics: Average
@@ -99,8 +111,6 @@ policies:
       - type: metrics
         name: NetworkOut
         namespace: AWS/EC2
-        dimensions:
-          InstanceId: instance-id
         op: less-than
         value: 1073741824  # 1GB total over 7 days
         statistics: Sum
@@ -130,8 +140,6 @@ policies:
         - type: metrics
           name: CPUUtilization
           namespace: AWS/EC2
-          dimensions:
-            InstanceId: instance-id
           op: greater-than
           value: 10
           statistics: Average
@@ -139,8 +147,6 @@ policies:
         - type: metrics
           name: CPUUtilization
           namespace: AWS/EC2
-          dimensions:
-            InstanceId: instance-id
           op: less-than
           value: 40
           statistics: Average
@@ -180,10 +186,12 @@ policies:
         - type: value
           key: 'tag:Environment'
           op: in
+          value_type: normalize
           value: ['dev', 'development', 'test', 'testing', 'staging', 'qa', 'sandbox']
         - type: value
           key: 'tag:Env'
           op: in
+          value_type: normalize
           value: ['dev', 'development', 'test', 'testing', 'staging', 'qa', 'sandbox']
       # Instance has been running for at least 7 days (avoid catching new deployments)
       - type: instance-age
@@ -311,6 +319,10 @@ policies:
     description: "Find Application Load Balancers with no active target groups"
     resource: aws.app-elb
     filters:
+      # aws.app-elb also returns Network and Gateway Load Balancers
+      - type: value
+        key: Type
+        value: application
       # Load balancer is older than 3 days
       - type: value
         key: 'CreatedTime'
@@ -325,6 +337,8 @@ policies:
         value: 10
         statistics: Sum
         days: 7
+        # ALBs publish no RequestCount datapoints while there is no traffic
+        missing-value: 0
     actions:
       - type: tag
         key: leftsize-unused-alb-delete
@@ -417,14 +431,17 @@ policies:
         - type: value
           key: 'tag:Environment'
           op: in
+          value_type: normalize
           value: ['dev', 'development', 'test', 'testing', 'staging', 'qa', 'sandbox']
         - type: value
           key: 'tag:Env'
           op: in
+          value_type: normalize
           value: ['dev', 'development', 'test', 'testing', 'staging', 'qa', 'sandbox']
         - type: value
           key: 'tag:environment'
           op: in
+          value_type: normalize
           value: ['dev', 'development', 'test', 'testing', 'staging', 'qa', 'sandbox']
       # Not already tagged for scheduling
       - not:
@@ -496,11 +513,10 @@ policies:
       - type: value
         key: 'Name'
         value: present
-      # No lifecycle configuration - check if Lifecycle key is absent/empty
-      - not:
-        - type: value
-          key: 'Lifecycle.Rules'
-          value: present
+      # No enabled lifecycle rules (c7n sets Lifecycle to None when the bucket has none)
+      - type: value
+        key: "Lifecycle.Rules[?Status=='Enabled']"
+        value: empty
       # Bucket is older than 30 days (established bucket)
       - type: value
         key: 'CreationDate'
@@ -567,20 +583,24 @@ policies:
         - type: value
           key: 'tag:Environment'
           op: in
+          value_type: normalize
           value: ['dev', 'development', 'test', 'testing', 'staging', 'qa', 'sandbox']
         - type: value
           key: 'tag:Env'
           op: in
+          value_type: normalize
           value: ['dev', 'development', 'test', 'testing', 'staging', 'qa', 'sandbox']
         - type: value
           key: 'tag:environment'
           op: in
+          value_type: normalize
           value: ['dev', 'development', 'test', 'testing', 'staging', 'qa', 'sandbox']
         # Or DB instance identifier contains non-prod keywords
         - type: value
           key: 'DBInstanceIdentifier'
           op: regex
-          value: '(dev|test|staging|qa|sandbox)'
+          # c7n uses re.match (anchored at the start, case-insensitive)
+          value: '.*(dev|test|staging|qa|sandbox)'
     actions:
       - type: tag
         key: leftsize-multiaz-review
@@ -644,20 +664,24 @@ policies:
         - type: value
           key: 'tag:Environment'
           op: in
+          value_type: normalize
           value: ['dev', 'development', 'test', 'testing', 'staging', 'qa', 'sandbox']
         - type: value
           key: 'tag:Env'
           op: in
+          value_type: normalize
           value: ['dev', 'development', 'test', 'testing', 'staging', 'qa', 'sandbox']
         - type: value
           key: 'tag:environment'
           op: in
+          value_type: normalize
           value: ['dev', 'development', 'test', 'testing', 'staging', 'qa', 'sandbox']
         # Or DB instance identifier contains non-prod keywords
         - type: value
           key: 'DBInstanceIdentifier'
           op: regex
-          value: '(dev|test|staging|qa|sandbox)'
+          # c7n uses re.match (anchored at the start, case-insensitive)
+          value: '.*(dev|test|staging|qa|sandbox)'
     actions:
       - type: tag
         key: leftsize-backup-retention-review
@@ -725,8 +749,6 @@ policies:
       - type: metrics
         name: Invocations
         namespace: AWS/Lambda
-        dimensions:
-          FunctionName: Name
         op: greater-than
         value: 0
         statistics: Sum
@@ -751,12 +773,11 @@ policies:
       - type: metrics
         name: BytesOutToDestination
         namespace: AWS/NATGateway
-        dimensions:
-          NatGatewayId: NatGatewayId
         op: equal
         value: 0
         statistics: Sum
         days: 7
+        missing-value: 0
       # Gateway is older than 7 days
       - type: value
         key: 'CreateTime'
@@ -909,14 +930,17 @@ policies:
         - type: value
           key: 'tag:Environment'
           op: in
+          value_type: normalize
           value: ['dev', 'development', 'test', 'testing', 'staging', 'qa', 'sandbox']
         - type: value
           key: 'tag:Env'
           op: in
+          value_type: normalize
           value: ['dev', 'development', 'test', 'testing', 'staging', 'qa', 'sandbox']
         - type: value
           key: 'tag:environment'
           op: in
+          value_type: normalize
           value: ['dev', 'development', 'test', 'testing', 'staging', 'qa', 'sandbox']
       # Instance has been running for at least 7 days (established workload)
       - type: instance-age
@@ -943,18 +967,11 @@ policies:
       - type: value
         key: 'Name'
         value: present
-      # No lifecycle rule for incomplete multipart uploads
-      # We check if AbortIncompleteMultipartUpload is absent in all rules
-      - or:
-        # No lifecycle rules at all
-        - not:
-          - type: value
-            key: 'Lifecycle.Rules'
-            value: present
-        # Or lifecycle rules exist but none have AbortIncompleteMultipartUpload
-        - type: value
-          key: 'Lifecycle.Rules[].AbortIncompleteMultipartUpload'
-          value: absent
+      # No enabled lifecycle rule aborts incomplete multipart uploads. The projection
+      # is None without a lifecycle config and [] when no rule has the action.
+      - type: value
+        key: "Lifecycle.Rules[?Status=='Enabled'].AbortIncompleteMultipartUpload"
+        value: empty
       # Bucket is older than 30 days
       - type: value
         key: 'CreationDate'
@@ -977,17 +994,11 @@ policies:
       - type: value
         key: 'Versioning.Status'
         value: 'Enabled'
-      # No lifecycle rule for non-current version expiration
-      - or:
-        # No lifecycle rules at all
-        - not:
-          - type: value
-            key: 'Lifecycle.Rules'
-            value: present
-        # Or lifecycle rules exist but none have NoncurrentVersionExpiration
-        - type: value
-          key: 'Lifecycle.Rules[].NoncurrentVersionExpiration'
-          value: absent
+      # No enabled lifecycle rule expires noncurrent versions. The projection is
+      # None without a lifecycle config and [] when no rule has the action.
+      - type: value
+        key: "Lifecycle.Rules[?Status=='Enabled'].NoncurrentVersionExpiration"
+        value: empty
       # Bucket is older than 30 days
       - type: value
         key: 'CreationDate'
@@ -1014,6 +1025,10 @@ policies:
       - type: value
         key: 'IsDefault'
         value: false
+      # VPC routes traffic through a NAT gateway (S3 traffic then pays NAT data processing)
+      - type: nat-gateway
+        key: State
+        value: available
       # No S3 Gateway endpoint configured
       - not:
         - type: vpc-endpoint
@@ -1070,10 +1085,14 @@ policies:
       - type: value
         key: 'Status'
         value: 'available'
-      # Snapshot is older than 30 days (proxy for orphan detection)
+      # Snapshot is older than 30 days
       - type: age
         days: 30
         op: greater-than
+      # Source DB instance no longer exists (related lookup on DBInstanceIdentifier)
+      - type: instance
+        key: DBInstanceIdentifier
+        value: absent
     actions:
       - type: tag
         key: leftsize-orphaned-rds-snapshot-delete
@@ -1141,12 +1160,23 @@ policies:
       Unused secrets are also a security risk and should be reviewed.
     resource: aws.secrets-manager
     filters:
-      # Secret has not been accessed in 90 days
-      - type: value
-        key: LastAccessedDate
-        value_type: age
-        op: greater-than
-        value: 90
+      # Secret has not been accessed in 90 days, or was never accessed and is
+      # older than 90 days (LastAccessedDate is missing until the first access)
+      - or:
+        - type: value
+          key: LastAccessedDate
+          value_type: age
+          op: greater-than
+          value: 90
+        - and:
+          - type: value
+            key: LastAccessedDate
+            value: absent
+          - type: value
+            key: CreatedDate
+            value_type: age
+            op: greater-than
+            value: 90
     metadata:
       category: cost-optimization
       severity: low
@@ -1200,8 +1230,6 @@ policies:
       - type: metrics
         name: Invocations
         namespace: AWS/Lambda
-        dimensions:
-          FunctionName: Name
         op: equal
         value: 0
         statistics: Sum
@@ -1226,8 +1254,6 @@ policies:
       - type: metrics
         name: ConsumedReadCapacityUnits
         namespace: AWS/DynamoDB
-        dimensions:
-          TableName: TableName
         op: equal
         value: 0
         statistics: Sum
@@ -1237,8 +1263,6 @@ policies:
       - type: metrics
         name: ConsumedWriteCapacityUnits
         namespace: AWS/DynamoDB
-        dimensions:
-          TableName: TableName
         op: equal
         value: 0
         statistics: Sum
@@ -1259,14 +1283,18 @@ policies:
     description: "Find ElastiCache clusters with zero connections in 14 days"
     resource: aws.cache-cluster
     filters:
-      # Zero current connections over 14 days
+      # No client connections over 14 days beyond ElastiCache's own monitoring,
+      # which holds 4-6 connections on Redis/Valkey and 2-3 on Memcached, so a
+      # peak of 0 never happens on a running node.
       - type: metrics
         name: CurrConnections
         namespace: AWS/ElastiCache
+        # c7n adds CacheClusterId; ElastiCache publishes metrics per node, so the node id
+        # is required too (Redis/Valkey cache clusters have one node, 0001).
         dimensions:
-          CacheClusterId: CacheClusterId
-        op: equal
-        value: 0
+          CacheNodeId: '0001'
+        op: lte
+        value: 6
         statistics: Maximum
         days: 14
         missing-value: 0
@@ -1331,8 +1359,6 @@ policies:
       - type: metrics
         name: DatabaseConnections
         namespace: AWS/RDS
-        dimensions:
-          DBInstanceIdentifier: DBInstanceIdentifier
         statistics: Maximum
         days: 14
         value: 1
@@ -1474,8 +1500,10 @@ policies:
       - type: metrics
         name: CPUUtilization
         namespace: AWS/ElastiCache
+        # c7n adds CacheClusterId; ElastiCache publishes metrics per node, so the node id
+        # is required too (Redis/Valkey cache clusters have one node, 0001).
         dimensions:
-          CacheClusterId: CacheClusterId
+          CacheNodeId: '0001'
         statistics: Average
         days: 14
         value: 5

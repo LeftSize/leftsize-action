@@ -22,8 +22,7 @@ policies:
       cost allocation. This rule identifies VMs missing the required 'owner' tag.
       
       Detection criteria:
-      - Missing 'owner' tag
-      - Empty or null 'owner' tag value
+      - No 'owner' or 'Owner' tag, or the tag value is empty
       
       Governance impact: HIGH - Cost attribution, accountability, lifecycle management
       Compliance: FinOps best practices, cost allocation policies
@@ -31,16 +30,21 @@ policies:
     resource: azure.vm
     
     filters:
-      # Check for missing or empty owner tag
+      # Flag only when neither 'owner' nor 'Owner' has a value. Azure treats tag
+      # names as case-insensitive, but the API returns them as written.
       - or:
-        # Owner tag does not exist
         - type: value
           key: 'tags.owner'
-          value: null
-        
-        # Owner tag exists but is empty
+          value: absent
         - type: value
           key: 'tags.owner'
+          value: ''
+      - or:
+        - type: value
+          key: 'tags.Owner'
+          value: absent
+        - type: value
+          key: 'tags.Owner'
           value: ''
     
     actions:
@@ -75,12 +79,21 @@ policies:
     resource: azure.storage
     
     filters:
+      # Flag only when neither 'owner' nor 'Owner' has a value. Azure treats tag
+      # names as case-insensitive, but the API returns them as written.
       - or:
         - type: value
           key: 'tags.owner'
-          value: null
+          value: absent
         - type: value
           key: 'tags.owner'
+          value: ''
+      - or:
+        - type: value
+          key: 'tags.Owner'
+          value: absent
+        - type: value
+          key: 'tags.Owner'
           value: ''
     
     actions:
@@ -102,17 +115,26 @@ policies:
   # Apply same ownership tag check to SQL Databases
   - name: leftsize-missing-ownership-tags-sql
     description: |
-      Ensure all Azure SQL Databases have clear ownership metadata.
+      Ensure all Azure SQL logical servers have clear ownership metadata.
     
     resource: azure.sqlserver
     
     filters:
+      # Flag only when neither 'owner' nor 'Owner' has a value. Azure treats tag
+      # names as case-insensitive, but the API returns them as written.
       - or:
         - type: value
           key: 'tags.owner'
-          value: null
+          value: absent
         - type: value
           key: 'tags.owner'
+          value: ''
+      - or:
+        - type: value
+          key: 'tags.Owner'
+          value: absent
+        - type: value
+          key: 'tags.Owner'
           value: ''
     
     actions:
@@ -139,12 +161,21 @@ policies:
     resource: azure.disk
     
     filters:
+      # Flag only when neither 'owner' nor 'Owner' has a value. Azure treats tag
+      # names as case-insensitive, but the API returns them as written.
       - or:
         - type: value
           key: 'tags.owner'
-          value: null
+          value: absent
         - type: value
           key: 'tags.owner'
+          value: ''
+      - or:
+        - type: value
+          key: 'tags.Owner'
+          value: absent
+        - type: value
+          key: 'tags.Owner'
           value: ''
     
     actions:
@@ -171,12 +202,21 @@ policies:
     resource: azure.aks
     
     filters:
+      # Flag only when neither 'owner' nor 'Owner' has a value. Azure treats tag
+      # names as case-insensitive, but the API returns them as written.
       - or:
         - type: value
           key: 'tags.owner'
-          value: null
+          value: absent
         - type: value
           key: 'tags.owner'
+          value: ''
+      - or:
+        - type: value
+          key: 'tags.Owner'
+          value: absent
+        - type: value
+          key: 'tags.Owner'
           value: ''
     
     actions:
@@ -204,12 +244,21 @@ policies:
     resource: azure.resourcegroup
     
     filters:
+      # Flag only when neither 'owner' nor 'Owner' has a value. Azure treats tag
+      # names as case-insensitive, but the API returns them as written.
       - or:
         - type: value
           key: 'tags.owner'
-          value: null
+          value: absent
         - type: value
           key: 'tags.owner'
+          value: ''
+      - or:
+        - type: value
+          key: 'tags.Owner'
+          value: absent
+        - type: value
+          key: 'tags.Owner'
           value: ''
     
     actions:
@@ -235,7 +284,8 @@ policies:
   # Key Vault certificates expiring within 30 days
   - name: leftsize-keyvault-cert-expiring
     description: |
-      Identifies Azure Key Vault certificates expiring within 30 days.
+      Identifies enabled Azure Key Vault certificates that expire within 30 days
+      or have already expired.
       Expired certificates cause service authentication failures and outages.
       Proactive renewal prevents production incidents.
       
@@ -243,12 +293,14 @@ policies:
     resource: azure.keyvault-certificate
     filters:
       # Certificate is enabled
+      # azure-keyvault-certificates 4.10 (pinned by c7n-azure) serializes the
+      # attributes as {'data': {'enabled': bool, 'exp': <epoch seconds>}}
       - type: value
-        key: attributes.enabled
+        key: attributes.data.enabled
         value: true
-      # Certificate expires within 30 days
+      # Certificate expires within 30 days (already expired certificates match too)
       - type: value
-        key: attributes.expires
+        key: attributes.data.exp
         value_type: expiration
         op: less-than
         value: 30

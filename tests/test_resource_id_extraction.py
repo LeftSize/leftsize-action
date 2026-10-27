@@ -166,3 +166,26 @@ class TestExtractResourceIdDeprecationRuleTypes:
     ])
     def test_arn_passthrough_fields(self, field, arn):
         assert extract_resource_id({field: arn}, AWS_CFG) == arn
+
+
+class TestResourcesThatAlsoCarryAVpcOrVolumeId:
+
+    def test_ebs_snapshot_is_not_reported_as_its_source_volume(self):
+        r = {"SnapshotId": "snap-1", "VolumeId": "vol-1", "Progress": "100%", "StartTime": "2026-01-01"}
+        assert extract_resource_id(r, AWS_CFG) == "arn:aws:ec2:us-east-1::snapshot/snap-1"
+
+    def test_volume_created_from_a_snapshot_stays_a_volume(self):
+        r = {"VolumeId": "vol-1", "SnapshotId": "snap-1", "Attachments": []}
+        assert extract_resource_id(r, AWS_CFG) == "arn:aws:ec2:us-east-1::volume/vol-1"
+
+    def test_alb_uses_its_arn_not_the_vpc(self):
+        arn = "arn:aws:elasticloadbalancing:us-east-1:123:loadbalancer/app/web/abc"
+        assert extract_resource_id({"LoadBalancerArn": arn, "VpcId": "vpc-1"}, AWS_CFG) == arn
+
+    def test_nat_gateway_is_not_reported_as_the_vpc(self):
+        r = {"NatGatewayId": "nat-1", "VpcId": "vpc-1"}
+        assert extract_resource_id(r, AWS_CFG) == "arn:aws:ec2:us-east-1::natgateway/nat-1"
+
+    def test_security_group_is_not_reported_as_the_vpc(self):
+        r = {"GroupId": "sg-1", "VpcId": "vpc-1", "IpPermissions": []}
+        assert extract_resource_id(r, AWS_CFG) == "arn:aws:ec2:us-east-1::security-group/sg-1"
