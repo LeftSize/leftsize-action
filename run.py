@@ -14,7 +14,7 @@ import logging
 import re
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Tuple
 import requests
 import click
 import structlog
@@ -921,7 +921,10 @@ def filter_policy_file(policy_path: str, config: Dict[str, Any], work_dir: str) 
 
 def execute_custodian_policies(policies_dir: str, config: Dict[str, Any]) -> List[Dict[str, Any]]:
     """Execute Cloud Custodian policies and collect findings"""
+    global LOOKUP_RESOURCE_GROUP_TAGS
     logger.info("Executing Cloud Custodian policies", policies_dir=policies_dir)
+    # Real scan: environment classification may read Azure resource group tags
+    LOOKUP_RESOURCE_GROUP_TAGS = True
     
     # Get cloud provider to filter policies
     cloud_provider = config.get('cloud_provider', 'azure')
@@ -1205,6 +1208,238 @@ def _policy_output_dirs(output_dir: Path, config: Dict[str, Any]):
                 yield policy_dir, region_config
 
 
+def resource_display_name(resource: Dict[str, Any]) -> str:
+    """Friendly name: Azure `name`, the AWS Name tag, or the AWS identifier field."""
+    name = resource.get('name', '') or resource.get('Name', '')
+    # For AWS resources that have tag-based names (e.g. VPCs, subnets),
+    # try extracting Name from the tag list so UI/search shows friendly names.
+    if not name:
+        aws_tags = resource.get('Tags')
+        if isinstance(aws_tags, list):
+            for tag in aws_tags:
+                if isinstance(tag, dict) and tag.get('Key') == 'Name' and tag.get('Value'):
+                    name = tag['Value']
+                    break
+    # Fall back to the AWS resource identifier fields when no tag Name present
+    if not name:
+        name = (
+            resource.get('VpcId')
+            or resource.get('VpcEndpointId')
+            or resource.get('ImageId')
+            or resource.get('FileSystemId')
+            or resource.get('CacheClusterId')
+            or resource.get('DBSnapshotIdentifier')
+            or resource.get('DBInstanceIdentifier')
+            or resource.get('DBClusterIdentifier')
+            or resource.get('FunctionName')
+            or resource.get('UserName')
+            or resource.get('InstanceId')
+            or resource.get('VolumeId')
+            or resource.get('SnapshotId')
+            or resource.get('LoadBalancerName')
+            or resource.get('AutoScalingGroupName')
+            or resource.get('DomainName')
+            or resource.get('TableName')
+            or resource.get('logGroupName')
+            or resource.get('repositoryName')
+            or resource.get('AllocationId')
+            or resource.get('GroupId')
+            or resource.get('NatGatewayId')
+            or ''
+        )
+    return name
+
+
+# ---------------------------------------------------------------------------
+# Environment classification (production vs non-production)
+#
+# Signals, strongest first: the environment-name input, resource tags, Azure
+# resource group tags, the resource name, the resource group name, and a
+# single-letter resource group suffix (-P/-A/-T/-D). Names are split into words
+# and only whole words count ("latest" is not "test"). Any production signal
+# wins; a resource is only non-production with positive evidence, so rules that
+# suggest shutting things down never reach a resource that might be production.
+# ---------------------------------------------------------------------------
+
+ENVIRONMENTS = ('production', 'acceptance', 'staging', 'test', 'development', 'sandbox', 'non-production')
+ENVIRONMENT_WORDS: Dict[str, str] = {
+    **dict.fromkeys(['prod', 'prd', 'production', 'live'], 'production'),
+    **dict.fromkeys(['acc', 'acpt', 'acceptance', 'acceptatie', 'uat', 'preprod', 'preproduction'], 'acceptance'),
+    **dict.fromkeys(['stg', 'stage', 'staging'], 'staging'),
+    **dict.fromkeys(['test', 'tst', 'testing', 'qa'], 'test'),
+    **dict.fromkeys(['dev', 'develop', 'development', 'ontwikkeling'], 'development'),
+    **dict.fromkeys(['sandbox', 'sbx'], 'sandbox'),
+    **dict.fromkeys(['nonprod', 'nonproduction', 'np'], 'non-production'),
+}
+# Last word of a resource group name (Freelance-NG-A); S and O are ambiguous and skipped.
+# Trailing filler words are looked past: Freelance-NG-P-backup is still -P.
+ENVIRONMENT_SUFFIXES = {'p': 'production', 'a': 'acceptance', 't': 'test', 'd': 'development'}
+ENVIRONMENT_SUFFIX_FILLER = {'rg', 'backup', 'backups', 'bkp'}
+ENVIRONMENT_TAG_KEYS = {'environment', 'env', 'stage', 'environmentname', 'environment-name', 'environment_name'}
+NON_PRODUCTION = set(ENVIRONMENTS) - {'production'}
+
+
+def _environment_words(text: str) -> List[str]:
+    """Lower-case words of a name, split on - _ . / space; trailing digits dropped
+    (prod01 -> prod); "pre prod" and "non prod" joined so they don't read as prod.
+    Hex words with digits are dropped: GUID parts such as "acc2" or "dea1" aren't words."""
+    words = [re.sub(r'\d+$', '', w) for w in re.split(r'[-_./\s]+', (text or '').lower())
+             if w and not (re.fullmatch(r'[0-9a-f]+', w) and re.search(r'\d', w))]
+    joined: List[str] = []
+    for w in words:
+        if joined and joined[-1] in ('pre', 'non') and w in ('prod', 'production'):
+            joined[-1] += w
+        else:
+            joined.append(w)
+    return [w for w in joined if w]
+
+
+def environment_from_text(text: str) -> Optional[str]:
+    found = [ENVIRONMENT_WORDS[w] for w in _environment_words(text) if w in ENVIRONMENT_WORDS]
+    if not found:
+        return None
+    return 'production' if 'production' in found else found[0]
+
+
+def _tag_dict(resource: Dict[str, Any]) -> Dict[str, str]:
+    tags = resource.get('tags')
+    if isinstance(tags, dict):
+        return {str(k): str(v) for k, v in tags.items() if v is not None}
+    for key in ('Tags', 'TagList'):
+        if isinstance(resource.get(key), list):
+            return {t['Key']: str(t.get('Value', '')) for t in resource[key] if isinstance(t, dict) and 'Key' in t}
+    return {}
+
+
+def _environment_from_tags(tags: Dict[str, str]) -> Optional[Tuple[str, str]]:
+    for key, value in tags.items():
+        if key.lower() in ENVIRONMENT_TAG_KEYS:
+            env = environment_from_text(value)
+            if env:
+                return env, f'{key}={value}'
+    return None
+
+
+def _azure_id_parts(resource_id: str) -> Tuple[Optional[str], Optional[str]]:
+    """(subscription id, resource group name) from an Azure resource ID."""
+    m = re.match(r'^/subscriptions/([^/]+)(?:/resourceGroups/([^/]+))?', resource_id or '', re.IGNORECASE)
+    return (m.group(1).lower(), m.group(2)) if m else (None, None)
+
+
+# Resource group tags per subscription, from one Resource Graph query (None when it failed).
+# Only looked up during a real scan (see execute_custodian_policies), never in unit tests.
+_RESOURCE_GROUP_TAGS: Dict[str, Optional[Dict[str, Dict[str, str]]]] = {}
+LOOKUP_RESOURCE_GROUP_TAGS = False
+
+
+def _azure_resource_group_tags(subscription_id: str, client: Any = None) -> Optional[Dict[str, Dict[str, str]]]:
+    """{lower-case resource group name: tags} for a subscription; None when the query failed."""
+    try:
+        from azure.mgmt.resourcegraph.models import QueryRequest, QueryRequestOptions
+        if client is None:
+            from azure.identity import DefaultAzureCredential
+            from azure.mgmt.resourcegraph import ResourceGraphClient
+            client = ResourceGraphClient(DefaultAzureCredential())
+        query = ("resourcecontainers | where type =~ 'microsoft.resources/subscriptions/resourcegroups'"
+                 " | where isnotempty(tags) | project name = tolower(name), tags")
+        groups: Dict[str, Dict[str, str]] = {}
+        skip_token = None
+        while True:
+            response = client.resources(QueryRequest(
+                subscriptions=[subscription_id], query=query,
+                options=QueryRequestOptions(skip_token=skip_token, result_format='objectArray')))
+            for row in response.data or []:
+                if row.get('name') and isinstance(row.get('tags'), dict):
+                    groups[row['name']] = {str(k): str(v) for k, v in row['tags'].items() if v is not None}
+            skip_token = response.skip_token
+            if not skip_token:
+                return groups
+    except Exception as e:
+        logger.warning("Resource group tag lookup failed; environment from names only", subscription=subscription_id, error=str(e))
+        return None
+
+
+def _resource_group_tags(subscription_id: Optional[str], resource_group: Optional[str]) -> Dict[str, str]:
+    if not LOOKUP_RESOURCE_GROUP_TAGS or not subscription_id or not resource_group:
+        return {}
+    if subscription_id not in _RESOURCE_GROUP_TAGS:
+        _RESOURCE_GROUP_TAGS[subscription_id] = _azure_resource_group_tags(subscription_id)
+    return (_RESOURCE_GROUP_TAGS[subscription_id] or {}).get(resource_group.lower(), {})
+
+
+def parse_environment_override(value: Optional[str]) -> Tuple[Optional[str], List[Tuple[str, str]]]:
+    """environment-name input: a bare value for the whole scan ("Acceptance"), or
+    name=environment pairs separated by commas or new lines (Shop-NG-A=acceptance,
+    *-prod-*=production), matched against resource group and resource names (wildcards allowed).
+    Only recognised environments count: onboarding workflows pass matrix labels such as
+    MAIN, which must not switch off detection. Returns normalized environments."""
+    if not value or not value.strip():
+        return None, []
+    if '=' not in value:
+        return environment_from_text(value), []
+    pairs = []
+    for part in re.split(r'[,\n]+', value):
+        if '=' in part:
+            pattern, env = part.split('=', 1)
+            normalized = environment_from_text(env)
+            if pattern.strip() and normalized:
+                pairs.append((pattern.strip().lower(), normalized))
+    return None, pairs
+
+
+def classify_environment(resource: Dict[str, Any], config: Dict[str, Any]) -> Tuple[str, str]:
+    """(environment, how it was decided). Environment is one of ENVIRONMENTS or 'unknown'."""
+    import fnmatch
+    resource_id = resource.get('id') or ''
+    subscription_id, resource_group = _azure_id_parts(resource_id)
+    name = resource_display_name(resource)
+    tags = _tag_dict(resource)
+    # AKS node resource groups (MC_...) and their resources point at the cluster's own group
+    parent_group = tags.get('aks-managed-cluster-rg')
+    cluster_name = tags.get('aks-managed-cluster-name')
+
+    whole_scan, pairs = parse_environment_override(config.get('environment_name'))
+    for pattern, env in pairs:
+        for candidate in (resource_group, parent_group, name):
+            if candidate and fnmatch.fnmatchcase(candidate.lower(), pattern):
+                return env, f'environment-name input ({pattern}={env})'
+    if whole_scan:
+        return whole_scan, f"environment-name input ({config.get('environment_name', '').strip()})"
+
+    signals: List[Tuple[str, str]] = []
+    found = _environment_from_tags(tags)
+    if found:
+        signals.append((found[0], f'tag {found[1]} on the resource'))
+    for group in (resource_group, parent_group):
+        found = _environment_from_tags(_resource_group_tags(subscription_id, group))
+        if found:
+            signals.append((found[0], f'tag {found[1]} on resource group {group}'))
+    for label, text in (('resource name', name), ('cluster name', cluster_name),
+                        ('resource group name', parent_group), ('resource group name', resource_group)):
+        env = environment_from_text(text) if text else None
+        if env:
+            signals.append((env, f'{label} {text}'))
+    for group in (parent_group, resource_group):
+        words = _environment_words(group or '')
+        while len(words) > 2 and words[-1] in ENVIRONMENT_SUFFIX_FILLER:
+            words.pop()
+        if len(words) > 1 and words[-1] in ENVIRONMENT_SUFFIXES:
+            signals.append((ENVIRONMENT_SUFFIXES[words[-1]], f'resource group name {group} (suffix -{words[-1].upper()})'))
+
+    for env, source in signals:
+        if env == 'production':
+            return env, source
+    return signals[0] if signals else ('unknown', 'no environment tag or recognisable name')
+
+
+def is_non_production(resource: Dict[str, Any], config: Dict[str, Any]) -> bool:
+    return classify_environment(resource, config)[0] in NON_PRODUCTION
+
+
+def _non_production_only(resources: List[Dict[str, Any]], config: Dict[str, Any]) -> List[Dict[str, Any]]:
+    return [r for r in resources if is_non_production(r, config)]
+
+
 def _eks_cluster_has_compute(cluster: Dict[str, Any], session: Any = None) -> Optional[bool]:
     """True when an EKS cluster has managed node groups, Fargate profiles or running EC2
     instances tagged for it (self-managed nodes, Karpenter); None when the check failed.
@@ -1237,7 +1472,7 @@ def _eks_cluster_has_compute(cluster: Dict[str, Any], session: Any = None) -> Op
         return None
 
 
-def _eks_without_compute(resources: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def _eks_without_compute(resources: List[Dict[str, Any]], config: Dict[str, Any]) -> List[Dict[str, Any]]:
     return [r for r in resources if _eks_cluster_has_compute(r) is False]
 
 
@@ -1274,7 +1509,7 @@ def _azure_shutdown_schedule_targets(subscription_id: str, client: Any = None) -
         return None
 
 
-def _vms_without_shutdown_schedule(resources: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def _vms_without_shutdown_schedule(resources: List[Dict[str, Any]], config: Dict[str, Any]) -> List[Dict[str, Any]]:
     targets_by_subscription: Dict[str, Optional[set]] = {}
     kept = []
     for vm in resources:
@@ -1294,7 +1529,14 @@ def _vms_without_shutdown_schedule(resources: List[Dict[str, Any]]) -> List[Dict
 # Checks Custodian filters can't express, applied to a policy's matches after the run
 POLICY_POST_FILTERS = {
     'leftsize-inactive-eks-cluster': _eks_without_compute,
-    'leftsize-vm-scheduled-shutdown-missing': _vms_without_shutdown_schedule,
+    # Non-production rules: environment from tags and names (classify_environment)
+    'leftsize-ec2-scheduled-shutdown-missing': _non_production_only,
+    'leftsize-rds-multiaz-nonprod': _non_production_only,
+    'leftsize-aks-dev-clusters-always-running': _non_production_only,
+    'leftsize-sql-business-critical-nonprod': _non_production_only,
+    # Non-production first: it needs no API calls and leaves fewer VMs for the schedule lookup
+    'leftsize-vm-scheduled-shutdown-missing':
+        lambda resources, config: _vms_without_shutdown_schedule(_non_production_only(resources, config), config),
 }
 
 
@@ -1319,7 +1561,7 @@ def parse_custodian_output(output_dir: str, config: Dict[str, Any]) -> List[Dict
             
             post_filter = POLICY_POST_FILTERS.get(policy_name)
             if post_filter and resources:
-                resources = post_filter(resources)
+                resources = post_filter(resources, policy_config)
 
             if not resources:
                 logger.debug("No resources found for policy", policy=policy_name)
@@ -1545,41 +1787,7 @@ def convert_resource_to_finding(policy_name: str, resource: Dict[str, Any], conf
         # Extract resource ID and basic info - handle both Azure and AWS formats
         # Azure uses 'id', AWS uses various fields depending on resource type
         resource_id = extract_resource_id(resource, config)
-        resource_name = resource.get('name', '') or resource.get('Name', '')
-        # For AWS resources that have tag-based names (e.g. VPCs, subnets),
-        # try extracting Name from the tag list so UI/search shows friendly names.
-        if not resource_name:
-            aws_tags = resource.get('Tags')
-            if isinstance(aws_tags, list):
-                for tag in aws_tags:
-                    if isinstance(tag, dict) and tag.get('Key') == 'Name' and tag.get('Value'):
-                        resource_name = tag['Value']
-                        break
-        # Fall back to the AWS resource identifier fields when no tag Name present
-        if not resource_name:
-            resource_name = (
-                resource.get('VpcId')
-                or resource.get('VpcEndpointId')
-                or resource.get('ImageId')
-                or resource.get('FileSystemId')
-                or resource.get('CacheClusterId')
-                or resource.get('DBSnapshotIdentifier')
-                or resource.get('DBInstanceIdentifier')
-                or resource.get('UserName')
-                or resource.get('InstanceId')
-                or resource.get('VolumeId')
-                or resource.get('SnapshotId')
-                or resource.get('LoadBalancerName')
-                or resource.get('AutoScalingGroupName')
-                or resource.get('DomainName')
-                or resource.get('TableName')
-                or resource.get('logGroupName')
-                or resource.get('repositoryName')
-                or resource.get('AllocationId')
-                or resource.get('GroupId')
-                or resource.get('NatGatewayId')
-                or ''
-            )
+        resource_name = resource_display_name(resource)
         resource_type = resource.get('type', '') or resource.get('c7n:resource-type', '')
         
         # Build scope from resource ID
@@ -1588,13 +1796,11 @@ def convert_resource_to_finding(policy_name: str, resource: Dict[str, Any], conf
         # Extract metadata from resource - only include what Cloud Custodian provides
         metadata = extract_resource_metadata(resource, resource_id, policy_resource_type)
         
-        # Add environment override if specified in config
-        # This allows users to manually specify environment when auto-detection doesn't work
-        environment_override = config.get('environment_name')
-        if environment_override:
-            if metadata is None:
-                metadata = {}
-            metadata['environmentOverride'] = environment_override
+        # Environment (production, acceptance, ...) and how it was decided, for issue titles and lists
+        environment, environment_source = classify_environment(resource, config)
+        metadata = metadata or {}
+        metadata['environment'] = environment
+        metadata['environmentSource'] = environment_source
         
         finding = {
             'ruleId': rule_id,

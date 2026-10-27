@@ -127,6 +127,7 @@ jobs:
 | `aws-regions` | No | Login region | Comma-separated AWS regions to scan, or `all` for every enabled region |
 | `include-policies` | No | All | Rule categories: `cost-optimization`, `deprecation`, `governance`, `security` |
 | `exclude-policies` | No | None | Rule names to skip (comma-separated, with or without the `leftsize-` prefix) |
+| `environment-name` | No | Detected per resource | Environment of the scanned resources: one value for the whole scan (`Production`), or `name=environment` pairs for a subscription with several environments (`Freelance-NG-A=acceptance, Freelance-NG-P=production`). Values that aren't an environment (such as a matrix label `MAIN`) are ignored. See [Production vs non-production](#production-vs-non-production). |
 | `verbose` | No | `false` | Enable verbose logging |
 
 ### Outputs
@@ -136,6 +137,17 @@ jobs:
 | `findings-count` | Total number of findings detected |
 | `findings-submitted` | Whether findings were successfully submitted (`true`/`false`) |
 | `findings-json` | JSON string of all findings for custom processing |
+
+### Production vs non-production
+
+Some rules only apply to non-production resources, such as shutting down dev VMs at night or dropping Multi-AZ on test databases. LeftSize decides the environment per resource, using the first of these signals that applies:
+
+1. The `environment-name` input, if it names an environment (`PROD`, `DEV`, `acceptance`, …)
+2. An `Environment`, `Env` or `Stage` tag on the resource, then on its Azure resource group
+3. Words in the resource name or resource group name: `prod`, `prd`, `live` → production; `acc`, `uat`, `preprod` → acceptance; `stg`, `staging`; `test`, `tst`, `qa`; `dev`; `sandbox`; `nonprod`
+4. A one-letter last word in the resource group name: `-P`, `-A`, `-T`, `-D` (for example `Shop-NG-A`)
+
+Any production signal wins, and a resource without positive non-production evidence is never treated as non-production. Each issue shows the environment and what it was based on.
 
 ## Advanced Examples
 

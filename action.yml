@@ -61,7 +61,7 @@ inputs:
   
   # Environment configuration
   environment-name:
-    description: 'Environment name for this scan (e.g., Production, Development, Acceptance). Auto-detected from resource names if not specified.'
+    description: 'Environment of the scanned resources. Leave empty to detect it per resource from environment tags and resource / resource group names. Set one value for the whole scan (e.g. Production), or name=environment pairs for a subscription or account with several environments (e.g. "Freelance-NG-A=acceptance, Freelance-NG-P=production, *-dev-*=development"), matched against resource group and resource names. Values that are not an environment (such as the matrix label MAIN) are ignored.'
     required: false
   
   # Currency configuration

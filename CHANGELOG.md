@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.23] - 2026-10-27
+
+### Added
+- Environment detection per resource: environment tags on the resource or its Azure resource group, then words in the resource or resource group name (`prod`, `acc`, `uat`, `test`, `dev`, `staging`, …), then a one-letter resource group suffix (`-P`, `-A`, `-T`, `-D`). Any production signal wins; resources without clear non-production evidence count as unknown. Every finding carries `environment` and `environmentSource`, and issues show them.
+- `environment-name` accepts `name=environment` pairs for subscriptions with several environments. Values that are not an environment (such as the onboarding matrix label `MAIN`) are ignored instead of overriding detection.
+
+### Changed
+- The non-production rules (`vm-scheduled-shutdown-missing`, `aks-dev-clusters-always-running`, `sql-business-critical-nonprod`, `ec2-scheduled-shutdown-missing`, `rds-multiaz-nonprod`) use this detection instead of tags only. `rds-multiaz-nonprod` no longer matches name fragments such as `devices` or `latest`.
+
 ## [1.0.22] - 2026-10-27
 
 ### Removed

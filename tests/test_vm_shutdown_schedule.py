@@ -73,7 +73,7 @@ def test_post_filter(label: str, targets: Optional[set], expected: List[str], mo
     calls: List[str] = []
     monkeypatch.setattr(run, '_azure_shutdown_schedule_targets', lookup({'sub-1': targets}, calls))
     vms = [{'id': vm_id('dev-1'), 'name': 'dev-1'}, {'id': vm_id('dev-2'), 'name': 'dev-2'}]
-    kept = run.POLICY_POST_FILTERS['leftsize-vm-scheduled-shutdown-missing'](vms)
+    kept = run.POLICY_POST_FILTERS['leftsize-vm-scheduled-shutdown-missing'](vms, {})
     assert [v['name'] for v in kept] == expected
     assert calls == ['sub-1']  # one query per subscription, not per VM
 
@@ -83,7 +83,7 @@ def test_post_filter_queries_each_subscription_once(monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr(run, '_azure_shutdown_schedule_targets',
                         lookup({'sub-1': set(), 'sub-2': {vm_id('b', 'sub-2').lower()}}, calls))
     vms = [{'id': vm_id('a', 'sub-1')}, {'id': vm_id('b', 'sub-2')}, {'id': vm_id('c', 'sub-1')}]
-    kept = run._vms_without_shutdown_schedule(vms)
+    kept = run._vms_without_shutdown_schedule(vms, {})
     assert [v['id'] for v in kept] == [vm_id('a', 'sub-1'), vm_id('c', 'sub-1')]
     assert sorted(calls) == ['sub-1', 'sub-2']
 

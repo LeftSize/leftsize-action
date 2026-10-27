@@ -383,30 +383,21 @@ policies:
       tier: free
 
   - name: leftsize-ec2-scheduled-shutdown-missing
-    description: "Find non-production EC2 instances running 24/7 without scheduled shutdown (30-70% savings)"
+    description: |
+      Find non-production EC2 instances that have run for 7+ days without a Schedule, AutoStop
+      or StopSchedule tag.
+
+      Non-production is decided per resource by classify_environment in run.py (after
+      Custodian): environment tags on the resource or its resource group, then words
+      in the resource or resource group name (acc, test, dev, uat, staging, ...), then
+      a resource group suffix such as -A or -T. Any production signal wins; resources
+      without positive non-production evidence are never reported.
     resource: aws.ec2
     filters:
       # Only running instances
       - type: value
         key: 'State.Name'
         value: 'running'
-      # Non-production environments based on tags
-      - or:
-        - type: value
-          key: 'tag:Environment'
-          op: in
-          value_type: normalize
-          value: ['dev', 'development', 'test', 'testing', 'staging', 'qa', 'sandbox']
-        - type: value
-          key: 'tag:Env'
-          op: in
-          value_type: normalize
-          value: ['dev', 'development', 'test', 'testing', 'staging', 'qa', 'sandbox']
-        - type: value
-          key: 'tag:environment'
-          op: in
-          value_type: normalize
-          value: ['dev', 'development', 'test', 'testing', 'staging', 'qa', 'sandbox']
       # Not already tagged for scheduling
       - not:
         - or:
@@ -506,7 +497,14 @@ policies:
   # ========================================
 
   - name: leftsize-rds-multiaz-nonprod
-    description: "Find non-production RDS instances with unnecessary Multi-AZ (2x cost)"
+    description: |
+      Find non-production RDS instances with Multi-AZ enabled (roughly double the instance cost).
+
+      Non-production is decided per resource by classify_environment in run.py (after
+      Custodian): environment tags on the resource or its resource group, then words
+      in the resource or resource group name (acc, test, dev, uat, staging, ...), then
+      a resource group suffix such as -A or -T. Any production signal wins; resources
+      without positive non-production evidence are never reported.
     resource: aws.rds
     filters:
       # aws.rds also returns DocumentDB and Neptune instances; this advice is for RDS/Aurora only
@@ -522,29 +520,6 @@ policies:
       - type: value
         key: 'MultiAZ'
         value: true
-      # Non-production environments based on tags
-      - or:
-        - type: value
-          key: 'tag:Environment'
-          op: in
-          value_type: normalize
-          value: ['dev', 'development', 'test', 'testing', 'staging', 'qa', 'sandbox']
-        - type: value
-          key: 'tag:Env'
-          op: in
-          value_type: normalize
-          value: ['dev', 'development', 'test', 'testing', 'staging', 'qa', 'sandbox']
-        - type: value
-          key: 'tag:environment'
-          op: in
-          value_type: normalize
-          value: ['dev', 'development', 'test', 'testing', 'staging', 'qa', 'sandbox']
-        # Or DB instance identifier contains non-prod keywords
-        - type: value
-          key: 'DBInstanceIdentifier'
-          op: regex
-          # c7n uses re.match (anchored at the start, case-insensitive)
-          value: '.*(dev|test|staging|qa|sandbox)'
     actions:
       - type: tag
         key: leftsize-multiaz-review

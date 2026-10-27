@@ -107,7 +107,7 @@ def test_cluster_without_arn_is_not_reported() -> None:
 def test_post_filter_keeps_only_clusters_without_compute(monkeypatch: pytest.MonkeyPatch) -> None:
     answers = {'a': False, 'b': True, 'c': None}
     monkeypatch.setattr(run, '_eks_cluster_has_compute', lambda c, session=None: answers[c['name']])
-    kept = run.POLICY_POST_FILTERS['leftsize-inactive-eks-cluster']([{'name': n} for n in 'abc'])
+    kept = run.POLICY_POST_FILTERS['leftsize-inactive-eks-cluster']([{'name': n} for n in 'abc'], {})
     assert [c['name'] for c in kept] == ['a']
 
 

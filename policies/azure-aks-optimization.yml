@@ -105,35 +105,20 @@ policies:
       tier: free
 
   - name: leftsize-aks-dev-clusters-always-running
-    description: "Find non-production AKS clusters running 24/7"
+    description: |
+      Find running non-production AKS clusters, which can be stopped outside working hours.
+
+      Non-production is decided per resource by classify_environment in run.py (after
+      Custodian): environment tags on the resource or its resource group, then words
+      in the resource or resource group name (acc, test, dev, uat, staging, ...), then
+      a resource group suffix such as -A or -T. Any production signal wins; resources
+      without positive non-production evidence are never reported.
     resource: azure.aks
     filters:
       # Only running clusters
       - type: value
         key: 'properties.powerState.code'
         value: 'Running'
-      # Tagged as dev/test/staging (tag values compared case-insensitively)
-      - or:
-        - type: value
-          key: 'tags.Environment'
-          value_type: normalize
-          op: 'in'
-          value: ['dev', 'development', 'test', 'testing', 'staging', 'qa', 'sandbox']
-        - type: value
-          key: 'tags.environment'
-          value_type: normalize
-          op: 'in'
-          value: ['dev', 'development', 'test', 'testing', 'staging', 'qa', 'sandbox']
-        - type: value
-          key: 'tags.Env'
-          value_type: normalize
-          op: 'in'
-          value: ['dev', 'development', 'test', 'testing', 'staging', 'qa', 'sandbox']
-        - type: value
-          key: 'tags.env'
-          value_type: normalize
-          op: 'in'
-          value: ['dev', 'development', 'test', 'testing', 'staging', 'qa', 'sandbox']
     actions:
       - type: tag
         tag: leftsize-aks-dev-always-on

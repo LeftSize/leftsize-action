@@ -1,7 +1,9 @@
 """
 Runs the AWS cost-optimization policies through Cloud Custodian's real filter
 chain, with only the AWS API calls (CloudWatch, related-resource lookups) stubbed.
+Non-production rules then go through the runner's environment post-filter.
 """
+import sys
 
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -20,6 +22,9 @@ import c7n.filters.metrics as metrics  # noqa: E402
 import c7n.resources.rds as rds  # noqa: E402
 import c7n.resources.vpc as vpc  # noqa: E402
 
+sys.path.insert(0, str(Path(__file__).parent.parent))
+import run as runner  # noqa: E402
+
 POLICY_FILE = Path(__file__).parent.parent / 'policies' / 'aws-cost-optimization.yml'
 DOCS = {p['name']: p for p in yaml.safe_load(POLICY_FILE.read_text())['policies']}
 NOW = datetime.now(timezone.utc)
@@ -29,9 +34,15 @@ def ago(days: int) -> datetime:
     return NOW - timedelta(days=days)
 
 
+ENVIRONMENT_RULES = {'leftsize-ec2-scheduled-shutdown-missing', 'leftsize-rds-multiaz-nonprod'}
+
+
 def run(policy: str, resource: Dict[str, Any]) -> bool:
     manager = Policy(DOCS[policy], Config.empty(region='eu-west-1', account_id='123456789012')).resource_manager
-    return bool(manager.filter_resources([resource]))
+    matched = manager.filter_resources([resource])
+    if policy in ENVIRONMENT_RULES:
+        matched = runner.POLICY_POST_FILTERS[policy](matched, {'cloud_provider': 'aws'})
+    return bool(matched)
 
 
 class FakeCloudWatch:
@@ -231,6 +242,13 @@ RDS_BASE = {'DBInstanceIdentifier': 'db1', 'Engine': 'postgres', 'DBInstanceStat
     ({'DBInstanceIdentifier': 'orders-dev-db'}, True),
     ({'DBInstanceIdentifier': 'dev-orders'}, True),
     ({'DBInstanceIdentifier': 'orders-prod'}, False),
+    # Whole words only: "latest" and "devices" are not test/dev
+    ({'DBInstanceIdentifier': 'latest-orders'}, False),
+    ({'DBInstanceIdentifier': 'devices-db'}, False),
+    ({'DBInstanceIdentifier': 'orders-uat'}, True),
+    ({'DBInstanceIdentifier': 'orders-preprod'}, True),
+    # A production tag beats a non-production name
+    ({'DBInstanceIdentifier': 'orders-dev-db', 'Tags': [{'Key': 'Environment', 'Value': 'Production'}]}, False),
     ({'Tags': [{'Key': 'Environment', 'Value': 'Staging'}]}, True),
     ({'Engine': 'docdb', 'DBInstanceIdentifier': 'orders-dev-db'}, False),
     ({'MultiAZ': False, 'DBInstanceIdentifier': 'orders-dev-db'}, False),
@@ -247,7 +265,7 @@ def test_rds_excessive_backup_retention(extra: Dict[str, Any], expected: bool) -
     assert run('leftsize-rds-excessive-backup-retention', dict(RDS_BASE, **extra)) is expected
 
 
-@pytest.mark.parametrize('tag_value, expected', [('Dev', True), ('staging', True), ('prod', False)])
+@pytest.mark.parametrize('tag_value, expected', [('Dev', True), ('staging', True), ('prod', False), ('acc', True), ('shared', False)])
 def test_scheduled_shutdown_env_tag_case(tag_value: str, expected: bool) -> None:
     instance = dict(EC2_BASE, Tags=[{'Key': 'Environment', 'Value': tag_value}])
     assert run('leftsize-ec2-scheduled-shutdown-missing', instance) is expected

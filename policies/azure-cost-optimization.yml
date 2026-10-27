@@ -257,8 +257,13 @@ policies:
   # Template instructs users to check and configure auto-shutdown.
   - name: leftsize-vm-scheduled-shutdown-missing
     description: |
-      Find running non-production VMs (Environment/Env tag dev, test, staging, qa,
-      sandbox) without an enabled auto-shutdown schedule.
+      Find running non-production VMs without an enabled auto-shutdown schedule.
+
+      Non-production is decided per resource by classify_environment in run.py (after
+      Custodian): environment tags on the resource or its resource group, then words
+      in the resource or resource group name (acc, test, dev, uat, staging, ...), then
+      a resource group suffix such as -A or -T. Any production signal wins; resources
+      without positive non-production evidence are never reported.
 
       Auto-shutdown is a separate resource (Microsoft.DevTestLab/schedules, named
       shutdown-computevm-<vm>, taskType ComputeVmShutdownTask) that Custodian can't
@@ -268,29 +273,6 @@ policies:
       Logic Apps, Functions) are not visible.
     resource: azure.vm
     filters:
-      # Non-production environments (by tag)
-      # (tag values compared case-insensitively)
-      - or:
-        - type: value
-          key: 'tags.Environment'
-          value_type: normalize
-          op: 'in'
-          value: ['dev', 'development', 'test', 'testing', 'staging', 'qa', 'sandbox']
-        - type: value
-          key: 'tags.environment'
-          value_type: normalize
-          op: 'in'
-          value: ['dev', 'development', 'test', 'testing', 'staging', 'qa', 'sandbox']
-        - type: value
-          key: 'tags.Env'
-          value_type: normalize
-          op: 'in'
-          value: ['dev', 'development', 'test', 'testing', 'staging', 'qa', 'sandbox']
-        - type: value
-          key: 'tags.env'
-          value_type: normalize
-          op: 'in'
-          value: ['dev', 'development', 'test', 'testing', 'staging', 'qa', 'sandbox']
       # Power state needs the instance view (one GET per remaining VM, so it runs last)
       - type: instance-view
         key: 'statuses[].code'
@@ -402,36 +384,20 @@ policies:
 
   # SQL Business Critical Tier in Non-Prod - 60%+ savings
   - name: leftsize-sql-business-critical-nonprod
-    description: "Find non-production SQL databases using expensive Business Critical tier"
+    description: |
+      Find non-production Azure SQL databases (7+ days old) on the Business Critical tier.
+
+      Non-production is decided per resource by classify_environment in run.py (after
+      Custodian): environment tags on the resource or its resource group, then words
+      in the resource or resource group name (acc, test, dev, uat, staging, ...), then
+      a resource group suffix such as -A or -T. Any production signal wins; resources
+      without positive non-production evidence are never reported.
     resource: azure.sql-database
     filters:
       # Business Critical tier
       - type: value
         key: 'sku.tier'
         value: 'BusinessCritical'
-      # Non-production environments (by tag)
-      # (tag values compared case-insensitively)
-      - or:
-        - type: value
-          key: 'tags.Environment'
-          value_type: normalize
-          op: 'in'
-          value: ['dev', 'development', 'test', 'testing', 'staging', 'qa', 'sandbox']
-        - type: value
-          key: 'tags.environment'
-          value_type: normalize
-          op: 'in'
-          value: ['dev', 'development', 'test', 'testing', 'staging', 'qa', 'sandbox']
-        - type: value
-          key: 'tags.Env'
-          value_type: normalize
-          op: 'in'
-          value: ['dev', 'development', 'test', 'testing', 'staging', 'qa', 'sandbox']
-        - type: value
-          key: 'tags.env'
-          value_type: normalize
-          op: 'in'
-          value: ['dev', 'development', 'test', 'testing', 'staging', 'qa', 'sandbox']
       # Database older than 7 days (not a new deployment)
       - type: value
         key: 'properties.creationDate'

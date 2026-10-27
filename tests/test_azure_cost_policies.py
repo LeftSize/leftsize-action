@@ -6,6 +6,7 @@ instance view is pre-filled as `instanceView`, which the instance-view filter
 then uses instead of calling the API.
 """
 
+import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -19,6 +20,9 @@ from c7n.resources import load_resources
 
 load_resources(('azure.*',))
 from c7n_azure.filters import MetricFilter  # noqa: E402
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+import run as runner  # noqa: E402
 
 POLICIES_DIR = Path(__file__).parent.parent / 'policies'
 DOCS: Dict[str, Dict[str, Any]] = {}
@@ -42,12 +46,25 @@ def fake_metrics(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(MetricFilter, 'process', process)
 
 
+ENVIRONMENT_RULES = {'leftsize-vm-scheduled-shutdown-missing', 'leftsize-sql-business-critical-nonprod',
+                     'leftsize-aks-dev-clusters-always-running'}
+
+
+@pytest.fixture(autouse=True)
+def no_shutdown_schedules(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(runner, '_azure_shutdown_schedule_targets', lambda subscription_id, client=None: set())
+
+
 def matches(name: str, resource: Dict[str, Any]) -> bool:
     manager = Policy(DOCS[name], Config.empty(region='westeurope')).resource_manager
     manager.get_client = lambda *a, **k: None
     base = {'id': '/subscriptions/s/resourceGroups/rg/providers/X/y/r1', 'name': 'r1',
             'resourceGroup': 'rg', 'location': 'westeurope'}
-    return bool(manager.filter_resources([dict(base, **resource)]))
+    matched = manager.filter_resources([dict(base, **resource)])
+    if name in ENVIRONMENT_RULES:
+        # Environment is decided by the runner after Custodian (run.py classify_environment)
+        matched = runner.POLICY_POST_FILTERS[name](matched, {'cloud_provider': 'azure'})
+    return bool(matched)
 
 
 def ago(days: int) -> str:
@@ -158,6 +175,9 @@ CASES: Dict[str, List[Tuple[str, Dict[str, Any], bool]]] = {
    ('running, environment=production', vm(tags={'environment': 'production'}), False),
    ('deallocated dev VM', vm(power='deallocated', tags={'env': 'dev'}), False),
    ('no tags', vm(), False),
+   ('no tags, acceptance resource group', dict(vm(), id='/subscriptions/s/resourceGroups/Shop-NG-A/providers/Microsoft.Compute/virtualMachines/r1'), True),
+   ('no tags, production resource group', dict(vm(), id='/subscriptions/s/resourceGroups/Shop-NG-P/providers/Microsoft.Compute/virtualMachines/r1'), False),
+   ('acc in the name', dict(vm(), name='shop-acc-vm'), True),
  ],
  'leftsize-orphaned-snapshots': [
    ('45 days old', {'properties': {'timeCreated': ago(45)}}, True),
