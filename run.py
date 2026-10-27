@@ -1269,7 +1269,7 @@ ENVIRONMENT_WORDS: Dict[str, str] = {
     **dict.fromkeys(['test', 'tst', 'testing', 'qa'], 'test'),
     **dict.fromkeys(['dev', 'develop', 'development', 'ontwikkeling'], 'development'),
     **dict.fromkeys(['sandbox', 'sbx'], 'sandbox'),
-    **dict.fromkeys(['nonprod', 'nonproduction', 'np'], 'non-production'),
+    **dict.fromkeys(['nonprod', 'nonproduction'], 'non-production'),
 }
 # Last word of a resource group name (Freelance-NG-A); S and O are ambiguous and skipped.
 # Trailing filler words are looked past: Freelance-NG-P-backup is still -P.
@@ -1337,9 +1337,7 @@ def _azure_resource_group_tags(subscription_id: str, client: Any = None) -> Opti
     try:
         from azure.mgmt.resourcegraph.models import QueryRequest, QueryRequestOptions
         if client is None:
-            from azure.identity import DefaultAzureCredential
-            from azure.mgmt.resourcegraph import ResourceGraphClient
-            client = ResourceGraphClient(DefaultAzureCredential())
+            client = _resource_graph_client(subscription_id)
         query = ("resourcecontainers | where type =~ 'microsoft.resources/subscriptions/resourcegroups'"
                  " | where isnotempty(tags) | project name = tolower(name), tags")
         groups: Dict[str, Dict[str, str]] = {}
@@ -1353,6 +1351,7 @@ def _azure_resource_group_tags(subscription_id: str, client: Any = None) -> Opti
                     groups[row['name']] = {str(k): str(v) for k, v in row['tags'].items() if v is not None}
             skip_token = response.skip_token
             if not skip_token:
+                logger.info("Resource group tags read", subscription=subscription_id, tagged_groups=len(groups))
                 return groups
     except Exception as e:
         logger.warning("Resource group tag lookup failed; environment from names only", subscription=subscription_id, error=str(e))
@@ -1414,7 +1413,11 @@ def classify_environment(resource: Dict[str, Any], config: Dict[str, Any]) -> Tu
         found = _environment_from_tags(_resource_group_tags(subscription_id, group))
         if found:
             signals.append((found[0], f'tag {found[1]} on resource group {group}'))
-    for label, text in (('resource name', name), ('cluster name', cluster_name),
+    # Names of parent resources in the ID (the server of a database, the plan of a web app slot)
+    provider_path = re.split(r'/providers/', resource_id, flags=re.IGNORECASE)
+    parent_names = provider_path[-1].split('/')[2:-1:2] if len(provider_path) > 1 else []
+    parents = [('parent resource name', p) for p in parent_names]
+    for label, text in (('resource name', name), *parents, ('cluster name', cluster_name),
                         ('resource group name', parent_group), ('resource group name', resource_group)):
         env = environment_from_text(text) if text else None
         if env:
@@ -1476,6 +1479,13 @@ def _eks_without_compute(resources: List[Dict[str, Any]], config: Dict[str, Any]
     return [r for r in resources if _eks_cluster_has_compute(r) is False]
 
 
+def _resource_graph_client(subscription_id: str) -> Any:
+    """Resource Graph client with the same authentication Custodian uses for the scan
+    (c7n_azure Session: environment credentials, OIDC or the az CLI login)."""
+    from c7n_azure.session import Session
+    return Session(subscription_id=subscription_id).client('azure.mgmt.resourcegraph.ResourceGraphClient')
+
+
 # Enabled VM auto-shutdown schedules (Microsoft.DevTestLab/schedules, named shutdown-computevm-<vm>)
 SHUTDOWN_SCHEDULES_QUERY = (
     "resources"
@@ -1491,9 +1501,7 @@ def _azure_shutdown_schedule_targets(subscription_id: str, client: Any = None) -
     try:
         from azure.mgmt.resourcegraph.models import QueryRequest, QueryRequestOptions
         if client is None:
-            from azure.identity import DefaultAzureCredential
-            from azure.mgmt.resourcegraph import ResourceGraphClient
-            client = ResourceGraphClient(DefaultAzureCredential())
+            client = _resource_graph_client(subscription_id)
         targets: set = set()
         skip_token = None
         while True:
@@ -1503,6 +1511,7 @@ def _azure_shutdown_schedule_targets(subscription_id: str, client: Any = None) -
             targets.update(row['vm'] for row in response.data or [] if row.get('vm'))
             skip_token = response.skip_token
             if not skip_token:
+                logger.info("Auto-shutdown schedules found", subscription=subscription_id, vms=len(targets))
                 return targets
     except Exception as e:
         logger.warning("Auto-shutdown schedule lookup failed; VMs not reported", subscription=subscription_id, error=str(e))

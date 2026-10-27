@@ -43,6 +43,13 @@ def aws(name: Optional[str] = None, **tags: str) -> Dict[str, Any]:
                                    'Microsoft.Compute/virtualMachineScaleSets'), 'acceptance'),
     ('AKS node group via aks-managed tags', az('MC_x_y_westeurope', 'aks-pool-vmss', 'Microsoft.Compute/virtualMachineScaleSets',
                                                **{'aks-managed-cluster-rg': 'Shop-NG-P', 'aks-managed-cluster-name': 'shoppf'}), 'production'),
+    # Child resources: the parent's name counts (SQL database on an acceptance server)
+    ('database on an acc server', {'id': f'/subscriptions/{SUB}/resourceGroups/Shop-NG-S/providers/Microsoft.Sql/servers/shop-acc-sql/databases/orders',
+                                   'name': 'orders'}, 'acceptance'),
+    ('database on a prod server', {'id': f'/subscriptions/{SUB}/resourceGroups/Shop-NG-S/providers/Microsoft.Sql/servers/shop-prod-sql/databases/orders-test',
+                                   'name': 'orders-test'}, 'production'),
+    # AKS pool names (np1) are not "non-production"
+    ('AKS node pool np1', az('MC_x_y_westeurope', 'aks-np1-12345678-vmss', 'Microsoft.Compute/virtualMachineScaleSets'), 'unknown'),
     # Tags
     ('Environment tag', az('rg', 'vm1', Environment='Development'), 'development'),
     ('env tag, other casing', az('rg', 'vm1', ENV='uat'), 'acceptance'),
@@ -126,3 +133,22 @@ def test_non_production_post_filter_never_keeps_production() -> None:
     resources = [az('Shop-NG-A', 'a'), az('Shop-NG-P', 'p'), az('Shop-NG-S', 's'), az('rg', 'x', env='dev')]
     kept = run.POLICY_POST_FILTERS['leftsize-aks-dev-clusters-always-running'](resources, {})
     assert [r['name'] for r in kept] == ['a', 'x']
+
+
+def test_lookups_use_custodians_azure_session(monkeypatch: pytest.MonkeyPatch) -> None:
+    import c7n_azure.session as session
+
+    created: List[Any] = []
+
+    class FakeSession:
+        def __init__(self, subscription_id: Optional[str] = None, **kwargs: Any) -> None:
+            created.append(subscription_id)
+
+        def client(self, name: str) -> Any:
+            assert name == 'azure.mgmt.resourcegraph.ResourceGraphClient'
+            return FakeGraph([])
+
+    monkeypatch.setattr(session, 'Session', FakeSession)
+    assert run._azure_resource_group_tags(SUB) == {}
+    assert run._azure_shutdown_schedule_targets(SUB) == set()
+    assert created == [SUB, SUB]
