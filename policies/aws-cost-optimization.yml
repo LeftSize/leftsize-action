@@ -170,42 +170,6 @@ policies:
       category: cost-optimization
       tier: free
 
-  - name: leftsize-multi-az-nonprod-ec2
-    description: "Find non-production EC2 instances spread across multiple AZs (unnecessary HA)"
-    resource: aws.ec2
-    filters:
-      # Only running instances
-      - type: value
-        key: 'State.Name'
-        value: 'running'
-      # Non-production environments
-      - type: value
-        key: 'Tags'
-        value: present
-      - or:
-        - type: value
-          key: 'tag:Environment'
-          op: in
-          value_type: normalize
-          value: ['dev', 'development', 'test', 'testing', 'staging', 'qa', 'sandbox']
-        - type: value
-          key: 'tag:Env'
-          op: in
-          value_type: normalize
-          value: ['dev', 'development', 'test', 'testing', 'staging', 'qa', 'sandbox']
-      # Instance has been running for at least 7 days (avoid catching new deployments)
-      - type: instance-age
-        op: gte
-        days: 7
-    # Note: The policy will flag instances. Manual review needed to identify which AZs to consolidate.
-    actions:
-      - type: tag
-        key: leftsize-multi-az-review
-        value: 'leftsize-flagged'
-    metadata:
-      category: cost-optimization
-      tier: free
-
   # ========================================
   # 💾 EBS VOLUMES
   # ========================================
@@ -462,26 +426,6 @@ policies:
     actions:
       - type: tag
         key: leftsize-schedule-review
-        value: 'leftsize-flagged'
-    metadata:
-      category: cost-optimization
-      tier: free
-
-  - name: leftsize-s3-intelligent-tiering-missing
-    description: "Find S3 buckets not using Intelligent-Tiering (40-70% savings on infrequent data)"
-    resource: aws.s3
-    filters:
-      # Bucket exists
-      - type: value
-        key: 'Name'
-        value: present
-      # No intelligent-tiering configuration on this bucket
-      - type: intelligent-tiering
-        count: 0
-        count_op: eq
-    actions:
-      - type: tag
-        key: leftsize-intelligent-tiering-review
         value: 'leftsize-flagged'
     metadata:
       category: cost-optimization
@@ -1313,24 +1257,32 @@ policies:
   # 💰 COST OPTIMIZATION - Batch 3 (New Rules)
   # ========================================
 
-  # A1 - Inactive EKS clusters with no nodegroups
-  # Detects EKS clusters with no attached nodegroups consuming $73/mo in control plane costs
+  # A1 - EKS clusters with no compute: control plane billed with nothing to run workloads on
   - name: leftsize-inactive-eks-cluster
-    description: "Find active EKS clusters with no nodegroups attached (control plane costs with zero workloads)"
+    description: |
+      Find active EKS clusters (older than 7 days) with no compute: no managed node
+      groups, no Fargate profiles and no running EC2 instances tagged for the cluster
+      (covers self-managed node groups and Karpenter). EKS Auto Mode clusters are skipped.
+
+      DescribeCluster has no node information, so the compute check runs in run.py
+      after Custodian (POLICY_POST_FILTERS): read-only ListNodegroups, ListFargateProfiles
+      and DescribeInstances calls. A cluster whose check fails is not reported.
     resource: aws.eks
     filters:
-      # Cluster is active
       - type: value
         key: status
         value: ACTIVE
-      # No nodegroups attached
+      # Skip new clusters whose nodes may still be provisioning
       - type: value
-        key: 'nodegroups'
-        value: empty
-    actions:
-      - type: tag
-        key: leftsize-inactive-eks
-        value: 'no-nodegroups-review'
+        key: createdAt
+        value_type: age
+        op: greater-than
+        value: 7
+      # EKS Auto Mode manages its own nodes
+      - not:
+          - type: value
+            key: 'computeConfig.enabled'
+            value: true
     metadata:
       category: cost-optimization
       tier: free

@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.22] - 2026-10-27
+
+### Removed
+- `orphaned-kubernetes-resources`, `multi-az-nonprod-ec2` and `s3-intelligent-tiering-missing`: they matched every AKS cluster, every non-prod EC2 instance and nearly every S3 bucket.
+
+### Changed
+- `inactive-eks-cluster` now only reports clusters with no managed node groups, no Fargate profiles and no running EC2 nodes tagged for the cluster (read-only `eks:ListNodegroups`, `eks:ListFargateProfiles`, `ec2:DescribeInstances`). Clusters younger than 7 days and EKS Auto Mode clusters are skipped.
+- `overprovisioned-aks-nodes` now uses the AKS node CPU and memory platform metrics (7-day average under 20% CPU and 40% memory).
+- `sql-database-dtu-model` is now a cost rule (Free) for Standard S3+ and Premium databases only.
+- `standard-lrs-attached-disk` is now a governance rule (reliability, not a saving).
+- `s3-bucket-logging-disabled` skips log destination buckets and has severity low.
+
 ## [1.0.3] - 2026-04-16
 
 ### Security

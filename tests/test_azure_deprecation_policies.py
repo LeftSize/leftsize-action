@@ -124,12 +124,6 @@ CASES: Dict[str, List[Tuple[str, Dict[str, Any], bool]]] = {
    ('1.36 is not matched by the 1.3x prefix', aks('1.36.0'), False),
    ('cluster being deleted', aks('1.30.0', state='Deleting'), False),
  ],
- 'leftsize-sql-database-dtu-model': [
-   ('Standard S0', {'name': 'appdb', 'sku': {'name': 'Standard', 'tier': 'Standard'}}, True),
-   ('Basic', {'name': 'appdb', 'sku': {'name': 'Basic', 'tier': 'Basic'}}, True),
-   ('vCore General Purpose', {'name': 'appdb', 'sku': {'name': 'GP_Gen5', 'tier': 'GeneralPurpose'}}, False),
-   ('master database', {'name': 'master', 'sku': {'name': 'System', 'tier': 'Standard'}}, False),
- ],
  'leftsize-appgateway-v1-deprecated': [
    ('Standard_Medium', {'properties': {'sku': {'name': 'Standard_Medium', 'tier': 'Standard'}}}, True),
    ('WAF_Large', {'properties': {'sku': {'name': 'WAF_Large', 'tier': 'WAF'}}}, True),

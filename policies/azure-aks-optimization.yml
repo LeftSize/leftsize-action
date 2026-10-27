@@ -5,31 +5,16 @@ policies:
   # These policies are separated from general Azure optimizations
   # because not all organizations use Kubernetes/AKS
   
-  - name: leftsize-orphaned-kubernetes-resources
-    description: "Find orphaned Kubernetes resources (PVCs, LoadBalancers, ConfigMaps) that reference deleted objects"
-    resource: azure.aks
-    filters:
-      # Only running clusters
-      - type: value
-        key: 'properties.powerState.code'
-        value: 'Running'
-    # Note: This policy identifies AKS clusters for review
-    # Actual orphaned resource detection requires querying Kubernetes API
-    # Backend will use kubectl/client-go to find:
-    #   - PVCs without Pods
-    #   - LoadBalancer Services without backend Pods
-    #   - ConfigMaps/Secrets not referenced by any resource
-    #   - Completed/Failed Jobs older than 7 days
-    actions:
-      - type: tag
-        tag: leftsize-aks-orphaned-resources-check
-        value: 'scan-for-orphaned-k8s-resources'
-    metadata:
-      category: cost-optimization
-      tier: free
-
   - name: leftsize-overprovisioned-aks-nodes
-    description: "Find AKS clusters with overprovisioned node pools (low CPU/memory utilization)"
+    description: |
+      Find running AKS clusters whose nodes averaged under 20% CPU and under 40%
+      memory (working set) over the last 7 days.
+
+      Uses the AKS platform metrics node_cpu_usage_percentage and
+      node_memory_working_set_percentage (no Container Insights needed), averaged
+      over all nodes. Clusters without metric data are skipped.
+
+      Reference: https://learn.microsoft.com/en-us/azure/azure-monitor/reference/supported-metrics/microsoft-containerservice-managedclusters-metrics
     resource: azure.aks
     filters:
       # Only running clusters
@@ -40,18 +25,22 @@ policies:
       - type: value
         key: 'properties.agentPoolProfiles'
         value: present
-    # Note: Detection of actual over-provisioning requires:
-    #   1. Kubernetes Metrics Server data (kubectl top nodes)
-    #   2. Node pool CPU/memory requests vs allocatable
-    #   3. Pod resource utilization patterns
-    # Backend will identify:
-    #   - Nodes with <40% CPU/memory utilization
-    #   - Node pools that can be downsized
-    #   - Opportunities for node pool consolidation
-    actions:
-      - type: tag
-        tag: leftsize-aks-overprovisioned-check
-        value: 'analyze-node-pool-utilization'
+      # Low node CPU over 7 days (metric time grains go up to PT12H)
+      - type: metric
+        metric: 'node_cpu_usage_percentage'
+        aggregation: 'average'
+        timeframe: 168  # hours (7 days) — c7n-azure metric timeframe is in hours
+        interval: 'PT12H'
+        op: 'lt'
+        threshold: 20.0
+      # Low node memory over 7 days (memory is usually what limits pod packing)
+      - type: metric
+        metric: 'node_memory_working_set_percentage'
+        aggregation: 'average'
+        timeframe: 168
+        interval: 'PT12H'
+        op: 'lt'
+        threshold: 40.0
     metadata:
       category: cost-optimization
       tier: free

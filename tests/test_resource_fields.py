@@ -218,3 +218,22 @@ class TestS3Region:
         md = extract_resource_metadata({"Name": "b", "CreationDate": "x", "Location": {"LocationConstraint": "eu-west-1"}},
                                        "arn:aws:s3:::b", "aws.s3")
         assert md["region"] == "eu-west-1"
+
+
+def test_aks_average_node_metrics_from_metric_filter_annotation() -> None:
+    # c7n-azure MetricFilter stores {"<metric>, <aggregation>, <timeframe>, <interval>, <filter>": {..., "measurement": [...]}}
+    resource = {
+        'properties': {'agentPoolProfiles': [{'name': 'np1', 'count': 3, 'vmSize': 'Standard_D4s_v5'}]},
+        'c7n:metrics': {
+            'node_cpu_usage_percentage, average, 168.0, 12:00:00, None': {'measurement': [8.0, 10.0, None]},
+            'node_memory_working_set_percentage, average, 168.0, 12:00:00, None': {'measurement': [30.0, 34.0]},
+        },
+    }
+    fields = extract_resource_fields(resource, 'azure.aks')
+    assert fields['avgNodeCpuPercent'] == 9.0
+    assert fields['avgNodeMemoryPercent'] == 32.0
+
+
+def test_aks_without_metrics_has_no_average_fields() -> None:
+    fields = extract_resource_fields({'properties': {'agentPoolProfiles': []}}, 'azure.aks')
+    assert 'avgNodeCpuPercent' not in fields

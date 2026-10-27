@@ -308,3 +308,35 @@ policies:
       category: governance
       severity: high
       tier: pro
+
+  # ========================================
+  # 💾 DISK RELIABILITY
+  # ========================================
+
+  # Standard HDD data disks attached to VMs: lower single-VM SLA than SSD
+  - name: leftsize-standard-lrs-attached-disk
+    description: |
+      Find attached managed disks on Standard HDD (Standard_LRS) larger than 32 GB.
+
+      This is a reliability hint, not a saving: Standard SSD usually costs somewhat
+      more than Standard HDD, but gives more consistent latency, and a single-instance
+      VM only gets Microsoft's highest uptime SLA when all its disks are Premium SSD or
+      better (Standard SSD and HDD get lower SLAs).
+
+      Reference: https://learn.microsoft.com/en-us/azure/virtual-machines/disks-types
+    resource: azure.disk
+    filters:
+      - type: value
+        key: properties.diskState
+        value: 'Attached'
+      - type: value
+        key: sku.name
+        value: 'Standard_LRS'
+      - type: value
+        key: properties.diskSizeGB
+        op: greater-than
+        value: 32
+    metadata:
+      category: governance
+      severity: low
+      tier: pro

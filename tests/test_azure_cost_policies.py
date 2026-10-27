@@ -193,10 +193,29 @@ CASES: Dict[str, List[Tuple[str, Dict[str, Any], bool]]] = {
    ('deallocated 3 days', dict(vm(), instanceView=view('deallocated', 3)), False),
    ('running', vm(), False),
  ],
- 'leftsize-standard-lrs-attached-disk': [
-   ('Standard_LRS 128 GB attached', {'sku': {'name': 'Standard_LRS'}, 'properties': {'diskState': 'Attached', 'diskSizeGB': 128}}, True),
-   ('Standard_LRS 32 GB attached', {'sku': {'name': 'Standard_LRS'}, 'properties': {'diskState': 'Attached', 'diskSizeGB': 32}}, False),
-   ('StandardSSD_LRS attached', {'sku': {'name': 'StandardSSD_LRS'}, 'properties': {'diskState': 'Attached', 'diskSizeGB': 128}}, False),
+ # ARM sku for DTU databases: tier + capacity (DTUs); name is 'S3' or 'Standard' (Databases - Get docs)
+ 'leftsize-sql-database-dtu-model': [
+   ('Standard S3 (100 DTU)', {'sku': {'name': 'S3', 'tier': 'Standard', 'capacity': 100}, 'properties': {}}, True),
+   ('Standard S6, name "Standard"', {'sku': {'name': 'Standard', 'tier': 'Standard', 'capacity': 400}, 'properties': {}}, True),
+   ('Premium P1', {'sku': {'name': 'P1', 'tier': 'Premium', 'capacity': 125}, 'properties': {}}, True),
+   ('Standard S2 (50 DTU)', {'sku': {'name': 'S2', 'tier': 'Standard', 'capacity': 50}, 'properties': {}}, False),
+   ('Standard S0', {'sku': {'name': 'S0', 'tier': 'Standard', 'capacity': 10}, 'properties': {}}, False),
+   ('Basic', {'sku': {'name': 'Basic', 'tier': 'Basic', 'capacity': 5}, 'properties': {}}, False),
+   ('vCore General Purpose', {'sku': {'name': 'GP_Gen5', 'tier': 'GeneralPurpose', 'capacity': 2}, 'properties': {}}, False),
+   ('Premium in an elastic pool', {'sku': {'name': 'ElasticPool', 'tier': 'Premium', 'capacity': 0},
+                                   'properties': {'elasticPoolId': '/x/elasticPools/p'}}, False),
+   ('master', {'name': 'master', 'sku': {'name': 'System', 'tier': 'Standard', 'capacity': 200}, 'properties': {}}, False),
+ ],
+ 'leftsize-overprovisioned-aks-nodes': [
+   ('CPU 8%, memory 25%', dict(aks({'name': 'np1'}), _metrics={'node_cpu_usage_percentage': [8.0, 9.0],
+                                                             'node_memory_working_set_percentage': [25.0, 30.0]}), True),
+   ('CPU 8%, memory 70%', dict(aks({'name': 'np1'}), _metrics={'node_cpu_usage_percentage': [8.0],
+                                                             'node_memory_working_set_percentage': [70.0]}), False),
+   ('CPU 45%, memory 25%', dict(aks({'name': 'np1'}), _metrics={'node_cpu_usage_percentage': [45.0],
+                                                              'node_memory_working_set_percentage': [25.0]}), False),
+   ('no metric data', aks({'name': 'np1'}), False),
+   ('stopped cluster', dict(aks({'name': 'np1'}, power='Stopped'), _metrics={'node_cpu_usage_percentage': [1.0],
+                                                                           'node_memory_working_set_percentage': [5.0]}), False),
  ],
  'leftsize-sql-elastic-pool-empty': [
    ('pool, no data points', {'type': 'Microsoft.Sql/servers/elasticPools'}, True),

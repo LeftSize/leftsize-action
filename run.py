@@ -1205,6 +1205,46 @@ def _policy_output_dirs(output_dir: Path, config: Dict[str, Any]):
                 yield policy_dir, region_config
 
 
+def _eks_cluster_has_compute(cluster: Dict[str, Any], session: Any = None) -> Optional[bool]:
+    """True when an EKS cluster has managed node groups, Fargate profiles or running EC2
+    instances tagged for it (self-managed nodes, Karpenter); None when the check failed.
+    Read-only calls only."""
+    name = cluster.get('name')
+    arn = cluster.get('arn') or ''
+    parts = arn.split(':')
+    if not name or len(parts) < 4 or not parts[3]:
+        return None
+    region = parts[3]
+    try:
+        if session is None:
+            import boto3
+            session = boto3.session.Session()
+        eks = session.client('eks', region_name=region)
+        if eks.list_nodegroups(clusterName=name, maxResults=1).get('nodegroups'):
+            return True
+        if eks.list_fargate_profiles(clusterName=name, maxResults=1).get('fargateProfileNames'):
+            return True
+        ec2 = session.client('ec2', region_name=region)
+        state = {'Name': 'instance-state-name', 'Values': ['pending', 'running']}
+        for tag_filter in ({'Name': 'tag-key', 'Values': [f'kubernetes.io/cluster/{name}']},
+                           {'Name': 'tag:eks:eks-cluster-name', 'Values': [name]}):
+            reservations = ec2.describe_instances(Filters=[tag_filter, state], MaxResults=5).get('Reservations')
+            if any(res.get('Instances') for res in reservations or []):
+                return True
+        return False
+    except Exception as e:
+        logger.warning("EKS compute check failed; cluster not reported", cluster=name, error=str(e))
+        return None
+
+
+def _eks_without_compute(resources: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    return [r for r in resources if _eks_cluster_has_compute(r) is False]
+
+
+# Checks Custodian filters can't express, applied to a policy's matches after the run
+POLICY_POST_FILTERS = {'leftsize-inactive-eks-cluster': _eks_without_compute}
+
+
 def parse_custodian_output(output_dir: str, config: Dict[str, Any]) -> List[Dict[str, Any]]:
     """Parse Cloud Custodian output and convert to LeftSize findings"""
     logger.info("Parsing Custodian output", output_dir=output_dir)
@@ -1224,6 +1264,10 @@ def parse_custodian_output(output_dir: str, config: Dict[str, Any]) -> List[Dict
             with open(resources_file) as f:
                 resources = json.load(f)
             
+            post_filter = POLICY_POST_FILTERS.get(policy_name)
+            if post_filter and resources:
+                resources = post_filter(resources)
+
             if not resources:
                 logger.debug("No resources found for policy", policy=policy_name)
                 continue
@@ -1738,6 +1782,24 @@ def _avg_cpu_percent(resource: Dict[str, Any]) -> Optional[float]:
     return None
 
 
+def _azure_metric_average(resource: Dict[str, Any], metric: str) -> Optional[float]:
+    """Average of the values an Azure `metric` filter fetched (c7n:metrics annotation, keyed by "<metric>, ...")."""
+    for key, entry in (resource.get('c7n:metrics') or {}).items():
+        if key.split(',')[0] == metric and isinstance(entry, dict):
+            values = [v for v in entry.get('measurement') or [] if isinstance(v, (int, float))]
+            if values:
+                return round(sum(values) / len(values), 1)
+    return None
+
+
+def _aks_avg_node_cpu(resource: Dict[str, Any]) -> Optional[float]:
+    return _azure_metric_average(resource, 'node_cpu_usage_percentage')
+
+
+def _aks_avg_node_memory(resource: Dict[str, Any]) -> Optional[float]:
+    return _azure_metric_average(resource, 'node_memory_working_set_percentage')
+
+
 def _s3_bucket_region(resource: Dict[str, Any]) -> Optional[str]:
     """S3 ARNs carry no region; use the bucket location Custodian adds (same mapping as c7n's get_region)."""
     location = resource.get('Location')
@@ -1750,7 +1812,8 @@ def _s3_bucket_region(resource: Dict[str, Any]) -> Optional[str]:
 # Fields that need more than a path lookup (counts, lists, derived values).
 RESOURCE_FIELD_BUILDERS: Dict[str, Dict[str, Any]] = {
     'azure.aks': {'nodePools': _aks_node_pools, 'nodeCount': _aks_node_count, 'vmSizes': _aks_vm_sizes,
-                  'retiringNodePools': _aks_retiring_pools, 'retirementDate': _aks_retirement_date},
+                  'retiringNodePools': _aks_retiring_pools, 'retirementDate': _aks_retirement_date,
+                  'avgNodeCpuPercent': _aks_avg_node_cpu, 'avgNodeMemoryPercent': _aks_avg_node_memory},
     'azure.vmss': {'retiringSeries': _vmss_retiring_series, 'retirementDate': _vmss_retirement_date},
     'azure.loadbalancer': {'backendPoolCount': _lb_backend_pool_count, 'publicIpCount': _lb_public_ip_count},
     'aws.asg': {'instanceTypes': _asg_instance_types},

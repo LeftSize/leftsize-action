@@ -461,29 +461,6 @@ policies:
   # 💾 DISK & STORAGE OPTIMIZATION
   # ========================================
 
-  # Standard HDD Attached Disk - upgrade candidate
-  - name: leftsize-standard-lrs-attached-disk
-    description: "Managed disk using Standard HDD (Standard_LRS) is attached to a running VM. Consider upgrading to Standard SSD (StandardSSD_LRS) for better reliability and similar cost, or Premium SSD for performance-critical workloads."
-    resource: azure.disk
-    filters:
-      - type: value
-        key: properties.diskState
-        value: 'Attached'
-      - type: value
-        key: sku.name
-        value: 'Standard_LRS'
-      - type: value
-        key: properties.diskSizeGB
-        op: greater-than
-        value: 32
-    actions:
-      - type: tag
-        tag: leftsize-standard-lrs-attached-disk
-        value: 'leftsize-flagged'
-    metadata:
-      category: cost-optimization
-      tier: free
-
   # ========================================
   # 🗄️ SQL DATABASE OPTIMIZATION
   # ========================================
@@ -930,4 +907,50 @@ policies:
     metadata:
       category: cost-optimization
       severity: medium
+      tier: free
+
+  # ========================================
+  # 🗄️ SQL DATABASE DTU MODEL (cost hint; the DTU model is not retired)
+  # ========================================
+
+  - name: leftsize-sql-database-dtu-model
+    description: |
+      Find larger Azure SQL Databases on the DTU purchasing model (Standard S3+ and Premium)
+      that may cost less on vCore.
+
+      The DTU model is still supported; Microsoft has not announced a retirement
+      (checked 2026-10-27). Reserved capacity and Azure Hybrid Benefit are vCore-only,
+      and vCore allows separate compute/storage sizing. Basic and S0-S2 are skipped:
+      small databases usually cost more on vCore.
+
+      ARM returns DTU databases with sku.tier Standard/Premium and sku.capacity = DTUs
+      (sku.name may be "S3" or "Standard"). S3 = 100 DTU, P1 = 125 DTU. Databases in
+      an elastic pool are skipped.
+
+      Reference: https://learn.microsoft.com/en-us/azure/azure-sql/database/migrate-dtu-to-vcore
+      Reference: https://learn.microsoft.com/en-us/azure/azure-sql/database/service-tiers-dtu
+    resource: azure.sql-database
+    filters:
+      - type: value
+        key: 'name'
+        op: ne
+        value: 'master'
+      - type: value
+        key: 'properties.elasticPoolId'
+        value: absent
+      - or:
+          - type: value
+            key: 'sku.tier'
+            value: 'Premium'
+          - and:
+              - type: value
+                key: 'sku.tier'
+                value: 'Standard'
+              - type: value
+                key: 'sku.capacity'
+                op: gte
+                value: 100
+    metadata:
+      category: cost-optimization
+      severity: low
       tier: free

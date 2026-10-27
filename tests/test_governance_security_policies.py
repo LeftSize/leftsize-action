@@ -249,6 +249,12 @@ def test_vpc_flow_logs_disabled(label: str, logs: List[Dict[str, str]], expected
     ('leftsize-s3-bucket-logging-disabled', {'Name': 'b', 'Logging': {}}, True),
     ('leftsize-s3-bucket-logging-disabled', {'Name': 'b', 'Logging': {'TargetBucket': 'logs', 'TargetPrefix': 'b/'}}, False),
     ('leftsize-s3-bucket-logging-disabled', {'Name': 'b', 'c7n:DeniedMethods': ['get_bucket_logging']}, False),
+    # Log destination buckets are skipped by name; words that merely contain "log" are not
+    ('leftsize-s3-bucket-logging-disabled', {'Name': 'acme-access-logs', 'Logging': {}}, False),
+    ('leftsize-s3-bucket-logging-disabled', {'Name': 'aws-cloudtrail-logs-1234', 'Logging': {}}, False),
+    ('leftsize-s3-bucket-logging-disabled', {'Name': 'Prod.Log.Archive', 'Logging': {}}, False),
+    ('leftsize-s3-bucket-logging-disabled', {'Name': 'catalog-images', 'Logging': {}}, True),
+    ('leftsize-s3-bucket-logging-disabled', {'Name': 'company-blog', 'Logging': {}}, True),
 ])
 def test_aws_value_rules(rule: str, resource: Dict[str, Any], expected: bool) -> None:
     assert run(AWS_SEC[rule], resource) is expected
@@ -298,3 +304,14 @@ def test_rds_snapshot_public(restore: List[str], expected: bool, monkeypatch: py
     monkeypatch.setattr(rds, 'local_session', lambda factory: FakeSession(FakeClient([], restore)))
     snap = {'DBSnapshotIdentifier': 's1', 'DBSnapshotArn': 'arn:aws:rds:us-east-1:111111111111:snapshot:s1'}
     assert run(AWS_SEC['leftsize-rds-snapshot-public'], snap) is expected
+
+
+@pytest.mark.parametrize('label,resource,expected', [
+    ('Standard_LRS 128 GB attached', {'sku': {'name': 'Standard_LRS'}, 'properties': {'diskState': 'Attached', 'diskSizeGB': 128}}, True),
+    ('Standard_LRS 32 GB attached', {'sku': {'name': 'Standard_LRS'}, 'properties': {'diskState': 'Attached', 'diskSizeGB': 32}}, False),
+    ('Standard_LRS 128 GB unattached', {'sku': {'name': 'Standard_LRS'}, 'properties': {'diskState': 'Unattached', 'diskSizeGB': 128}}, False),
+    ('StandardSSD_LRS attached', {'sku': {'name': 'StandardSSD_LRS'}, 'properties': {'diskState': 'Attached', 'diskSizeGB': 128}}, False),
+])
+def test_standard_lrs_attached_disk(label: str, resource: Dict[str, Any], expected: bool) -> None:
+    base = {'id': '/subscriptions/s/resourceGroups/rg/providers/Microsoft.Compute/disks/d1', 'name': 'd1'}
+    assert run(AZ_GOV['leftsize-standard-lrs-attached-disk'], dict(base, **resource), region='westeurope') is expected

@@ -199,43 +199,6 @@ policies:
       tier: pro
 
   # ========================================
-  # 🗄️ SQL DATABASE DTU MODEL (not retired; optimization hint)
-  # ========================================
-
-  - name: leftsize-sql-database-dtu-model
-    description: |
-      Find Azure SQL Databases on the DTU purchasing model (Basic, Standard, Premium).
-
-      NOTE: the DTU model is still supported; Microsoft has not announced a
-      retirement (checked 2026-10-27). This is an optimization hint, not a
-      deprecation: reserved capacity and Azure Hybrid Benefit are vCore-only,
-      and vCore allows separate compute/storage sizing. Small databases
-      (Basic, S0-S2) usually cost more on vCore.
-
-      Reference: https://learn.microsoft.com/en-us/azure/azure-sql/database/migrate-dtu-to-vcore
-      Reference: https://learn.microsoft.com/en-us/azure/azure-sql/database/service-tiers-dtu
-    
-    resource: azure.sql-database
-    
-    filters:
-      # DTU-based SKUs (Basic, Standard S0-S12, Premium P1-P15)
-      - type: value
-        key: 'sku.tier'
-        op: in
-        value:
-          - 'Basic'
-          - 'Standard'
-          - 'Premium'
-      # Exclude system databases
-      - type: value
-        key: 'name'
-        op: ne
-        value: 'master'
-    metadata:
-      category: deprecation
-      tier: pro
-
-  # ========================================
   # 🌐 APPLICATION GATEWAY DEPRECATIONS
   # ========================================
 

@@ -241,8 +241,10 @@ policies:
       Detection criteria:
       - GetBucketLogging returns no LoggingEnabled block
       - Buckets whose logging configuration could not be read are skipped
+      - Buckets that look like log destinations are skipped: the name contains
+        log, logs, logging or cloudtrail as a separate word (split on - _ .)
       
-      Security impact: MEDIUM - No audit trail for access
+      Security impact: LOW - No per-request audit trail for object access
       Compliance: CIS AWS Foundations
     
     resource: aws.s3
@@ -255,10 +257,16 @@ policies:
       - type: value
         key: Logging
         value: empty
+      # Skip log destination buckets (value regex uses re.match, so anchor with .*)
+      - not:
+          - type: value
+            key: Name
+            op: regex
+            value: '(?i)(.*[-_.])?(logs?|logging|cloudtrail)([-_.].*)?$'
     
     metadata:
       category: security
-      severity: medium
+      severity: low
       tier: pro
   
   # ========================================
