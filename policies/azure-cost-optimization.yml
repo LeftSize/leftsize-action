@@ -256,7 +256,16 @@ policies:
   # configuration (Microsoft.DevTestLab/schedules) with Cloud Custodian VM filters.
   # Template instructs users to check and configure auto-shutdown.
   - name: leftsize-vm-scheduled-shutdown-missing
-    description: "Find running non-production VMs that should have auto-shutdown configured"
+    description: |
+      Find running non-production VMs (Environment/Env tag dev, test, staging, qa,
+      sandbox) without an enabled auto-shutdown schedule.
+
+      Auto-shutdown is a separate resource (Microsoft.DevTestLab/schedules, named
+      shutdown-computevm-<vm>, taskType ComputeVmShutdownTask) that Custodian can't
+      link to a VM, so that check runs in run.py after Custodian (POLICY_POST_FILTERS):
+      one read-only Resource Graph query per subscription. If the query fails, no VM
+      of that subscription is reported. Other schedulers (Azure Automation Start/Stop,
+      Logic Apps, Functions) are not visible.
     resource: azure.vm
     filters:
       # Non-production environments (by tag)

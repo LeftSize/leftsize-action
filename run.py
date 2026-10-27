@@ -1241,8 +1241,61 @@ def _eks_without_compute(resources: List[Dict[str, Any]]) -> List[Dict[str, Any]
     return [r for r in resources if _eks_cluster_has_compute(r) is False]
 
 
+# Enabled VM auto-shutdown schedules (Microsoft.DevTestLab/schedules, named shutdown-computevm-<vm>)
+SHUTDOWN_SCHEDULES_QUERY = (
+    "resources"
+    " | where type =~ 'microsoft.devtestlab/schedules'"
+    " | where properties.status =~ 'Enabled' and properties.taskType =~ 'ComputeVmShutdownTask'"
+    " | project vm = tolower(tostring(properties.targetResourceId))"
+)
+
+
+def _azure_shutdown_schedule_targets(subscription_id: str, client: Any = None) -> Optional[set]:
+    """Lower-cased IDs of the VMs in a subscription that have an enabled auto-shutdown
+    schedule (one read-only Resource Graph query); None when the query failed."""
+    try:
+        from azure.mgmt.resourcegraph.models import QueryRequest, QueryRequestOptions
+        if client is None:
+            from azure.identity import DefaultAzureCredential
+            from azure.mgmt.resourcegraph import ResourceGraphClient
+            client = ResourceGraphClient(DefaultAzureCredential())
+        targets: set = set()
+        skip_token = None
+        while True:
+            response = client.resources(QueryRequest(
+                subscriptions=[subscription_id], query=SHUTDOWN_SCHEDULES_QUERY,
+                options=QueryRequestOptions(skip_token=skip_token, result_format='objectArray')))
+            targets.update(row['vm'] for row in response.data or [] if row.get('vm'))
+            skip_token = response.skip_token
+            if not skip_token:
+                return targets
+    except Exception as e:
+        logger.warning("Auto-shutdown schedule lookup failed; VMs not reported", subscription=subscription_id, error=str(e))
+        return None
+
+
+def _vms_without_shutdown_schedule(resources: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    targets_by_subscription: Dict[str, Optional[set]] = {}
+    kept = []
+    for vm in resources:
+        vm_id = (vm.get('id') or '').lower()
+        parts = vm_id.split('/')
+        if len(parts) < 3 or parts[1] != 'subscriptions':
+            continue
+        subscription_id = parts[2]
+        if subscription_id not in targets_by_subscription:
+            targets_by_subscription[subscription_id] = _azure_shutdown_schedule_targets(subscription_id)
+        targets = targets_by_subscription[subscription_id]
+        if targets is not None and vm_id not in targets:
+            kept.append(vm)
+    return kept
+
+
 # Checks Custodian filters can't express, applied to a policy's matches after the run
-POLICY_POST_FILTERS = {'leftsize-inactive-eks-cluster': _eks_without_compute}
+POLICY_POST_FILTERS = {
+    'leftsize-inactive-eks-cluster': _eks_without_compute,
+    'leftsize-vm-scheduled-shutdown-missing': _vms_without_shutdown_schedule,
+}
 
 
 def parse_custodian_output(output_dir: str, config: Dict[str, Any]) -> List[Dict[str, Any]]:
