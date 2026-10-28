@@ -141,6 +141,22 @@ def validate_aws_region(region: str) -> bool:
     return re.match(region_pattern, region.strip()) is not None
 
 
+def get_aws_account_name(session: Any = None) -> Optional[str]:
+    """The AWS account name (account:GetAccountInformation for the caller's own account,
+    read-only and part of ReadOnlyAccess), e.g. "flux-acc". In AWS Organizations this is
+    the name shown for the member account; it often names the environment."""
+    try:
+        if session is None:
+            import boto3
+            session = boto3.session.Session()
+        name = session.client('account').get_account_information().get('AccountName')
+        logger.info("AWS account name", name=name)
+        return name
+    except Exception as e:
+        logger.warning("Could not read the AWS account name; environment from tags and names only", error=str(e))
+        return None
+
+
 def get_aws_account_alias(session: Any = None) -> Optional[str]:
     """The AWS account alias (iam:ListAccountAliases, read-only), e.g. "shop-acc".
     Used as an environment signal when accounts represent environments."""
@@ -358,6 +374,9 @@ def github_action_main():
                 config_data.setdefault('targets', {}).setdefault('aws', {})['account_id'] = aws_account_id
             else:
                 logger.warning("Could not retrieve AWS account ID - multi-account scoping may not work correctly")
+            aws_account_name = get_aws_account_name()
+            if aws_account_name:
+                config_data.setdefault('targets', {}).setdefault('aws', {})['account_name'] = aws_account_name
             aws_account_alias = get_aws_account_alias()
             if aws_account_alias:
                 config_data.setdefault('targets', {}).setdefault('aws', {})['account_alias'] = aws_account_alias
@@ -1488,10 +1507,12 @@ def classify_environment(resource: Dict[str, Any], config: Dict[str, Any]) -> Tu
     env = environment_from_text(subscription.get('name') or '')
     if env:
         signals.append((env, f"subscription name {subscription['name']}"))
-    alias = config.get('targets', {}).get('aws', {}).get('account_alias')
-    env = environment_from_text(alias) if alias else None
-    if env:
-        signals.append((env, f'AWS account alias {alias}'))
+    aws_target = config.get('targets', {}).get('aws', {})
+    for label, text in (('AWS account name', aws_target.get('account_name')),
+                        ('AWS account alias', aws_target.get('account_alias'))):
+        env = environment_from_text(text) if text else None
+        if env:
+            signals.append((env, f'{label} {text}'))
 
     for env, source in signals:
         if env == 'production':

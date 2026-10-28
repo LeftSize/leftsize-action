@@ -202,3 +202,29 @@ def test_azure_subscription_name_and_tags(monkeypatch: pytest.MonkeyPatch) -> No
     assert run.classify_environment(az('platform', 'vm1-test'), {})[0] == 'test'
     monkeypatch.setattr(run, '_SUBSCRIPTIONS', {SUB.lower(): {'name': 'Shop', 'tags': {'Environment': 'Production'}}})
     assert run.classify_environment(az('platform', 'vm1-test'), {}) == ('production', 'tag Environment=Production on subscription Shop')
+
+
+class FakeAccount:
+    def __init__(self, name: Optional[str], fail: bool = False) -> None:
+        self.name, self.fail = name, fail
+
+    def get_account_information(self) -> Dict[str, Any]:
+        if self.fail:
+            raise RuntimeError('AccessDeniedException')
+        return {'AccountId': '111122223333', 'AccountName': self.name}
+
+
+@pytest.mark.parametrize('name,fail,expected', [('flux-acc', False, 'flux-acc'), (None, True, None)])
+def test_get_aws_account_name(name: Optional[str], fail: bool, expected: Optional[str]) -> None:
+    session = SimpleNamespace(client=lambda service: FakeAccount(name, fail))
+    assert run.get_aws_account_name(session) == expected
+
+
+@pytest.mark.parametrize('targets,expected', [
+    ({'account_name': 'flux-acc'}, ('acceptance', 'AWS account name flux-acc')),
+    ({'account_name': 'Flux', 'account_alias': 'flux-model-dev'}, ('development', 'AWS account alias flux-model-dev')),
+    ({'account_name': 'flux-prod', 'account_alias': 'flux-dev'}, ('production', 'AWS account name flux-prod')),
+    ({'account_name': 'Flux Group'}, ('unknown', 'no environment tag or recognisable name')),
+])
+def test_aws_account_name_signal(targets: Dict[str, str], expected: Any) -> None:
+    assert run.classify_environment({'FunctionName': 'authorizer'}, {'targets': {'aws': targets}}) == expected
