@@ -152,3 +152,53 @@ def test_lookups_use_custodians_azure_session(monkeypatch: pytest.MonkeyPatch) -
     assert run._azure_resource_group_tags(SUB) == {}
     assert run._azure_shutdown_schedule_targets(SUB) == set()
     assert created == [SUB, SUB]
+
+
+ALIAS = lambda alias: {'targets': {'aws': {'account_alias': alias}}}  # noqa: E731
+
+
+@pytest.mark.parametrize('label,resource,config,expected', [
+    ('unnamed Lambda in the acc account', {'FunctionName': 'bag-search-api-jwt-authorizer'}, ALIAS('flux-acc'), 'acceptance'),
+    ('EBS volume with only an ID', {'VolumeId': 'vol-0a396600e68e5c416'}, ALIAS('flux-model-dev'), 'development'),
+    ('prod account', {'FunctionName': 'authorizer'}, ALIAS('flux-prod'), 'production'),
+    ('resource name beats the account for non-prod', aws('orders-test-worker'), ALIAS('flux-acc'), 'test'),
+    ('production name in a dev account stays production', aws('orders-prod-worker'), ALIAS('flux-dev'), 'production'),
+    ('production account beats a dev name', aws('orders-dev-worker'), ALIAS('flux-prod'), 'production'),
+    ('alias without an environment', {'FunctionName': 'authorizer'}, ALIAS('flux-main'), 'unknown'),
+], ids=lambda x: x if isinstance(x, str) else '')
+def test_aws_account_alias(label: str, resource: Dict[str, Any], config: Dict[str, Any], expected: str) -> None:
+    assert run.classify_environment(resource, config)[0] == expected
+
+
+def test_account_alias_source() -> None:
+    assert run.classify_environment({'FunctionName': 'authorizer'}, ALIAS('flux-acc')) == ('acceptance', 'AWS account alias flux-acc')
+
+
+class FakeIAM:
+    def __init__(self, aliases: List[str], fail: bool = False) -> None:
+        self.aliases, self.fail = aliases, fail
+
+    def list_account_aliases(self) -> Dict[str, Any]:
+        if self.fail:
+            raise RuntimeError('AccessDenied')
+        return {'AccountAliases': self.aliases}
+
+
+@pytest.mark.parametrize('aliases,fail,expected', [(['flux-acc'], False, 'flux-acc'), ([], False, None), (['x'], True, None)])
+def test_get_aws_account_alias(aliases: List[str], fail: bool, expected: Optional[str]) -> None:
+    session = SimpleNamespace(client=lambda service: FakeIAM(aliases, fail))
+    assert run.get_aws_account_alias(session) == expected
+
+
+def test_azure_subscription_name_and_tags(monkeypatch: pytest.MonkeyPatch) -> None:
+    info = run._azure_subscription_info(SUB, client=FakeGraph([{'name': 'shop-acc', 'tags': {'costcenter': '42'}}]))
+    assert info == {'name': 'shop-acc', 'tags': {'costcenter': '42'}}
+
+    monkeypatch.setattr(run, 'LOOKUP_RESOURCE_GROUP_TAGS', True)
+    monkeypatch.setattr(run, '_RESOURCE_GROUP_TAGS', {SUB.lower(): {}})
+    monkeypatch.setattr(run, '_SUBSCRIPTIONS', {SUB.lower(): info})
+    assert run.classify_environment(az('platform', 'vm1'), {}) == ('acceptance', 'subscription name shop-acc')
+    # A resource's own name still wins for non-prod, and production always wins
+    assert run.classify_environment(az('platform', 'vm1-test'), {})[0] == 'test'
+    monkeypatch.setattr(run, '_SUBSCRIPTIONS', {SUB.lower(): {'name': 'Shop', 'tags': {'Environment': 'Production'}}})
+    assert run.classify_environment(az('platform', 'vm1-test'), {}) == ('production', 'tag Environment=Production on subscription Shop')

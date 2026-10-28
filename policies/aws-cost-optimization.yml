@@ -390,8 +390,9 @@ policies:
       Non-production is decided per resource by classify_environment in run.py (after
       Custodian): environment tags on the resource or its resource group, then words
       in the resource or resource group name (acc, test, dev, uat, staging, ...), then
-      a resource group suffix such as -A or -T. Any production signal wins; resources
-      without positive non-production evidence are never reported.
+      a resource group suffix such as -A or -T, then the AWS account alias or Azure
+      subscription name/tags (one account per environment). Any production signal wins;
+      resources without positive non-production evidence are never reported.
     resource: aws.ec2
     filters:
       # Only running instances
@@ -503,8 +504,9 @@ policies:
       Non-production is decided per resource by classify_environment in run.py (after
       Custodian): environment tags on the resource or its resource group, then words
       in the resource or resource group name (acc, test, dev, uat, staging, ...), then
-      a resource group suffix such as -A or -T. Any production signal wins; resources
-      without positive non-production evidence are never reported.
+      a resource group suffix such as -A or -T, then the AWS account alias or Azure
+      subscription name/tags (one account per environment). Any production signal wins;
+      resources without positive non-production evidence are never reported.
     resource: aws.rds
     filters:
       # aws.rds also returns DocumentDB and Neptune instances; this advice is for RDS/Aurora only

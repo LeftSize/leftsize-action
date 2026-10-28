@@ -141,6 +141,22 @@ def validate_aws_region(region: str) -> bool:
     return re.match(region_pattern, region.strip()) is not None
 
 
+def get_aws_account_alias(session: Any = None) -> Optional[str]:
+    """The AWS account alias (iam:ListAccountAliases, read-only), e.g. "shop-acc".
+    Used as an environment signal when accounts represent environments."""
+    try:
+        if session is None:
+            import boto3
+            session = boto3.session.Session()
+        aliases = session.client('iam').list_account_aliases().get('AccountAliases') or []
+        alias = aliases[0] if aliases else None
+        logger.info("AWS account alias", alias=alias)
+        return alias
+    except Exception as e:
+        logger.warning("Could not read the AWS account alias; environment from tags and names only", error=str(e))
+        return None
+
+
 def get_aws_account_id() -> Optional[str]:
     """Get AWS account ID using STS GetCallerIdentity.
     
@@ -342,6 +358,9 @@ def github_action_main():
                 config_data.setdefault('targets', {}).setdefault('aws', {})['account_id'] = aws_account_id
             else:
                 logger.warning("Could not retrieve AWS account ID - multi-account scoping may not work correctly")
+            aws_account_alias = get_aws_account_alias()
+            if aws_account_alias:
+                config_data.setdefault('targets', {}).setdefault('aws', {})['account_alias'] = aws_account_alias
         
         # Execute Cloud Custodian policies
         findings = execute_custodian_policies(policies_dir, config_data)
@@ -1361,6 +1380,35 @@ def _azure_resource_group_tags(subscription_id: str, client: Any = None) -> Opti
         return None
 
 
+_SUBSCRIPTIONS: Dict[str, Optional[Dict[str, Any]]] = {}
+
+
+def _azure_subscription_info(subscription_id: str, client: Any = None) -> Optional[Dict[str, Any]]:
+    """{'name': display name, 'tags': {...}} of a subscription; None when the query failed."""
+    try:
+        from azure.mgmt.resourcegraph.models import QueryRequest, QueryRequestOptions
+        if client is None:
+            client = _resource_graph_client(subscription_id)
+        query = "resourcecontainers | where type =~ 'microsoft.resources/subscriptions' | project name, tags"
+        rows = client.resources(QueryRequest(subscriptions=[subscription_id], query=query,
+                                             options=QueryRequestOptions(result_format='objectArray'))).data or []
+        row = rows[0] if rows else {}
+        info = {'name': row.get('name') or '', 'tags': {str(k): str(v) for k, v in (row.get('tags') or {}).items() if v is not None}}
+        logger.info("Azure subscription read", subscription=subscription_id, name=info['name'])
+        return info
+    except Exception as e:
+        logger.warning("Subscription lookup failed; environment from tags and names only", subscription=subscription_id, error=str(e))
+        return None
+
+
+def _subscription_info(subscription_id: Optional[str]) -> Dict[str, Any]:
+    if not LOOKUP_RESOURCE_GROUP_TAGS or not subscription_id:
+        return {}
+    if subscription_id not in _SUBSCRIPTIONS:
+        _SUBSCRIPTIONS[subscription_id] = _azure_subscription_info(subscription_id)
+    return _SUBSCRIPTIONS[subscription_id] or {}
+
+
 def _resource_group_tags(subscription_id: Optional[str], resource_group: Optional[str]) -> Dict[str, str]:
     if not LOOKUP_RESOURCE_GROUP_TAGS or not subscription_id or not resource_group:
         return {}
@@ -1431,6 +1479,19 @@ def classify_environment(resource: Dict[str, Any], config: Dict[str, Any]) -> Tu
             words.pop()
         if len(words) > 1 and words[-1] in ENVIRONMENT_SUFFIXES:
             signals.append((ENVIRONMENT_SUFFIXES[words[-1]], f'resource group name {group} (suffix -{words[-1].upper()})'))
+
+    # Weakest: the account or subscription, for setups with one per environment (shop-acc)
+    subscription = _subscription_info(subscription_id)
+    found = _environment_from_tags(subscription.get('tags') or {})
+    if found:
+        signals.append((found[0], f"tag {found[1]} on subscription {subscription.get('name') or subscription_id}"))
+    env = environment_from_text(subscription.get('name') or '')
+    if env:
+        signals.append((env, f"subscription name {subscription['name']}"))
+    alias = config.get('targets', {}).get('aws', {}).get('account_alias')
+    env = environment_from_text(alias) if alias else None
+    if env:
+        signals.append((env, f'AWS account alias {alias}'))
 
     for env, source in signals:
         if env == 'production':

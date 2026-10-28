@@ -262,8 +262,9 @@ policies:
       Non-production is decided per resource by classify_environment in run.py (after
       Custodian): environment tags on the resource or its resource group, then words
       in the resource or resource group name (acc, test, dev, uat, staging, ...), then
-      a resource group suffix such as -A or -T. Any production signal wins; resources
-      without positive non-production evidence are never reported.
+      a resource group suffix such as -A or -T, then the AWS account alias or Azure
+      subscription name/tags (one account per environment). Any production signal wins;
+      resources without positive non-production evidence are never reported.
 
       Auto-shutdown is a separate resource (Microsoft.DevTestLab/schedules, named
       shutdown-computevm-<vm>, taskType ComputeVmShutdownTask) that Custodian can't
@@ -390,8 +391,9 @@ policies:
       Non-production is decided per resource by classify_environment in run.py (after
       Custodian): environment tags on the resource or its resource group, then words
       in the resource or resource group name (acc, test, dev, uat, staging, ...), then
-      a resource group suffix such as -A or -T. Any production signal wins; resources
-      without positive non-production evidence are never reported.
+      a resource group suffix such as -A or -T, then the AWS account alias or Azure
+      subscription name/tags (one account per environment). Any production signal wins;
+      resources without positive non-production evidence are never reported.
     resource: azure.sql-database
     filters:
       # Business Critical tier

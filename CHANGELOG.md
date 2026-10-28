@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.26] - 2026-10-28
+
+### Added
+- Environment detection also uses the account a resource lives in, for setups with one account per environment: the AWS account alias (one read-only `iam:ListAccountAliases` call per scan) and the Azure subscription name and tags (one Resource Graph query per subscription). It is the weakest signal: tags and names of the resource itself come first, and any production signal still wins.
+
 ## [1.0.25] - 2026-10-27
 
 ### Fixed

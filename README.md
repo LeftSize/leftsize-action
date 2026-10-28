@@ -146,6 +146,7 @@ Some rules only apply to non-production resources, such as shutting down dev VMs
 2. An `Environment`, `Env` or `Stage` tag on the resource, then on its Azure resource group
 3. Words in the resource name or resource group name: `prod`, `prd`, `live` → production; `acc`, `uat`, `preprod` → acceptance; `stg`, `staging`; `test`, `tst`, `qa`; `dev`; `sandbox`; `nonprod`
 4. A one-letter last word in the resource group name: `-P`, `-A`, `-T`, `-D` (for example `Shop-NG-A`)
+5. The account the resource is in, for setups with one account per environment: the AWS account alias, or the Azure subscription name or its `Environment` tag (for example `shop-acc`)
 
 Any production signal wins, and a resource without positive non-production evidence is never treated as non-production. Each issue shows the environment and what it was based on.
 
