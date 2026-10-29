@@ -251,3 +251,39 @@ def test_aks_average_node_metrics_from_metric_filter_annotation() -> None:
 def test_aks_without_metrics_has_no_average_fields() -> None:
     fields = extract_resource_fields({'properties': {'agentPoolProfiles': []}}, 'azure.aks')
     assert 'avgNodeCpuPercent' not in fields
+
+
+class TestPricingFields:
+    """Fields the worker's savings estimates need (apps/api-worker/src/pricing/estimates.ts)."""
+
+    def test_ec2_platform(self):
+        fields = extract_resource_fields({'InstanceType': 't3.medium', 'PlatformDetails': 'Windows'}, 'aws.ec2')
+        assert fields['platform'] == 'Windows'
+
+    def test_rds_multi_az_and_license(self):
+        fields = extract_resource_fields({'DBInstanceClass': 'db.t3.medium', 'Engine': 'postgres', 'MultiAZ': True,
+                                          'LicenseModel': 'postgresql-license'}, 'aws.rds')
+        assert fields['multiAZ'] is True and fields['licenseModel'] == 'postgresql-license'
+
+    def test_azure_vm_os_type(self):
+        vm = {'properties': {'storageProfile': {'osDisk': {'osType': 'Linux', 'diskSizeGB': 30}}}}
+        assert extract_resource_fields(vm, 'azure.vm')['osType'] == 'Linux'
+
+    def test_azure_snapshot_sku_and_incremental_false_is_kept(self):
+        snap = {'sku': {'name': 'Standard_LRS'}, 'properties': {'diskSizeGB': 128, 'incremental': False}}
+        fields = extract_resource_fields(snap, 'azure.snapshot')
+        assert fields['skuName'] == 'Standard_LRS' and fields['incremental'] is False
+
+    def test_azure_public_ip_sku_and_plan_kind(self):
+        assert extract_resource_fields({'sku': {'name': 'Standard'}, 'properties': {}}, 'azure.publicip')['skuName'] == 'Standard'
+        assert extract_resource_fields({'kind': 'linux', 'properties': {}}, 'azure.appserviceplan')['kind'] == 'linux'
+
+    def test_aks_node_pool_sizes(self):
+        aks = {'properties': {'agentPoolProfiles': [
+            {'name': 'system', 'vmSize': 'Standard_B2ms', 'count': 3, 'osType': 'Linux'},
+            {'name': 'win', 'vmSize': 'Standard_D4s_v5', 'count': 2, 'osType': 'Windows'}]}}
+        assert extract_resource_fields(aks, 'azure.aks')['nodePoolSizes'] == 'Standard_B2ms:3:Linux,Standard_D4s_v5:2:Windows'
+
+    def test_aks_node_pool_sizes_incomplete(self):
+        aks = {'properties': {'agentPoolProfiles': [{'name': 'p', 'vmSize': 'Standard_B2ms'}]}}
+        assert 'nodePoolSizes' not in extract_resource_fields(aks, 'azure.aks')

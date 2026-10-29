@@ -1982,7 +1982,8 @@ RESOURCE_FIELD_PATHS: Dict[str, Dict[str, List[str]]] = {
                 'instanceClass': ['DBInstanceClass'], 'dbClusterIdentifier': ['DBClusterIdentifier'],
                 'storageSize': ['AllocatedStorage'], 'storageType': ['StorageType'], 'iops': ['Iops'],
                 'provisionedIops': ['Iops'], 'backupRetentionPeriod': ['BackupRetentionPeriod'],
-                'databaseName': ['DBName'], 'availabilityZone': ['AvailabilityZone']},
+                'databaseName': ['DBName'], 'availabilityZone': ['AvailabilityZone'],
+                'multiAZ': ['MultiAZ'], 'licenseModel': ['LicenseModel']},
     'aws.rds-snapshot': {'engine': ['Engine'], 'engineVersion': ['EngineVersion'],
                          'storageSize': ['AllocatedStorage'], 'instanceId': ['DBInstanceIdentifier']},
     'aws.ebs': {'volumeId': ['VolumeId'], 'volumeType': ['VolumeType'], 'volumeSize': ['Size'],
@@ -2009,6 +2010,7 @@ RESOURCE_FIELD_PATHS: Dict[str, Dict[str, List[str]]] = {
                           'allocationStrategy': ['computeResources.allocationStrategy'],
                           'orchestrationType': ['containerOrchestrationType']},
     'aws.ec2': {'imageId': ['ImageId'], 'instanceType': ['InstanceType'], 'instanceId': ['InstanceId'],
+                'platform': ['PlatformDetails'],
                 'availabilityZone': ['Placement.AvailabilityZone'], 'vpcId': ['VpcId'],
                 'ipAddress': ['PublicIpAddress']},
     'aws.ami': {'imageName': ['Name'], 'creationDate': ['CreationDate'],
@@ -2040,12 +2042,14 @@ RESOURCE_FIELD_PATHS: Dict[str, Dict[str, List[str]]] = {
     'azure.vm': {'osDiskName': ['properties.storageProfile.osDisk.name'],
                  'osDiskId': ['properties.storageProfile.osDisk.managedDisk.id'],
                  'osDiskSize': ['properties.storageProfile.osDisk.diskSizeGB'],
-                 'osDiskSku': ['properties.storageProfile.osDisk.managedDisk.storageAccountType']},
+                 'osDiskSku': ['properties.storageProfile.osDisk.managedDisk.storageAccountType'],
+                 'osType': ['properties.storageProfile.osDisk.osType']},
     'azure.sql-database': {'databaseName': ['name'], 'currentSku': ['sku.name'], 'skuName': ['sku.name'],
                            'skuTier': ['sku.tier'], 'capacity': ['sku.capacity']},
     'azure.sqlserver': {'serverName': ['name']},
     'azure.keyvault': {'vaultName': ['name']},
-    'azure.snapshot': {'diskSizeGB': ['properties.diskSizeGB'], 'timeCreated': ['properties.timeCreated']},
+    'azure.snapshot': {'diskSizeGB': ['properties.diskSizeGB'], 'timeCreated': ['properties.timeCreated'],
+                       'skuName': ['sku.name'], 'incremental': ['properties.incremental']},
     'azure.vmss': {'vmSize': ['sku.name'], 'capacity': ['sku.capacity'],
                    'orchestrationMode': ['properties.orchestrationMode'],
                    'upgradePolicyMode': ['properties.upgradePolicy.mode']},
@@ -2056,8 +2060,8 @@ RESOURCE_FIELD_PATHS: Dict[str, Dict[str, List[str]]] = {
     'azure.webapp': {'runtime': ['c7n:configuration.linuxFxVersion']},
     'azure.cognitiveservice': {'kind': ['kind'], 'skuName': ['sku.name']},
     'azure.spring-service-instance': {'skuName': ['sku.name'], 'skuTier': ['sku.tier']},
-    'azure.appserviceplan': {'numberOfSites': ['properties.numberOfSites']},
-    'azure.publicip': {'ipAddress': ['properties.ipAddress'],
+    'azure.appserviceplan': {'numberOfSites': ['properties.numberOfSites'], 'kind': ['kind']},
+    'azure.publicip': {'ipAddress': ['properties.ipAddress'], 'skuName': ['sku.name'],
                        'publicIpAllocationMethod': ['properties.publicIPAllocationMethod'],
                        'ipVersion': ['properties.publicIPAddressVersion'],
                        'ipConfigurationId': ['properties.ipConfiguration.id']},
@@ -2101,6 +2105,15 @@ def _aks_node_pools(resource: Dict[str, Any]) -> Optional[List[str]]:
         for p in pools if isinstance(p, dict)
     ]
     return lines or None
+
+
+def _aks_pool_sizes(resource: Dict[str, Any]) -> Optional[str]:
+    """Node pools as "vmSize:count:os" separated by commas, e.g. "Standard_B2ms:3:Linux,Standard_D4s_v5:2:Windows".
+    Used for savings estimates; None when a pool has no size or count."""
+    pools = [p for p in (resource.get('properties') or {}).get('agentPoolProfiles') or [] if isinstance(p, dict)]
+    if not pools or any(not p.get('vmSize') or not isinstance(p.get('count'), int) for p in pools):
+        return None
+    return ','.join(f"{p['vmSize']}:{p['count']}:{p.get('osType') or 'Linux'}" for p in pools)
 
 
 def _aks_node_count(resource: Dict[str, Any]) -> Optional[int]:
@@ -2221,7 +2234,8 @@ def _s3_bucket_region(resource: Dict[str, Any]) -> Optional[str]:
 RESOURCE_FIELD_BUILDERS: Dict[str, Dict[str, Any]] = {
     'azure.aks': {'nodePools': _aks_node_pools, 'nodeCount': _aks_node_count, 'vmSizes': _aks_vm_sizes,
                   'retiringNodePools': _aks_retiring_pools, 'retirementDate': _aks_retirement_date,
-                  'avgNodeCpuPercent': _aks_avg_node_cpu, 'avgNodeMemoryPercent': _aks_avg_node_memory},
+                  'avgNodeCpuPercent': _aks_avg_node_cpu, 'avgNodeMemoryPercent': _aks_avg_node_memory,
+                  'nodePoolSizes': _aks_pool_sizes},
     'azure.vmss': {'retiringSeries': _vmss_retiring_series, 'retirementDate': _vmss_retirement_date},
     'azure.loadbalancer': {'backendPoolCount': _lb_backend_pool_count, 'publicIpCount': _lb_public_ip_count},
     'aws.asg': {'instanceTypes': _asg_instance_types},
