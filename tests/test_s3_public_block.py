@@ -108,10 +108,12 @@ def test_unreadable_bucket_setting_is_skipped(account) -> None:
     assert run._s3_public_block_gaps([bucket('denied', denied=True)], CONFIG) == []
 
 
-def test_account_lookup_failure_falls_back_to_bucket_settings(account) -> None:
+def test_account_lookup_failure_reports_no_bucket(account) -> None:
+    # Without the account-level setting every bucket would look open
     account(None)
-    kept = run._s3_public_block_gaps([bucket('open'), bucket('closed', ALL_ON)], CONFIG)
-    assert names(kept) == ['open']
+    config = dict(CONFIG)
+    assert run._s3_public_block_gaps([bucket('open'), bucket('closed', ALL_ON)], config) == []
+    assert any('leftsize-public-s3-access' in p for p in config['scan_problems'])
 
 
 def test_off_settings_reach_the_finding(account) -> None:

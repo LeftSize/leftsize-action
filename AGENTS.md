@@ -4,7 +4,7 @@
 
 **Purpose**: GitHub Action for running LeftSize cloud cost scans  
 **Location**: `https://github.com/LeftSize/leftsize-action`  
-**Type**: Docker-based GitHub Action (Linux only)  
+**Type**: Composite GitHub Action (setup-python 3.11 + pip install + run.py on the runner; Linux runners)  
 **Distribution**: GitHub Marketplace (planned)
 
 ## How It Works
@@ -81,11 +81,12 @@ Also update the `resourceName` fallback chain in `convert_resource_to_finding()`
 
 ### Action Type
 
-**Docker Container Action**:
-- Runs on Linux runners only (ubuntu-latest, ubuntu-20.04, ubuntu-22.04)
-- Uses Python 3.12 base image
-- Includes Cloud Custodian and dependencies
-- Self-contained, no external infrastructure required
+**Composite Action** (`action.yml` → `runs: using: composite`):
+- `actions/setup-python` (3.11, pinned by SHA), `pip install -r requirements.txt`, then `python3 run.py` on the customer's runner
+- The Dockerfile / ghcr.io image and `entrypoint.sh` are NOT used by `uses: leftsize/leftsize-action@v1`
+- Test tools live in `requirements-dev.txt`, not `requirements.txt` (that one is installed on customer runners)
+- Safety: Custodian always runs with `--dry-run` and policies' `actions:` are stripped before running (`strip_policy_actions`)
+- Failures: a policy file that can't run returns None; no file running at all fails the step (exit 1); partial failures go to `config['scan_problems']` → job summary + `failed-policies` output
 
 ### Entrypoint
 

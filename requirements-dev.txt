@@ -1,0 +1,4 @@
+# Runtime dependencies plus test tools (not installed by the action)
+-r requirements.txt
+pytest>=8.0.0
+pytest-cov>=4.1.0

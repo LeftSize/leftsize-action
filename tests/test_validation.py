@@ -100,7 +100,14 @@ class TestValidateBackendUrl:
         """Valid HTTPS URLs should pass"""
         assert validate_backend_url("https://api.leftsize.com") is True
         assert validate_backend_url("https://leftsize.io/api") is True
-        assert validate_backend_url("https://example.com:8443/path") is True
+        assert validate_backend_url("https://staging.api.leftsize.com:8443/path") is True
+
+    def test_only_leftsize_hosts(self):
+        """The repository token goes to this URL, so other hosts are rejected"""
+        assert validate_backend_url("https://example.com/api") is False
+        assert validate_backend_url("https://leftsize.com.evil.com/") is False
+        assert validate_backend_url("https://evilleftsize.com/") is False
+        assert validate_backend_url("https://user:pass@api.leftsize.com/") is False
     
     def test_invalid_http(self):
         """HTTP (non-HTTPS) URLs should fail"""

@@ -1,9 +1,9 @@
+import json
 """
 Tests for metadata extraction from Cloud Custodian resources.
 
 These tests verify that:
-- Azure tags (dict format) are properly extracted
-- AWS tags (list of Key/Value dicts) are properly converted to dict format
+- Tag names (not values) are extracted from Azure tags (dict) and AWS tags (Key/Value list)
 - Resource IDs are properly parsed for both Azure and AWS
 """
 import pytest
@@ -28,11 +28,7 @@ class TestExtractResourceMetadataAzure:
 
         metadata = extract_resource_metadata(resource, resource_id)
 
-        assert metadata['tags'] == {
-            'Environment': 'Production',
-            'Team': 'DevOps',
-            'CostCenter': '12345'
-        }
+        assert metadata['tagKeys'] == ['CostCenter', 'Environment', 'Team']
         assert metadata['subscriptionId'] == 'sub-123'
         assert metadata['resourceGroup'] == 'my-rg'
         assert metadata['location'] == 'westeurope'
@@ -68,11 +64,7 @@ class TestExtractResourceMetadataAws:
 
         metadata = extract_resource_metadata(resource, resource_id)
 
-        assert metadata['tags'] == {
-            'Environment': 'Production',
-            'Team': 'Platform',
-            'Owner': 'devops@example.com'
-        }
+        assert metadata['tagKeys'] == ['Environment', 'Owner', 'Team']
 
     def test_aws_tags_lowercase_keys(self):
         """AWS tags with lowercase key/value should also work"""
@@ -87,10 +79,7 @@ class TestExtractResourceMetadataAws:
 
         metadata = extract_resource_metadata(resource, resource_id)
 
-        assert metadata['tags'] == {
-            'env': 'dev',
-            'app': 'myapp'
-        }
+        assert metadata['tagKeys'] == ['app', 'env']
 
     def test_aws_tags_mixed_case_keys(self):
         """AWS tags with mixed case Key/value should work"""
@@ -104,9 +93,7 @@ class TestExtractResourceMetadataAws:
 
         metadata = extract_resource_metadata(resource, resource_id)
 
-        assert metadata['tags'] == {
-            'Environment': 'staging'
-        }
+        assert metadata['tagKeys'] == ['Environment']
 
     def test_aws_empty_tags_list(self):
         """AWS resource with empty tags list should not have tags in metadata"""
@@ -145,9 +132,7 @@ class TestExtractResourceMetadataAws:
 
         metadata = extract_resource_metadata(resource, resource_id)
 
-        assert metadata['tags'] == {
-            'Environment': 'test'
-        }
+        assert metadata['tagKeys'] == ['Environment']
 
     def test_aws_s3_bucket_extracts_account_from_arn(self):
         """S3 bucket ARN doesn't have region/account but should handle gracefully"""
@@ -165,7 +150,7 @@ class TestExtractResourceMetadataAws:
         # S3 ARN doesn't have region/account, so these shouldn't be in metadata
         assert 'region' not in metadata
         assert 'accountId' not in metadata
-        assert metadata['tags'] == {'env': 'prod'}
+        assert metadata['tagKeys'] == ['env']
 
     def test_aws_ec2_extracts_region_and_account(self):
         """EC2 ARN should extract region and account"""
@@ -181,7 +166,7 @@ class TestExtractResourceMetadataAws:
 
         assert metadata['region'] == 'eu-west-1'
         assert metadata['accountId'] == '123456789012'
-        assert metadata['tags'] == {'Environment': 'development'}
+        assert metadata['tagKeys'] == ['Environment']
 
 
 class TestExtractResourceMetadataEdgeCases:
@@ -201,7 +186,7 @@ class TestExtractResourceMetadataEdgeCases:
         metadata = extract_resource_metadata(resource, resource_id)
 
         # Null values are skipped
-        assert metadata['tags'] == {'Environment': 'prod'}
+        assert metadata['tagKeys'] == ['Environment']
 
     def test_tags_with_empty_string_values(self):
         """Tags with empty string values should be included"""
@@ -217,7 +202,7 @@ class TestExtractResourceMetadataEdgeCases:
         metadata = extract_resource_metadata(resource, resource_id)
 
         # Empty string is a valid value (different from None)
-        assert metadata['tags'] == {'Environment': 'prod', 'Description': ''}
+        assert metadata['tagKeys'] == ['Description', 'Environment']
 
     def test_tags_with_missing_key(self):
         """Tags with missing Key should be skipped"""
@@ -233,7 +218,7 @@ class TestExtractResourceMetadataEdgeCases:
         metadata = extract_resource_metadata(resource, resource_id)
 
         # Only the valid tag should be extracted
-        assert metadata['tags'] == {'Environment': 'prod'}
+        assert metadata['tagKeys'] == ['Environment']
 
     def test_malformed_tag_objects_are_skipped(self):
         """Malformed tag objects should be gracefully skipped"""
@@ -250,7 +235,7 @@ class TestExtractResourceMetadataEdgeCases:
 
         metadata = extract_resource_metadata(resource, resource_id)
 
-        assert metadata['tags'] == {'Good': 'tag'}
+        assert metadata['tagKeys'] == ['Good']
 
     def test_invalid_resource_id_handled_gracefully(self):
         """Invalid resource IDs should not crash"""
@@ -262,7 +247,7 @@ class TestExtractResourceMetadataEdgeCases:
         metadata = extract_resource_metadata(resource, resource_id)
 
         # Should still extract tags
-        assert metadata['tags'] == {'env': 'test'}
+        assert metadata['tagKeys'] == ['env']
 
     def test_iam_arn_extracts_account_no_region(self):
         """IAM ARN (global service) should extract account but no region"""
@@ -279,4 +264,12 @@ class TestExtractResourceMetadataEdgeCases:
 
         assert metadata['accountId'] == '123456789012'
         assert 'region' not in metadata  # IAM is global, no region in ARN
-        assert metadata['tags'] == {'Environment': 'production'}
+        assert metadata['tagKeys'] == ['Environment']
+
+
+class TestTagValuesNotSent:
+    def test_tag_values_never_reach_the_metadata(self):
+        resource = {'Name': 'b', 'Tags': [{'Key': 'ConnectionString', 'Value': 'Server=x;Password=secret'}]}
+        metadata = extract_resource_metadata(resource, 'arn:aws:s3:::b')
+        assert metadata['tagKeys'] == ['ConnectionString']
+        assert 'secret' not in json.dumps(metadata)

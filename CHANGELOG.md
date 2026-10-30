@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.29] - 2026-10-31
+
+### Changed
+- **A scan that can't run now fails the step** instead of finishing green with 0 findings. Before, missing or expired credentials, a policy file that timed out or a broken install each looked like a clean account. Now the step exits 1 when no policy file could run; AWS credentials are checked with `sts:GetCallerIdentity` (a failure is fatal; it was a warning); for Azure a token is requested up front and a failure is logged as a warning (creating the credential alone always succeeded). Scans that were silently broken will turn red, which is the point.
+- Checks that fail while the rest of the scan runs (missing read permissions, throttling, a lookup that failed) are listed in the job summary under **Incomplete scan** and in the new `failed-policies` output, instead of only in the log.
+- `leftsize-public-s3-access` reports no bucket when the account-level Block Public Access setting can't be read, instead of flagging every bucket without its own block.
+- Only the **names** of resource tags are sent (`tagKeys`), not their values: tag values can hold connection strings or e-mail addresses, and LeftSize doesn't use them. Environment detection still reads tag values, on the runner.
+- Policy files of one scan share a Custodian resource cache (new per scan, 60 minutes): policies for the same resource type no longer list and augment it again (S3 was listed 7 times, RDS 18). Scans of large accounts make far fewer API calls.
+- The policies' `actions:` blocks are removed before Custodian runs, on top of `--dry-run`, so no code path can change a resource.
+- `verbose: true` turns on debug logging for LeftSize only; botocore, urllib3 and Azure SDK logs stay at warning level (their debug output includes request signing details).
+- `backend-url` must be an https URL on a LeftSize domain (`leftsize.com`, `leftsize.io`), in scan and stats mode: the repository token is sent to it.
+
+### Fixed
+- Submitting findings retries network errors, timeouts and server errors (3 attempts, one `ScanId` for all of them) and waits up to 60 seconds per attempt. Client errors aren't retried. The daily submission limit (HTTP 429) is reported in the summary and keeps the step green, like the repository limit.
+- `findings-json` is an empty array when it would exceed 512 KB (GitHub's output limit is 1 MB); the new `findings-file` output always has every finding. `limit-exceeded` is now a declared output.
+- `cloud-provider` accepts any case (`AWS`), and an unknown `mode` is an error instead of running a scan.
+- Text from the API in the job summary (rule names, links) is escaped; links only point to LeftSize domains.
+
+### Security
+- Third-party actions are pinned by commit SHA (`actions/setup-python`, `actions/cache`, and the image workflow's actions). `azure-identity` and `azure-mgmt-resource` are pinned to the versions c7n-azure pins; pytest is no longer installed on customer runners (`requirements-dev.txt`).
+- Docker image (not used by the action itself): base image pinned by digest, unused Azure CLI (`curl | bash`) and AWS CLI downloads removed, `stats.py` included so stats mode works in the image.
+
 ## [1.0.28] - 2026-10-29
 
 ### Added

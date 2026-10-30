@@ -121,14 +121,14 @@ jobs:
 |-------|----------|---------|-------------|
 | `installation-id` | ✅ Yes | - | GitHub App installation ID from LeftSize onboarding |
 | `repository-token` | ✅ Yes | - | Secure repository token from LeftSize onboarding |
-| `backend-url` | No | `https://api.leftsize.com` | LeftSize backend API URL |
-| `cloud-provider` | No | `azure` | Cloud provider: `azure` or `aws` |
+| `backend-url` | No | `https://api.leftsize.com` | LeftSize backend API URL (https, LeftSize domains only: the repository token is sent to it) |
+| `cloud-provider` | No | `azure` | Cloud provider: `azure` or `aws` (any case) |
 | `azure-subscription-ids` | No | Login subscription | Subscription ID used for scoping and currency detection. The scan covers the subscription selected by `azure/login`; scan more subscriptions with a matrix (one job per subscription). |
 | `aws-regions` | No | Login region | Comma-separated AWS regions to scan, or `all` for every enabled region |
 | `include-policies` | No | All | Rule categories: `cost-optimization`, `deprecation`, `governance`, `security` |
 | `exclude-policies` | No | None | Rule names to skip (comma-separated, with or without the `leftsize-` prefix) |
 | `environment-name` | No | Detected per resource | Environment of the scanned resources: one value for the whole scan (`Production`), or `name=environment` pairs for a subscription with several environments (`Freelance-NG-A=acceptance, Freelance-NG-P=production`). Values that aren't an environment (such as a matrix label `MAIN`) are ignored. See [Production vs non-production](#production-vs-non-production). |
-| `verbose` | No | `false` | Enable verbose logging |
+| `verbose` | No | `false` | Debug logging for LeftSize itself (library logs such as botocore stay at warning level) |
 
 ### Outputs
 
@@ -136,7 +136,20 @@ jobs:
 |--------|-------------|
 | `findings-count` | Total number of findings detected |
 | `findings-submitted` | Whether findings were successfully submitted (`true`/`false`) |
-| `findings-json` | JSON string of all findings for custom processing |
+| `findings-json` | JSON string of all findings for custom processing; an empty array when it would exceed 512 KB (GitHub limits step outputs to 1 MB) |
+| `findings-file` | Path of a JSON file with all findings, whatever the size |
+| `failed-policies` | JSON array of checks that didn't run, for example because of a missing read permission; `[]` when the scan was complete |
+| `limit-exceeded` | `true` when findings weren't submitted because the plan's repository limit was reached |
+
+### When a scan fails
+
+The step fails (exit code 1) when no policy file could run at all, for example because cloud credentials are missing or expired, or every file timed out; a scan without results is never reported as clean. AWS credentials are checked with `sts:GetCallerIdentity` before the scan starts. When only some checks fail (a missing permission, throttling), the scan continues and the job summary lists what didn't run under **Incomplete scan**.
+
+Submitting findings is retried on network errors and server errors (three attempts). When the daily submission limit is reached, the step stays green and the summary says the findings weren't submitted.
+
+### What is sent to LeftSize
+
+Per finding: the rule, the resource ID and name, the region or resource group, the environment LeftSize detected, the fields its issues and savings estimates need (size, SKU, instance type, creation date and similar), and the **names** of the resource's tags. Tag values are never sent. Custodian runs with `--dry-run` and the policies' `actions:` are removed before it runs, so the action can't change anything in your cloud.
 
 ### Production vs non-production
 
@@ -359,7 +372,7 @@ The action ships the curated LeftSize policies in [`policies/`](policies/): cost
 
 ## Runner Requirements
 
-⚠️ **Important**: This action requires a Linux runner (`ubuntu-latest`, `ubuntu-20.04`, or `ubuntu-22.04`). It does not work on Windows or macOS runners due to Docker-based action limitations.
+⚠️ **Important**: use a Linux runner (`ubuntu-latest`). The action is a composite action that installs Cloud Custodian with Python 3.11 on the runner; Linux is the only runner type it's tested on.
 
 ```yaml
 jobs:

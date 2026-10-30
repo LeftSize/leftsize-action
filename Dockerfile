@@ -1,23 +1,8 @@
-FROM python:3.11-slim
+# Pinned by digest (python:3.11-slim); update deliberately
+FROM python:3.11-slim@sha256:673719e071ecf27434fd2635bbd8d00f49f4fdd81f243143438a42ced8bedf60
 
 LABEL maintainer="LeftSize <support@leftsize.io>"
 LABEL description="LeftSize Cloud Cost Optimization Scanner"
-
-# Install system dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    ca-certificates \
-    unzip \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install Azure CLI
-RUN curl -sL https://aka.ms/InstallAzureCLIDeb | bash
-
-# Install AWS CLI
-RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip" && \
-    unzip awscliv2.zip && \
-    ./aws/install && \
-    rm -rf aws awscliv2.zip
 
 # Set working directory
 WORKDIR /action
@@ -27,7 +12,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy action files
-COPY run.py .
+COPY run.py stats.py ./
 COPY entrypoint.sh .
 COPY policies/ ./policies/
 

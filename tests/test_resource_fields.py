@@ -1,6 +1,9 @@
 """Tests for per-resource-type template fields, policy severity and partial custodian failures."""
 import json
 import subprocess
+from pathlib import Path
+
+import yaml
 from unittest import mock
 
 import run
@@ -119,10 +122,40 @@ class TestPartialCustodianFailure:
         assert parse.called
         assert findings == [{"ruleId": "leftsize-ok"}]
 
-    def test_fatal_exit_code_returns_nothing(self, tmp_path):
+    def test_fatal_exit_code_is_a_failure_not_an_empty_result(self, tmp_path):
         findings, parse = self._run(tmp_path, 1)
         assert not parse.called
-        assert findings == []
+        assert findings is None
+
+    def test_exit_code_2_records_the_failed_policies(self, tmp_path):
+        policy_file = tmp_path / "p.yml"
+        policy_file.write_text("policies: []\n")
+        config = {"cloud_provider": "azure"}
+        completed = subprocess.CompletedProcess([], 2, stdout="", stderr=" - leftsize-broken\n")
+        with mock.patch.object(run.subprocess, "run", return_value=completed), \
+             mock.patch.object(run, "parse_custodian_output", return_value=[]):
+            run.execute_single_policy_file(str(policy_file), config)
+        assert config["scan_problems"][0].startswith("leftsize-broken:")
+
+    def test_timeout_is_a_failure(self, tmp_path):
+        policy_file = tmp_path / "p.yml"
+        policy_file.write_text("policies: []\n")
+        with mock.patch.object(run.subprocess, "run", side_effect=subprocess.TimeoutExpired("custodian", 1)):
+            assert run.execute_single_policy_file(str(policy_file), {"cloud_provider": "aws"}) is None
+
+    def test_uses_the_shared_cache_and_always_dry_runs(self, tmp_path):
+        policy_file = tmp_path / "p.yml"
+        policy_file.write_text("policies: []\n")
+        completed = subprocess.CompletedProcess([], 0, stdout="", stderr="")
+        config = {"cloud_provider": "aws", "_custodian_cache": str(tmp_path / "c.cache")}
+        with mock.patch.object(run.subprocess, "run", return_value=completed) as sub, \
+             mock.patch.object(run, "parse_custodian_output", return_value=[]):
+            run.execute_single_policy_file(str(policy_file), config)
+        cmd = sub.call_args.args[0]
+        assert cmd[cmd.index("--cache") + 1] == str(tmp_path / "c.cache")
+        assert cmd[cmd.index("--cache-period") + 1] == "60"
+        assert cmd[-1] == "--dry-run"
+
 
     def test_debug_logs_custodian_stderr_on_success(self, tmp_path, monkeypatch):
         # Custodian logs per-policy counts and access warnings to stderr
@@ -137,6 +170,56 @@ class TestPartialCustodianFailure:
         with mock.patch.object(run, "logger") as logger:
             self._run(tmp_path, 0)
         assert "Custodian stderr" not in [c.args[0] for c in logger.debug.call_args_list]
+
+
+class TestScanFailures:
+
+    def _scan(self, tmp_path, results):
+        for name in ("aws-a.yml", "aws-b.yml"):
+            (tmp_path / name).write_text("policies: []\n")
+        config = {"cloud_provider": "aws"}
+        with mock.patch.object(run, "execute_single_policy_file", side_effect=results):
+            return run.execute_custodian_policies(str(tmp_path), config), config
+
+    def test_all_files_failing_fails_the_scan(self, tmp_path):
+        findings, config = self._scan(tmp_path, [None, None])
+        assert findings is None
+        assert len(config["scan_problems"]) == 2
+
+    def test_one_file_failing_keeps_the_other_results(self, tmp_path):
+        findings, config = self._scan(tmp_path, [None, [{"ruleId": "leftsize-ok"}]])
+        assert findings == [{"ruleId": "leftsize-ok"}]
+        assert len(config["scan_problems"]) == 1
+
+    def test_clean_empty_scan_is_not_a_failure(self, tmp_path):
+        findings, config = self._scan(tmp_path, [[], []])
+        assert findings == []
+        assert "scan_problems" not in config
+
+
+class TestPolicyActionsStripped:
+
+    def test_actions_are_removed_before_running(self, tmp_path):
+        source = tmp_path / "p.yml"
+        source.write_text(yaml.safe_dump({"policies": [
+            {"name": "leftsize-a", "resource": "aws.ec2", "actions": [{"type": "tag", "key": "x", "value": "y"}]},
+            {"name": "leftsize-b", "resource": "aws.ec2"},
+        ]}))
+        out = run.strip_policy_actions(str(source), str(tmp_path / "work"))
+        assert out != str(source)
+        policies = yaml.safe_load(open(out))["policies"]
+        assert [p["name"] for p in policies] == ["leftsize-a", "leftsize-b"]
+        assert not any("actions" in p for p in policies)
+
+    def test_file_without_actions_is_used_as_is(self, tmp_path):
+        source = tmp_path / "p.yml"
+        source.write_text(yaml.safe_dump({"policies": [{"name": "leftsize-b", "resource": "aws.ec2"}]}))
+        assert run.strip_policy_actions(str(source), str(tmp_path)) == str(source)
+
+    def test_bundled_policies_run_without_actions(self, tmp_path):
+        for policy_file in (Path(run.__file__).parent / "policies").glob("*.yml"):
+            out = run.strip_policy_actions(str(policy_file), str(tmp_path))
+            assert not any("actions" in p for p in yaml.safe_load(open(out))["policies"]), policy_file.name
 
 
 class TestDerivedFields:

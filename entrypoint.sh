@@ -7,16 +7,11 @@ echo "Cloud Provider: ${LEFTSIZE_CLOUD_PROVIDER}"
 echo "Verbose: ${LEFTSIZE_VERBOSE}"
 echo "::endgroup::"
 
-# Run the Python scanner
-python3 /action/run.py
-
-# Capture exit code
-EXIT_CODE=$?
-
-if [ $EXIT_CODE -eq 0 ]; then
+# Run the Python scanner (set -e: test the exit code directly)
+if python3 /action/run.py; then
     echo "✅ LeftSize scan completed successfully"
 else
+    EXIT_CODE=$?
     echo "❌ LeftSize scan failed with exit code $EXIT_CODE"
+    exit $EXIT_CODE
 fi
-
-exit $EXIT_CODE

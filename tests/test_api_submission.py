@@ -16,7 +16,78 @@ from pathlib import Path
 # Add parent directory to path to import run module
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from run import submit_findings, group_findings, RepositoryLimitExceeded
+import run
+from run import submit_findings, group_findings, RepositoryLimitExceeded, SubmissionRateLimited
+
+
+@pytest.fixture(autouse=True)
+def no_retry_wait(monkeypatch):
+    """Retries back off with time.sleep; tests don't wait."""
+    monkeypatch.setattr(run.time, 'sleep', lambda seconds: None)
+
+
+CONFIG = {
+    "output": {
+        "backend_url": "https://api.leftsize.com",
+        "installation_id": "12345",
+        "repository_token": "12345678-1234-1234-1234-123456789012",
+    }
+}
+FINDINGS = [{"ruleId": "test", "scope": "test", "resourceId": "/test", "metadata": {}}]
+
+
+def response(status, body=None):
+    r = Mock()
+    r.status_code = status
+    r.json.return_value = body if body is not None else {}
+    if status >= 400:
+        from requests.exceptions import HTTPError
+        r.raise_for_status.side_effect = HTTPError(str(status))
+    return r
+
+
+class TestSubmissionRetries:
+
+    @patch('run.requests.post')
+    def test_retries_server_errors_with_the_same_scan_id(self, mock_post):
+        mock_post.side_effect = [response(503), response(202, {"Status": "accepted"})]
+        assert submit_findings(FINDINGS, CONFIG)['submitted'] is True
+        ids = {c.kwargs['json']['ScanId'] for c in mock_post.call_args_list}
+        assert mock_post.call_count == 2 and len(ids) == 1
+
+    @patch('run.requests.post')
+    def test_retries_connection_errors(self, mock_post):
+        import requests
+        mock_post.side_effect = [requests.ConnectionError('reset'), response(202)]
+        assert submit_findings(FINDINGS, CONFIG)['submitted'] is True
+
+    @patch('run.requests.post')
+    def test_gives_up_after_three_attempts(self, mock_post):
+        mock_post.return_value = response(502)
+        with pytest.raises(Exception):
+            submit_findings(FINDINGS, CONFIG)
+        assert mock_post.call_count == 3
+
+    @patch('run.requests.post')
+    def test_client_errors_are_not_retried(self, mock_post):
+        mock_post.return_value = response(400)
+        with pytest.raises(Exception):
+            submit_findings(FINDINGS, CONFIG)
+        assert mock_post.call_count == 1
+
+    @patch('run.requests.post')
+    def test_daily_limit_is_reported_not_retried(self, mock_post):
+        mock_post.return_value = response(429, {"error": "rate_limited", "message": "Daily submission limit of 20 reached."})
+        with pytest.raises(SubmissionRateLimited, match='Daily submission limit of 20'):
+            submit_findings(FINDINGS, CONFIG)
+        assert mock_post.call_count == 1
+
+    @patch('run.requests.post')
+    def test_non_json_success_body_still_counts_as_submitted(self, mock_post):
+        r = response(202)
+        r.json.side_effect = ValueError('not json')
+        mock_post.return_value = r
+        assert submit_findings(FINDINGS, CONFIG)['submitted'] is True
 
 
 class TestSubmitFindings:
@@ -190,7 +261,7 @@ class TestSubmitFindings:
         
         mock_post.assert_called_once()
         call_args = mock_post.call_args
-        assert call_args.kwargs.get('timeout') == 30
+        assert call_args.kwargs.get('timeout') == 60
     
     @patch('run.requests.post')
     @patch('run.logger')

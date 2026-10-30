@@ -23,7 +23,7 @@ inputs:
   
   # Backend configuration
   backend-url:
-    description: 'LeftSize backend API URL'
+    description: 'LeftSize backend API URL (must be an https URL on a LeftSize domain)'
     required: false
     default: 'https://api.leftsize.com'
   
@@ -95,8 +95,20 @@ outputs:
     value: ${{ steps.run.outputs.findings-submitted }}
   
   findings-json:
-    description: 'JSON string of all findings (scan mode)'
+    description: 'JSON string of all findings (scan mode); empty array when larger than 512 KB, use findings-file then'
     value: ${{ steps.run.outputs.findings-json }}
+  
+  findings-file:
+    description: 'Path of a JSON file with all findings (scan mode)'
+    value: ${{ steps.run.outputs.findings-file }}
+  
+  failed-policies:
+    description: 'JSON array of checks that did not run, e.g. because of a missing read permission (scan mode). Empty array when the scan was complete'
+    value: ${{ steps.run.outputs.failed-policies }}
+  
+  limit-exceeded:
+    description: 'Whether findings were not submitted because the plan repository limit was reached (scan mode)'
+    value: ${{ steps.run.outputs.limit-exceeded }}
   
   # Stats mode outputs
   report:
@@ -131,12 +143,12 @@ runs:
   using: 'composite'
   steps:
     - name: Setup Python
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
       with:
         python-version: '3.11'
     
     - name: Cache pip dependencies
-      uses: actions/cache@v4
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
       with:
         path: ~/.cache/pip
         key: ${{ runner.os }}-pip-leftsize-${{ hashFiles(format('{0}/requirements.txt', github.action_path)) }}
@@ -146,7 +158,7 @@ runs:
     - name: Install dependencies
       shell: bash
       run: |
-        pip install --quiet -r "${{ github.action_path }}/requirements.txt"
+        pip install --quiet --disable-pip-version-check -r "${{ github.action_path }}/requirements.txt"
     
     - name: Run LeftSize
       id: run
@@ -184,19 +196,11 @@ runs:
           echo "::endgroup::"
         fi
         
-        # Run the Python runner
-        python3 "${{ github.action_path }}/run.py"
-        
-        # Capture exit code
-        EXIT_CODE=$?
-        
-        if [ $EXIT_CODE -eq 0 ]; then
-          if [ "$MODE" = "stats" ]; then
-            echo "✅ LeftSize stats completed successfully"
-          else
-            echo "✅ LeftSize scan completed successfully"
-          fi
+        # Run the Python runner (GitHub runs this shell with -e, so test the exit code directly)
+        if python3 "${{ github.action_path }}/run.py"; then
+          echo "✅ LeftSize $MODE completed successfully"
         else
+          EXIT_CODE=$?
           echo "❌ LeftSize failed with exit code $EXIT_CODE"
           exit $EXIT_CODE
         fi

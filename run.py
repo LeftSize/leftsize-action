@@ -12,6 +12,9 @@ import tempfile
 import subprocess
 import logging
 import re
+import time
+import uuid
+from urllib.parse import urlsplit
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Tuple
@@ -39,6 +42,26 @@ structlog.configure(
 )
 
 logger = structlog.get_logger()
+
+
+def configure_logging(verbose: bool) -> None:
+    """INFO for everything; with verbose, DEBUG for LeftSize's own loggers only. Library
+    loggers (botocore, urllib3, azure) stay quiet: their debug output includes request
+    headers and signing details."""
+    logging.basicConfig(level=logging.INFO)
+    level = logging.DEBUG if verbose else logging.INFO
+    for name in (__name__, 'run', 'stats', '__main__'):
+        logging.getLogger(name).setLevel(level)
+    for name in ('botocore', 'boto3', 'urllib3', 'azure', 'c7n', 'c7n_azure'):
+        logging.getLogger(name).setLevel(logging.WARNING)
+
+
+def record_problem(config: Dict[str, Any], message: str) -> None:
+    """Note something that made the scan incomplete, for the job summary and the
+    failed-policies output. Problems never stop the scan by themselves."""
+    problems = config.setdefault('scan_problems', [])
+    if message not in problems:
+        problems.append(message)
 
 
 def _build_custodian_env() -> dict[str, str]:
@@ -88,6 +111,10 @@ class RepositoryLimitExceeded(Exception):
         self.plan = context.get('plan', 'Free')
 
 
+class SubmissionRateLimited(Exception):
+    """Raised when the backend's daily submission limit is reached (HTTP 429)."""
+
+
 # Input validation functions
 def validate_installation_id(installation_id: str) -> bool:
     """Validate GitHub installation ID format (numeric)"""
@@ -105,18 +132,28 @@ def validate_repository_token(token: str) -> bool:
     return re.match(guid_pattern, token.strip()) is not None
 
 
+# The repository token is sent to the backend, so only LeftSize hosts are accepted
+BACKEND_DOMAINS = ('leftsize.com', 'leftsize.io')
+
+
 def validate_backend_url(url: str) -> bool:
-    """Validate backend URL format"""
+    """An https URL on a LeftSize domain (api.leftsize.com by default)."""
     if not url or not url.strip():
         return False
-    # Must be HTTPS and reasonable domain
     url = url.strip()
-    if not url.startswith('https://'):
+    if not url.lower().startswith('https://'):
         logger.warning("Backend URL must use HTTPS", url=url)
         return False
-    # Check for suspicious patterns
-    if any(pattern in url.lower() for pattern in ['169.254.169.254', 'metadata', 'localhost', '127.0.0.1', '0.0.0.0']):
-        logger.error("Backend URL contains suspicious pattern", url=url)
+    try:
+        parts = urlsplit(url)
+        host = (parts.hostname or '').lower()
+        _ = parts.port  # raises ValueError on a malformed port
+    except ValueError:
+        return False
+    if parts.username or parts.password:
+        return False
+    if not any(host == d or host.endswith('.' + d) for d in BACKEND_DOMAINS):
+        logger.error("Backend URL must be a LeftSize host", host=host)
         return False
     return True
 
@@ -242,10 +279,7 @@ def github_action_main():
     include_policies = os.getenv('LEFTSIZE_INCLUDE_POLICIES', '')
     exclude_policies = os.getenv('LEFTSIZE_EXCLUDE_POLICIES', '')
     
-    if verbose:
-        logging.basicConfig(level=logging.DEBUG)
-    else:
-        logging.basicConfig(level=logging.INFO)
+    configure_logging(verbose)
     
     logger.info("LeftSize GitHub Action starting", version="1.0.0", cloud_provider=cloud_provider)
     
@@ -265,7 +299,14 @@ def github_action_main():
         set_github_output('findings-submitted', 'false')
         return 1
     
+    mode = os.getenv('LEFTSIZE_MODE', 'scan').strip().lower() or 'scan'
+    if mode != 'scan':
+        logger.error("Invalid mode. Must be 'scan' or 'stats'.", mode=mode)
+        set_github_output('findings-submitted', 'false')
+        return 1
+    
     # Validate cloud provider input
+    cloud_provider = cloud_provider.strip().lower()
     if cloud_provider not in ['azure', 'aws']:
         logger.error("Invalid cloud-provider. Must be 'azure' or 'aws'.", provider=cloud_provider)
         set_github_output('findings-submitted', 'false')
@@ -373,7 +414,12 @@ def github_action_main():
             if aws_account_id:
                 config_data.setdefault('targets', {}).setdefault('aws', {})['account_id'] = aws_account_id
             else:
-                logger.warning("Could not retrieve AWS account ID - multi-account scoping may not work correctly")
+                # sts:GetCallerIdentity needs no permission, so this means no usable credentials
+                set_github_output('findings-submitted', 'false')
+                logger.error("AWS authentication failed: sts:GetCallerIdentity did not return an account. "
+                             "Configure AWS credentials (for example aws-actions/configure-aws-credentials) "
+                             "before this step.")
+                return 1
             aws_account_name = get_aws_account_name()
             if aws_account_name:
                 config_data.setdefault('targets', {}).setdefault('aws', {})['account_name'] = aws_account_name
@@ -383,13 +429,13 @@ def github_action_main():
         
         # Execute Cloud Custodian policies
         findings = execute_custodian_policies(policies_dir, config_data)
+        problems = config_data.get('scan_problems', [])
         
-        # Process findings
         if findings is None:
-            set_github_output('findings-count', '0')
-            set_github_output('findings-submitted', 'false')
-            set_github_output('findings-json', '[]')
-            logger.error("Failed to execute policies or retrieve findings.")
+            set_scan_outputs([], submitted=False, problems=problems)
+            print_github_summary([], submitted=False, problems=problems, scan_failed=True)
+            logger.error("No policies could run, so this scan has no results. Check the cloud "
+                         "credentials and the errors above.")
             return 1
         
         findings_count = len(findings)
@@ -398,7 +444,6 @@ def github_action_main():
         # Submit findings to backend
         submitted = False
         plan_info = None
-        limit_exceeded_error = None
         
         if findings and backend_url and installation_id and repository_token:
             try:
@@ -408,41 +453,66 @@ def github_action_main():
                 if submitted:
                     logger.info("Findings submitted successfully to backend")
             except RepositoryLimitExceeded as e:
+                # Don't fail the workflow: the summary explains the plan limit
                 logger.warning(f"Repository limit exceeded: {e.message}")
-                limit_exceeded_error = e
-                # Don't fail the workflow, but mark as not submitted
-                set_github_output('findings-count', str(findings_count))
-                set_github_output('findings-submitted', 'false')
-                set_github_output('findings-json', json.dumps(findings, default=str))
-                set_github_output('limit-exceeded', 'true')
-                print_github_summary(findings, submitted=False, limit_exceeded=limit_exceeded_error)
-                # Return 0 - we don't want to fail the workflow, just show the warning
+                set_scan_outputs(findings, submitted=False, problems=problems, limit_exceeded=True)
+                print_github_summary(findings, submitted=False, limit_exceeded=e, problems=problems)
+                return 0
+            except SubmissionRateLimited as e:
+                # Daily submission limit: the next scheduled scan submits again
+                logger.warning(f"Findings not submitted: {e}")
+                set_scan_outputs(findings, submitted=False, problems=problems)
+                print_github_summary(findings, submitted=False, problems=problems, rate_limited=e)
                 return 0
             except Exception as e:
                 logger.error(f"Failed to submit findings to backend: {e}")
-                set_github_output('findings-count', str(findings_count))
-                set_github_output('findings-submitted', 'false')
-                set_github_output('findings-json', json.dumps(findings, default=str))
-                print_github_summary(findings, submitted=False)
+                set_scan_outputs(findings, submitted=False, problems=problems)
+                print_github_summary(findings, submitted=False, problems=problems)
                 return 1
         
-        # Set GitHub Action outputs
-        set_github_output('findings-count', str(findings_count))
-        set_github_output('findings-submitted', 'true' if submitted else 'false')
-        set_github_output('findings-json', json.dumps(findings, default=str))
+        set_scan_outputs(findings, submitted=submitted, problems=problems)
+        print_github_summary(findings, submitted, plan_info=plan_info, problems=problems)
         
-        # GitHub Actions summary
-        print_github_summary(findings, submitted, plan_info=plan_info)
-        
+        if problems:
+            logger.warning("Scan completed with problems; some results may be missing", problems=problems)
         logger.info("LeftSize GitHub Action completed successfully")
         return 0
         
     except Exception as e:
-        set_github_output('findings-count', '0')
-        set_github_output('findings-submitted', 'false')
-        set_github_output('findings-json', '[]')
+        set_scan_outputs([], submitted=False, problems=[])
         logger.error("LeftSize GitHub Action failed", error=str(e), exc_info=True)
         return 1
+
+
+# GitHub limits a step's outputs to 1 MB in total; larger findings go to a file only
+FINDINGS_JSON_OUTPUT_LIMIT = 512 * 1024
+
+
+def set_scan_outputs(
+    findings: List[Dict[str, Any]],
+    submitted: bool,
+    problems: List[str],
+    limit_exceeded: bool = False,
+) -> None:
+    """Set the action outputs. findings-file always holds every finding; findings-json
+    holds them too unless that would exceed GitHub's output size limit."""
+    findings_json = json.dumps(findings, default=str)
+    findings_file = ''
+    runner_temp = os.getenv('RUNNER_TEMP')
+    if runner_temp and os.path.isdir(runner_temp):
+        findings_file = os.path.join(runner_temp, 'leftsize-findings.json')
+        with open(findings_file, 'w') as f:
+            f.write(findings_json)
+    if len(findings_json) > FINDINGS_JSON_OUTPUT_LIMIT:
+        logger.warning("findings-json output is too large for GitHub; use findings-file instead",
+                       size=len(findings_json))
+        findings_json = '[]'
+    set_github_output('findings-count', str(len(findings)))
+    set_github_output('findings-submitted', 'true' if submitted else 'false')
+    set_github_output('findings-json', findings_json)
+    set_github_output('findings-file', findings_file)
+    set_github_output('failed-policies', json.dumps(problems))
+    set_github_output('limit-exceeded', 'true' if limit_exceeded else 'false')
 
 
 def set_github_output(name: str, value: str):
@@ -456,11 +526,33 @@ def set_github_output(name: str, value: str):
         print(f"::set-output name={name}::{value}")
 
 
+def _md_cell(value: Any) -> str:
+    """Text from the backend as one markdown table cell: no pipes, line breaks or links."""
+    text = re.sub(r'[\r\n|]+', ' ', str(value))
+    return text.replace('[', '(').replace(']', ')').strip()
+
+
+def _safe_link(url: Any, fallback: str = 'https://leftsize.com/#pricing') -> str:
+    """Only https links to a LeftSize domain end up in the summary."""
+    text = str(url or '')
+    try:
+        host = (urlsplit(text).hostname or '').lower()
+    except ValueError:
+        return fallback
+    if text.lower().startswith('https://') and not re.search(r'[\s()<>]', text) and any(
+            host == d or host.endswith('.' + d) for d in BACKEND_DOMAINS):
+        return text
+    return fallback
+
+
 def print_github_summary(
     findings: List[Dict[str, Any]], 
     submitted: bool,
     plan_info: Optional[Dict[str, Any]] = None,
-    limit_exceeded: Optional[RepositoryLimitExceeded] = None
+    limit_exceeded: Optional[RepositoryLimitExceeded] = None,
+    problems: Optional[List[str]] = None,
+    scan_failed: bool = False,
+    rate_limited: Optional[Exception] = None,
 ):
     """Print GitHub Actions job summary
     
@@ -484,15 +576,28 @@ def print_github_summary(
     
     summary = "# LeftSize Scan Results\n\n"
     
+    if scan_failed:
+        summary += ("## ❌ Scan failed\n\nNo policies could run, so there are no results. This is "
+                    "usually expired or missing cloud credentials; the log of this step shows the error.\n\n")
+    if rate_limited:
+        summary += (f"## ⚠️ Findings not submitted\n\n{_md_cell(rate_limited)} The next scheduled scan "
+                    "submits again.\n\n---\n\n")
+    if problems:
+        summary += "## ⚠️ Incomplete scan\n\nSome checks didn't run, so findings may be missing:\n\n"
+        summary += "".join(f"- {_md_cell(p)}\n" for p in problems[:50])
+        if len(problems) > 50:
+            summary += f"- … and {len(problems) - 50} more\n"
+        summary += "\nMissing read permissions are the usual cause.\n\n---\n\n"
+    
     # Show repository limit exceeded warning first (if applicable)
     if limit_exceeded:
         summary += f"""## ⚠️ Repository Limit Reached
 
-Your {limit_exceeded.plan} plan allows scanning **{limit_exceeded.limit} repositories**. You've already scanned {limit_exceeded.current_count} repositories.
+Your {_md_cell(limit_exceeded.plan)} plan allows scanning **{limit_exceeded.limit} repositories**. You've already scanned {limit_exceeded.current_count} repositories.
 
 **Findings from this scan were not submitted** because the repository limit has been exceeded.
 
-👉 **[See plans]({limit_exceeded.upgrade_url})** to scan more repositories.
+👉 **[See plans]({_safe_link(limit_exceeded.upgrade_url)})** to scan more repositories.
 
 ---
 
@@ -525,7 +630,7 @@ Your {limit_exceeded.plan} plan allows scanning **{limit_exceeded.limit} reposit
             summary += "| Rule | Resources | Est. Savings |\n"
             summary += "|------|-----------|-------------|\n"
             for f in free_tier_findings:
-                rule_name = f.get('RuleName', f.get('RuleId', 'Unknown'))
+                rule_name = _md_cell(f.get('RuleName', f.get('RuleId', 'Unknown')))
                 resource_count = f.get('ResourceCount', 0)
                 savings = f.get('EstimatedSavings', 0)
                 savings_str = f"~${savings:,.0f}/mo" if savings > 0 else "-"
@@ -538,7 +643,7 @@ Your {limit_exceeded.plan} plan allows scanning **{limit_exceeded.limit} reposit
             summary += "| Rule | Resources | Est. Savings |\n"
             summary += "|------|-----------|-------------|\n"
             for f in pro_tier_findings:
-                rule_name = f.get('RuleName', f.get('RuleId', 'Unknown'))
+                rule_name = _md_cell(f.get('RuleName', f.get('RuleId', 'Unknown')))
                 resource_count = f.get('ResourceCount', 0)
                 savings = f.get('EstimatedSavings', 0)
                 savings_str = f"~${savings:,.0f}/mo" if savings > 0 else "-"
@@ -546,7 +651,7 @@ Your {limit_exceeded.plan} plan allows scanning **{limit_exceeded.limit} reposit
             summary += "\n"
             
             # Upsell message
-            upgrade_url = plan_info.get('UpgradeUrl', 'https://leftsize.com/#pricing')
+            upgrade_url = _safe_link(plan_info.get('UpgradeUrl'))
             if pro_savings > 0:
                 summary += f"> 💡 **Upgrade to Team** to create issues for all {free_count + pro_count} findings and unlock ~${pro_savings:,.0f}/mo in additional estimated savings.\n"
             else:
@@ -562,7 +667,7 @@ Your {limit_exceeded.plan} plan allows scanning **{limit_exceeded.limit} reposit
     
     # Paid plans (Team, Business, legacy Pro): all findings included
     elif plan_info and plan_info.get('PlanType') in ('Team', 'Business', 'Pro'):
-        plan_name = plan_info.get('PlanType')
+        plan_name = _md_cell(plan_info.get('PlanType'))
         total_findings = len(findings)
         total_savings = sum(f.get('EstimatedSavings', 0) for f in findings_breakdown) if findings_breakdown else 0
         
@@ -584,11 +689,11 @@ Your {limit_exceeded.plan} plan allows scanning **{limit_exceeded.limit} reposit
             summary += "| Rule | Resources | Est. Savings |" + (" Category |" if with_category else "") + "\n"
             summary += "|------|-----------|-------------|" + ("----------|" if with_category else "") + "\n"
             for f in findings_breakdown:
-                rule_name = f.get('RuleName', f.get('RuleId', 'Unknown'))
+                rule_name = _md_cell(f.get('RuleName', f.get('RuleId', 'Unknown')))
                 resource_count = f.get('ResourceCount', 0)
                 savings = f.get('EstimatedSavings', 0)
                 savings_str = f"~${savings:,.0f}/mo" if savings > 0 else "-"
-                category = f" {f.get('Category') or '-'} |" if with_category else ""
+                category = f" {_md_cell(f.get('Category') or '-')} |" if with_category else ""
                 summary += f"| {rule_name} | {resource_count} | {savings_str} |{category}\n"
             summary += "\n"
     
@@ -636,10 +741,7 @@ Your {limit_exceeded.plan} plan allows scanning **{limit_exceeded.limit} reposit
 def main(config, policies, policy_files, output, backend_url, installation_id, repository_token, subscription_id, verbose):
     """LeftSize Runner - Execute Cloud Custodian policies for cost optimization (CLI mode)"""
     
-    if verbose:
-        logging.basicConfig(level=logging.DEBUG)
-    else:
-        logging.basicConfig(level=logging.INFO)
+    configure_logging(verbose)
     
     logger.info("LeftSize Runner starting", version="1.0.0")
     
@@ -656,59 +758,6 @@ def main(config, policies, policy_files, output, backend_url, installation_id, r
             config_data.setdefault('output', {})['repository_token'] = repository_token
         if subscription_id:
             config_data.setdefault('targets', {}).setdefault('azure', {})['subscriptions'] = [subscription_id]
-        if policy_files:
-            config_data.setdefault('policies', {})['policy_files'] = list(policy_files)
-            
-        # Determine policies directory
-        policies_dir = policies or os.path.join(os.path.dirname(__file__), 'policies')
-        
-        # Validate Azure authentication (pass config to get subscription ID)
-        azure_config = config_data.get('targets', {}).get('azure', {})
-        if not validate_azure_auth(azure_config):
-            logger.error("Azure authentication failed. Please configure Azure credentials.")
-            return 1
-            
-        # Execute Cloud Custodian policies
-        findings = execute_custodian_policies(policies_dir, config_data)
-        
-        # Process and submit findings
-        if findings is None:
-            logger.error("Failed to execute policies or retrieve findings.")
-            return 1
-        elif findings:
-            submit_findings(findings, config_data)
-        else:
-            logger.info("No findings generated (policies executed successfully)")
-            
-        logger.info("LeftSize Runner completed successfully")
-        return 0
-        
-    except Exception as e:
-        logger.error("LeftSize Runner failed", error=str(e), exc_info=True)
-        return 1
-    
-    if verbose:
-        logging.basicConfig(level=logging.DEBUG)
-    else:
-        logging.basicConfig(level=logging.INFO)
-    
-    logger.info("LeftSize Runner starting", version="1.0.0")
-    
-    try:
-        # Load configuration
-        config_data = load_configuration(config)
-        
-        # Override config with command line arguments
-        if backend_url:
-            config_data.setdefault('output', {})['backend_url'] = backend_url
-        if installation_id:
-            config_data.setdefault('output', {})['installation_id'] = installation_id
-        if repository_token:
-            config_data.setdefault('output', {})['repository_token'] = repository_token
-        if subscription_id:
-            config_data.setdefault('targets', {}).setdefault('azure', {})['subscriptions'] = [subscription_id]
-        if dry_run:
-            config_data.setdefault('execution', {})['dry_run'] = True
         if policy_files:
             config_data.setdefault('policies', {})['policy_files'] = list(policy_files)
             
@@ -813,12 +862,16 @@ def validate_azure_auth(azure_config: Dict[str, Any]) -> bool:
     try:
         from azure.identity import DefaultAzureCredential
         
-        # Try to create credentials - this will work with OIDC tokens set by azure/login action
         credential = DefaultAzureCredential()
-        
-        # If we got here, credential creation succeeded
-        # Cloud Custodian will discover subscriptions automatically
-        logger.info("Azure authentication validated successfully")
+        # Creating the credential succeeds even without a login, so ask for a token. A
+        # failure is only a warning: Custodian authenticates on its own, and when it can't,
+        # no policy file runs and the scan fails anyway.
+        try:
+            credential.get_token("https://management.azure.com/.default")
+            logger.info("Azure authentication validated successfully")
+        except Exception as e:
+            logger.warning("Azure token request failed; the scan fails if Custodian can't log in either",
+                           error=str(e))
         return True
         
     except Exception as e:
@@ -957,8 +1010,30 @@ def filter_policy_file(policy_path: str, config: Dict[str, Any], work_dir: str) 
     return filtered_path
 
 
-def execute_custodian_policies(policies_dir: str, config: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """Execute Cloud Custodian policies and collect findings"""
+def strip_policy_actions(policy_path: str, work_dir: str) -> str:
+    """A copy of the policy file without `actions:` blocks, so no policy can change a
+    resource even if --dry-run were ever dropped. Returns the original path when no
+    policy has actions."""
+    with open(policy_path) as f:
+        data = yaml.safe_load(f) or {}
+    policies = data.get('policies') or []
+    if not any('actions' in p for p in policies):
+        return policy_path
+    stripped = [{k: v for k, v in p.items() if k != 'actions'} for p in policies]
+    safe_dir = os.path.join(work_dir, 'read-only')
+    os.makedirs(safe_dir, exist_ok=True)
+    safe_path = os.path.join(safe_dir, os.path.basename(policy_path))
+    with open(safe_path, 'w') as f:
+        yaml.safe_dump({**data, 'policies': stripped}, f, sort_keys=False)
+    return safe_path
+
+
+def execute_custodian_policies(policies_dir: str, config: Dict[str, Any]) -> Optional[List[Dict[str, Any]]]:
+    """Execute Cloud Custodian policies and collect findings.
+
+    Returns None when no policy file could run at all (credentials, timeouts, a broken
+    install), so the scan fails instead of reporting "no findings". Files that fail
+    while others succeed are recorded as scan problems."""
     global LOOKUP_RESOURCE_GROUP_TAGS
     logger.info("Executing Cloud Custodian policies", policies_dir=policies_dir)
     # Real scan: environment classification may read Azure resource group tags
@@ -987,14 +1062,19 @@ def execute_custodian_policies(policies_dir: str, config: Dict[str, Any]) -> Lis
         
         if not policy_files:
             logger.error("No policy files found for provider", provider=cloud_provider, policies_dir=policies_dir)
-            return []
+            return None
     
     logger.info("Running policy files", files=policy_files, count=len(policy_files))
     
     all_findings = []
+    ran = 0
+    failed_files = []
     
-    # Execute each policy file (filtered copies of include/exclude-policies go to filter_dir)
+    # Execute each policy file (filtered copies of include/exclude-policies go to filter_dir).
+    # One Custodian cache for the whole scan: policies of the same resource type reuse the
+    # resource list instead of listing it again. The cache is new for every scan.
     with tempfile.TemporaryDirectory() as filter_dir:
+        config['_custodian_cache'] = os.path.join(filter_dir, 'custodian.cache')
         for policy_file in policy_files:
             policy_path = os.path.join(policies_dir, policy_file)
             
@@ -1008,15 +1088,25 @@ def execute_custodian_policies(policies_dir: str, config: Dict[str, Any]) -> Lis
                 continue
             
             logger.info("Executing policy file", file=policy_file)
-            findings = execute_single_policy_file(run_path, config)
+            findings = execute_single_policy_file(strip_policy_actions(run_path, filter_dir), config)
             
+            if findings is None:
+                failed_files.append(policy_file)
+                record_problem(config, f"{policy_file}: did not run (see the log above)")
+                continue
+            ran += 1
             if findings:
                 logger.info("Policy file completed", file=policy_file, findings_count=len(findings))
                 all_findings.extend(findings)
             else:
                 logger.info("Policy file completed with no findings", file=policy_file)
     
-    logger.info("All policies executed", total_findings=len(all_findings))
+        config.pop('_custodian_cache', None)
+    
+    if failed_files and ran == 0:
+        logger.error("No policy file could run", failed_files=failed_files)
+        return None
+    logger.info("All policies executed", total_findings=len(all_findings), failed_files=failed_files)
     return all_findings
 
 
@@ -1031,8 +1121,13 @@ def custodian_region_args(config: Dict[str, Any]) -> List[str]:
     return args
 
 
-def execute_single_policy_file(policies_file: str, config: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """Execute a single Cloud Custodian policy file"""
+def _debug_enabled() -> bool:
+    return os.environ.get("LEFTSIZE_DEBUG", "").lower() in ("1", "true", "yes")
+
+
+def execute_single_policy_file(policies_file: str, config: Dict[str, Any]) -> Optional[List[Dict[str, Any]]]:
+    """Execute a single Cloud Custodian policy file. Returns None when the file couldn't
+    run (non-zero exit other than 2, timeout, Custodian missing)."""
     findings = []
     
     # Create temporary directory for Custodian output
@@ -1044,10 +1139,12 @@ def execute_single_policy_file(policies_file: str, config: Dict[str, Any]) -> Li
         custodian_bin = os.path.join(os.path.dirname(sys.executable), 'custodian')
         if not os.path.isfile(custodian_bin):
             custodian_bin = 'custodian'  # Fall back to PATH
+        cache_file = config.get('_custodian_cache')
+        cache_args = ['--cache', cache_file, '--cache-period', '60'] if cache_file else ['--cache-period', '0']
         cmd = [
             custodian_bin, 'run',
             '--output-dir', output_dir,
-            '--cache-period', '0',  # Disable caching for fresh results
+            *cache_args,
             policies_file
         ]
         
@@ -1077,39 +1174,46 @@ def execute_single_policy_file(policies_file: str, config: Dict[str, Any]) -> Li
             # denied, retired service endpoint) while the rest ran and wrote their
             # resources.json. Keep those results instead of dropping the whole file.
             if result.returncode == 2:
-                failed = re.findall(r'^\s*-\s*(leftsize-[\w-]+)', result.stderr or '', re.M)
+                failed = sorted(set(re.findall(r'^\s*-\s*(leftsize-[\w-]+)', result.stderr or '', re.M)))
                 logger.warning("Some policies failed; keeping results of the others",
                                failed_policies=failed or 'see custodian log')
-                if os.environ.get("LEFTSIZE_DEBUG", "").lower() in ("1", "true", "yes"):
-                    logger.debug("Custodian stderr", stderr=result.stderr)
+                for name in failed:
+                    record_problem(config, f"{name}: failed (often a missing read permission or throttling)")
+                if not failed:
+                    record_problem(config, f"{os.path.basename(policies_file)}: some policies failed (set LEFTSIZE_DEBUG for details)")
             elif result.returncode != 0:
-                logger.error("Custodian execution failed", returncode=result.returncode)
-                # Only log stdout/stderr when LEFTSIZE_DEBUG is enabled
-                if os.environ.get("LEFTSIZE_DEBUG", "").lower() in ("1", "true", "yes"):
+                logger.error("Custodian execution failed", returncode=result.returncode,
+                             error=_last_error_line(result.stderr))
+                if _debug_enabled():
                     logger.debug("Custodian stdout", stdout=result.stdout)
                     logger.debug("Custodian stderr", stderr=result.stderr)
-                return []
+                return None
             else:
                 logger.info("Custodian execution completed")
             # Only log Custodian's output when LEFTSIZE_DEBUG is enabled. Its log (per-policy
             # counts, "unable to invoke method" access warnings) goes to stderr.
-            if os.environ.get("LEFTSIZE_DEBUG", "").lower() in ("1", "true", "yes"):
+            if _debug_enabled():
                 logger.debug("Custodian output", stdout=result.stdout)
-                if result.returncode == 0:
-                    logger.debug("Custodian stderr", stderr=result.stderr)
+                logger.debug("Custodian stderr", stderr=result.stderr)
             
             # Parse Custodian output
             findings = parse_custodian_output(output_dir, config)
             
         except subprocess.TimeoutExpired:
-            logger.error("Custodian execution timed out")
-            return []
+            logger.error("Custodian execution timed out", file=os.path.basename(policies_file))
+            return None
         except Exception as e:
             logger.error("Custodian execution error", error=str(e))
-            return []
+            return None
     
     logger.info("Policy execution completed", findings_count=len(findings))
     return findings
+
+
+def _last_error_line(stderr: Optional[str]) -> str:
+    """The last non-empty line of Custodian's stderr (usually the exception), cut short."""
+    lines = [line.strip() for line in (stderr or '').splitlines() if line.strip()]
+    return lines[-1][:300] if lines else ''
 
 
 def default_aws_region(config: Dict[str, Any]) -> str:
@@ -1501,6 +1605,10 @@ def classify_environment(resource: Dict[str, Any], config: Dict[str, Any]) -> Tu
 
     # Weakest: the account or subscription, for setups with one per environment (shop-acc)
     subscription = _subscription_info(subscription_id)
+    if subscription_id and LOOKUP_RESOURCE_GROUP_TAGS and (
+            _SUBSCRIPTIONS.get(subscription_id, {}) is None or _RESOURCE_GROUP_TAGS.get(subscription_id, {}) is None):
+        record_problem(config, f"subscription {subscription_id}: resource group or subscription tags couldn't be "
+                               "read; environments come from names only")
     found = _environment_from_tags(subscription.get('tags') or {})
     if found:
         signals.append((found[0], f"tag {found[1]} on subscription {subscription.get('name') or subscription_id}"))
@@ -1561,7 +1669,14 @@ def _eks_cluster_has_compute(cluster: Dict[str, Any], session: Any = None) -> Op
 
 
 def _eks_without_compute(resources: List[Dict[str, Any]], config: Dict[str, Any]) -> List[Dict[str, Any]]:
-    return [r for r in resources if _eks_cluster_has_compute(r) is False]
+    kept = []
+    for cluster in resources:
+        has_compute = _eks_cluster_has_compute(cluster)
+        if has_compute is None:
+            record_problem(config, f"leftsize-inactive-eks-cluster: node check failed for cluster {cluster.get('name')}; not reported")
+        elif not has_compute:
+            kept.append(cluster)
+    return kept
 
 
 def _resource_graph_client(subscription_id: str) -> Any:
@@ -1615,7 +1730,10 @@ def _vms_without_shutdown_schedule(resources: List[Dict[str, Any]], config: Dict
         if subscription_id not in targets_by_subscription:
             targets_by_subscription[subscription_id] = _azure_shutdown_schedule_targets(subscription_id)
         targets = targets_by_subscription[subscription_id]
-        if targets is not None and vm_id not in targets:
+        if targets is None:
+            record_problem(config, f"leftsize-vm-scheduled-shutdown-missing: auto-shutdown schedules of subscription "
+                                   f"{subscription_id} couldn't be read; VMs not reported")
+        elif vm_id not in targets:
             kept.append(vm)
     return kept
 
@@ -1654,7 +1772,8 @@ def _s3_account_public_block(account_id: str, session: Any = None) -> Optional[D
 
 def _s3_public_block_gaps(resources: List[Dict[str, Any]], config: Dict[str, Any]) -> List[Dict[str, Any]]:
     """Buckets where neither the bucket nor the account turns on all four Block Public
-    Access settings. Buckets whose own setting couldn't be read are skipped. The settings
+    Access settings. Buckets whose own setting couldn't be read are skipped, and no bucket
+    is reported when the account-level setting couldn't be read. The settings
     that are off on both levels are stored as c7n:PublicAccessBlockOff for the issue."""
     account_id = config.get('targets', {}).get('aws', {}).get('account_id')
     account = None
@@ -1662,12 +1781,18 @@ def _s3_public_block_gaps(resources: List[Dict[str, Any]], config: Dict[str, Any
         if account_id not in _S3_ACCOUNT_PUBLIC_BLOCK:
             _S3_ACCOUNT_PUBLIC_BLOCK[account_id] = _s3_account_public_block(account_id)
         account = _S3_ACCOUNT_PUBLIC_BLOCK[account_id]
+    if account is None:
+        # Without the account-level setting every bucket would look open: report none
+        if resources:
+            record_problem(config, "leftsize-public-s3-access: the account-level Block Public Access setting "
+                                   "couldn't be read (s3:GetAccountPublicAccessBlock); buckets not reported")
+        return []
     kept = []
     for bucket in resources:
         if 'GetPublicAccessBlock' in (bucket.get('c7n:DeniedMethods') or []):
             continue
         own = bucket.get('c7n:PublicAccessBlock') or {}
-        off = [key for key in S3_PUBLIC_BLOCK_KEYS if not own.get(key) and not (account or {}).get(key)]
+        off = [key for key in S3_PUBLIC_BLOCK_KEYS if not own.get(key) and not account.get(key)]
         if off:
             bucket['c7n:PublicAccessBlockOff'] = off
             kept.append(bucket)
@@ -2319,26 +2444,23 @@ def extract_resource_metadata(resource: Dict[str, Any], resource_id: str,
         if location:
             metadata['location'] = location
         
-        # Extract tags - handle both Azure (dict) and AWS (list) formats
-        # Azure: {"Environment": "Production", "Team": "DevOps"}
-        # AWS: [{"Key": "Environment", "Value": "Production"}, {"Key": "Team", "Value": "DevOps"}]
+        # Tag names only: tag values can hold anything (connection strings, e-mail
+        # addresses) and the backend doesn't need them. Environment detection reads the
+        # values locally, before this metadata is built.
+        # Azure: {"Environment": "Production"}; AWS: [{"Key": "Environment", "Value": "Production"}]
         tags = resource.get('tags') or resource.get('Tags')
-        if tags:
-            if isinstance(tags, dict):
-                # Azure format - already a dict
-                metadata['tags'] = tags
-            elif isinstance(tags, list):
-                # AWS format - convert list of Key/Value dicts to simple dict
-                tags_dict = {}
-                for tag in tags:
-                    if isinstance(tag, dict):
-                        key = tag.get('Key') if tag.get('Key') is not None else tag.get('key')
-                        # Handle value carefully - empty string '' is valid, None is not
-                        value = tag.get('Value') if 'Value' in tag else tag.get('value')
-                        if key and value is not None:
-                            tags_dict[key] = value
-                if tags_dict:
-                    metadata['tags'] = tags_dict
+        tag_keys = set()
+        if isinstance(tags, dict):
+            tag_keys = {str(k) for k in tags}
+        elif isinstance(tags, list):
+            for tag in tags:
+                if isinstance(tag, dict):
+                    key = tag.get('Key') if tag.get('Key') is not None else tag.get('key')
+                    value = tag.get('Value') if 'Value' in tag else tag.get('value')
+                    if key and value is not None:
+                        tag_keys.add(str(key))
+        if tag_keys:
+            metadata['tagKeys'] = sorted(tag_keys)
         
         # Extract resource-specific properties
         properties = resource.get('properties', {})
@@ -2457,8 +2579,16 @@ def submit_findings(findings: List[Dict[str, Any]], config: Dict[str, Any]) -> D
                    total_findings=len(findings),
                    currency=currency)
         
-        payload = {"FindingGroups": finding_groups, "Currency": currency}
-        response = requests.post(url, json=payload, headers=headers, timeout=30)
+        # One ScanId for all attempts: a retried scan overwrites the same stored payload
+        payload = {"FindingGroups": finding_groups, "Currency": currency, "ScanId": str(uuid.uuid4())}
+        response = post_with_retry(url, payload, headers)
+        
+        if response.status_code == 429:
+            try:
+                message = response.json().get('message') or ''
+            except ValueError:
+                message = ''
+            raise SubmissionRateLimited(message or 'Daily submission limit reached. Retry after UTC midnight.')
         
         # Handle 402 Payment Required (repository limit exceeded)
         if response.status_code == 402:
@@ -2478,7 +2608,12 @@ def submit_findings(findings: List[Dict[str, Any]], config: Dict[str, Any]) -> D
         
         response.raise_for_status()
         
-        response_data = response.json()
+        try:
+            response_data = response.json()
+        except ValueError:
+            response_data = {}
+        if not isinstance(response_data, dict):
+            response_data = {}
         logger.info("Findings submitted successfully", response_status=response.status_code)
         # Only log response data when LEFTSIZE_DEBUG is enabled
         if os.environ.get("LEFTSIZE_DEBUG", "").lower() in ("1", "true", "yes"):
@@ -2491,11 +2626,35 @@ def submit_findings(findings: List[Dict[str, Any]], config: Dict[str, Any]) -> D
         
         return result
         
-    except RepositoryLimitExceeded:
+    except (RepositoryLimitExceeded, SubmissionRateLimited):
         raise  # Re-raise to allow caller to handle specifically
     except Exception as e:
         logger.error("Failed to submit findings to backend", error=str(e))
         raise  # Re-raise to allow caller to handle
+
+
+SUBMIT_ATTEMPTS = 3
+SUBMIT_TIMEOUT_SECONDS = 60
+
+
+def post_with_retry(url: str, payload: Dict[str, Any], headers: Dict[str, str],
+                    attempts: int = SUBMIT_ATTEMPTS, backoff_seconds: float = 5) -> requests.Response:
+    """POST, retrying connection errors, timeouts and 5xx responses. 4xx responses are
+    returned at once: they won't change on a retry, and every attempt counts toward the
+    daily submission limit."""
+    for attempt in range(1, attempts + 1):
+        try:
+            response = requests.post(url, json=payload, headers=headers, timeout=SUBMIT_TIMEOUT_SECONDS)
+        except (requests.ConnectionError, requests.Timeout) as e:
+            if attempt == attempts:
+                raise
+            logger.warning("Submitting findings failed; retrying", attempt=attempt, error=str(e))
+        else:
+            if response.status_code < 500 or attempt == attempts:
+                return response
+            logger.warning("Backend error; retrying", attempt=attempt, status=response.status_code)
+        time.sleep(backoff_seconds * attempt)
+    raise RuntimeError("unreachable")
 
 
 def group_findings(findings: List[Dict[str, Any]], currency: str = 'USD') -> List[Dict[str, Any]]:
@@ -2529,40 +2688,6 @@ def group_findings(findings: List[Dict[str, Any]], currency: str = 'USD') -> Lis
         groups[key]['resources'].append(resource)
     
     return list(groups.values())
-
-
-def determine_severity(rule_id: str, metadata: Dict[str, Any]) -> str:
-    """Determine severity based on rule ID patterns and metadata"""
-    
-    # Check if severity is in metadata (from resource tags)
-    if metadata:
-        if 'leftsize-severity' in metadata:
-            return metadata['leftsize-severity'].lower()
-        # Check tags dict if present
-        tags = metadata.get('tags', {})
-        if isinstance(tags, dict) and 'leftsize-severity' in tags:
-            return tags['leftsize-severity'].lower()
-    
-    rule_lower = rule_id.lower()
-    
-    # Critical: Security issues with direct data breach risk
-    if any(kw in rule_lower for kw in ['anonymous', 'public-access', 'unencrypted', 'no-encryption']):
-        return 'critical'
-    
-    # High: Security misconfigurations, missing critical tags
-    if any(kw in rule_lower for kw in ['security', 'exposed', 'open-', 'unrestricted']):
-        return 'high'
-    
-    # Medium: Governance issues, missing tags, cost optimization
-    if any(kw in rule_lower for kw in ['missing-', 'untagged', 'idle', 'unused', 'governance']):
-        return 'medium'
-    
-    # Low: Minor issues, recommendations
-    if any(kw in rule_lower for kw in ['recommend', 'suggest', 'consider']):
-        return 'low'
-    
-    # Default to medium for cost optimization findings
-    return 'medium'
 
 
 def save_local_output(findings: List[Dict[str, Any]], output_config: Dict[str, Any]) -> None:

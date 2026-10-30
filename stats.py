@@ -5,7 +5,6 @@ LeftSize Stats - Python module for fetching and displaying repository statistics
 
 import os
 import json
-import logging
 from typing import Dict, Any, Optional
 import requests
 import structlog
@@ -250,12 +249,17 @@ def stats_main() -> int:
     format = os.getenv('LEFTSIZE_FORMAT', 'markdown')
     report = os.getenv('LEFTSIZE_REPORT', 'summary')
     
-    if verbose:
-        logging.basicConfig(level=logging.DEBUG)
-    else:
-        logging.basicConfig(level=logging.INFO)
+    # Shared with scan mode: logging setup and the LeftSize-host check for the URL
+    # that receives the repository token
+    from run import configure_logging, validate_backend_url
+    configure_logging(verbose)
     
     logger.info("LeftSize Stats mode starting", version="1.0.0")
+    
+    if not validate_backend_url(backend_url):
+        logger.error("Invalid backend-url. Must be an https URL on a LeftSize domain.")
+        set_github_output('report', '')
+        return 1
     
     # Validate required inputs
     if not installation_id:
