@@ -368,3 +368,17 @@ class TestGroupFindings:
         """Empty findings list should return empty groups"""
         groups = group_findings([])
         assert groups == []
+
+
+class TestGroupDeduplication:
+    def test_a_resource_is_listed_once_per_group(self):
+        findings = [
+            {"ruleId": "leftsize-s3-missing-lifecycle-policy", "scope": "aws:account/1/region/eu-west-1",
+             "resourceId": "arn:aws:s3:::b1", "metadata": {}},
+            {"ruleId": "leftsize-s3-missing-lifecycle-policy", "scope": "aws:account/1/region/eu-west-1",
+             "resourceId": "arn:aws:s3:::b1", "metadata": {}},
+            {"ruleId": "leftsize-s3-bucket-logging-disabled", "scope": "aws:account/1/region/eu-west-1",
+             "resourceId": "arn:aws:s3:::b1", "metadata": {}},
+        ]
+        groups = group_findings(findings)
+        assert sorted(len(g['resources']) for g in groups) == [1, 1]

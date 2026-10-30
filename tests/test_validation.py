@@ -290,3 +290,29 @@ class TestSanitizeForLogging:
         assert sanitize_for_logging("simple string") == "simple string"
         assert sanitize_for_logging(123) == 123
         assert sanitize_for_logging(None) is None
+
+
+class TestDebugLogging:
+    """LEFTSIZE_DEBUG alone must show LeftSize's debug output (Custodian log, API response)."""
+
+    def _level(self, monkeypatch, verbose, debug):
+        import logging
+        import run
+        if debug:
+            monkeypatch.setenv("LEFTSIZE_DEBUG", "true")
+        else:
+            monkeypatch.delenv("LEFTSIZE_DEBUG", raising=False)
+        run.configure_logging(verbose)
+        return logging.getLogger("run").level, logging.getLogger("botocore").level
+
+    def test_leftsize_debug_alone_enables_debug(self, monkeypatch):
+        import logging
+        assert self._level(monkeypatch, False, True) == (logging.DEBUG, logging.WARNING)
+
+    def test_verbose_enables_debug(self, monkeypatch):
+        import logging
+        assert self._level(monkeypatch, True, False)[0] == logging.DEBUG
+
+    def test_default_is_info(self, monkeypatch):
+        import logging
+        assert self._level(monkeypatch, False, False)[0] == logging.INFO

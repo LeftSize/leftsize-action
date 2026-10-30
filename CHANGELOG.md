@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.30] - 2026-10-31
+
+### Fixed
+- `LEFTSIZE_DEBUG` on its own now shows Custodian's output and the API response, as documented. Before, it also needed `verbose: true`.
+- Resources that carry a `VpcId` but aren't VPCs, such as RDS snapshots, are no longer reported under their VPC's ID. Two orphaned RDS snapshots in one VPC showed up as one resource with the VPC's ARN.
+- A resource is listed once per issue group. Custodian lists S3 buckets again in every region of a multi-region scan, and those findings share one scope.
+- Azure currency detection uses the subscription being scanned (Custodian's session, the `azure/login` subscription) when `azure-subscription-ids` isn't set, instead of the first subscription the login can see.
+
+### Changed
+- Lambda runtime rule: `python3.10` is deprecated as of 2026-10-31; `nodejs22.x` (deprecated 2027-04-30) is now flagged.
+- Amazon Pinpoint and AKS Azure Linux 2.0 rule descriptions describe their October 2026 dates in the past tense.
+
 ## [1.0.29] - 2026-10-31
 
 ### Changed

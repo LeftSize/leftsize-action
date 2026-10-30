@@ -45,11 +45,12 @@ logger = structlog.get_logger()
 
 
 def configure_logging(verbose: bool) -> None:
-    """INFO for everything; with verbose, DEBUG for LeftSize's own loggers only. Library
-    loggers (botocore, urllib3, azure) stay quiet: their debug output includes request
-    headers and signing details."""
+    """INFO for everything; with verbose or LEFTSIZE_DEBUG, DEBUG for LeftSize's own
+    loggers only (LEFTSIZE_DEBUG also turns on Custodian's output and the API response).
+    Library loggers (botocore, urllib3, azure) stay quiet: their debug output includes
+    request headers and signing details."""
     logging.basicConfig(level=logging.INFO)
-    level = logging.DEBUG if verbose else logging.INFO
+    level = logging.DEBUG if verbose or _debug_enabled() else logging.INFO
     for name in (__name__, 'run', 'stats', '__main__'):
         logging.getLogger(name).setLevel(level)
     for name in ('botocore', 'boto3', 'urllib3', 'azure', 'c7n', 'c7n_azure'):
@@ -892,7 +893,14 @@ def detect_azure_currency(subscription_id: str = None) -> str:
         
         credential = DefaultAzureCredential()
         
-        # Get subscription ID if not provided
+        # Without azure-subscription-ids: the subscription being scanned (Custodian's
+        # session: the azure/login subscription), not the first one the login can see
+        if not subscription_id:
+            try:
+                from c7n_azure.session import Session
+                subscription_id = Session().get_subscription_id()
+            except Exception as e:
+                logger.debug("Could not read the scanned subscription", error=str(e))
         if not subscription_id:
             sub_client = SubscriptionClient(credential)
             subs = list(sub_client.subscriptions.list())
@@ -1863,6 +1871,13 @@ def parse_custodian_output(output_dir: str, config: Dict[str, Any]) -> List[Dict
     return findings
 
 
+# Identifiers of resources that carry a 'VpcId' but aren't VPCs
+NON_VPC_ID_KEYS = (
+    'DBSnapshotArn', 'DBSnapshotIdentifier', 'DBClusterSnapshotArn', 'DBClusterSnapshotIdentifier',
+    'SubnetId', 'NetworkInterfaceId', 'ClusterIdentifier', 'Arn', 'ARN', 'arn',
+)
+
+
 def extract_resource_id(resource: Dict[str, Any], config: Dict[str, Any]) -> str:
     """Extract resource ID from Cloud Custodian resource - handles Azure and AWS formats"""
     
@@ -1918,8 +1933,11 @@ def extract_resource_id(resource: Dict[str, Any], config: Dict[str, Any]) -> str
             region = resource.get('Region', default_aws_region(config))
             return f"arn:aws:ec2:{region}::security-group/{resource['GroupId']}"
 
-        # VPCs use 'VpcId'
-        if resource.get('VpcId') and not resource.get('VpcEndpointId'):
+        # VPCs use 'VpcId'. Many other resources (RDS snapshots, subnets, ENIs) carry a
+        # 'VpcId' too, so only a resource that looks like a VPC counts as one.
+        if (resource.get('VpcId') and not resource.get('VpcEndpointId')
+                and ('DhcpOptionsId' in resource or 'IsDefault' in resource
+                     or not any(resource.get(k) for k in NON_VPC_ID_KEYS))):
             vpc_id = resource['VpcId']
             region = resource.get('Region', default_aws_region(config))
             return f"arn:aws:ec2:{region}::vpc/{vpc_id}"
@@ -2658,9 +2676,12 @@ def post_with_retry(url: str, payload: Dict[str, Any], headers: Dict[str, str],
 
 
 def group_findings(findings: List[Dict[str, Any]], currency: str = 'USD') -> List[Dict[str, Any]]:
-    """Group findings by rule ID and scope for backend submission"""
+    """Group findings by rule ID and scope for backend submission. A resource is listed
+    once per group: Custodian lists global resources such as S3 buckets again in every
+    region of a multi-region scan, and those findings share one scope."""
     
     groups = {}
+    seen = set()
     
     for finding in findings:
         rule_id = finding['ruleId']
@@ -2676,6 +2697,10 @@ def group_findings(findings: List[Dict[str, Any]], currency: str = 'USD') -> Lis
                 'cloud_provider': cloud_provider,
                 'resources': []
             }
+        
+        if (key, finding['resourceId']) in seen:
+            continue
+        seen.add((key, finding['resourceId']))
         
         resource = {
             'resource_id': finding['resourceId'],

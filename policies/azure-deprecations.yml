@@ -791,7 +791,7 @@ policies:
       Timeline:
       - Nov 30, 2025: Azure Linux 2.0 no longer supported on AKS, no security
         updates. Node image frozen at 202512.06.0.
-      - Starting Oct 31, 2026: Azure Linux 2.0 node images are removed. Node pools
+      - Since Oct 31, 2026: Azure Linux 2.0 node images are being removed. Node pools
         can no longer scale (scale-out, autoscaler, reimage, redeploy fail).
 
       Detection uses the pool's nodeImageVersion (AKSAzureLinux-V2* or

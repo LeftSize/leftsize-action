@@ -28,20 +28,19 @@ policies:
       You can always update a blocked function's configuration TO a supported runtime.
 
       Already deprecated:
-      - provided.al2 (2026-07-31), nodejs20.x (2026-04-30), ruby3.2 (2026-03-31)
+      - python3.10 (2026-10-31), provided.al2 (2026-07-31), nodejs20.x (2026-04-30), ruby3.2 (2026-03-31)
       - python3.9 (2025-12-15), nodejs18.x (2025-09-01), dotnet6 (2024-12-20)
       - python3.8 (2024-10-14), nodejs16.x (2024-06-12)
       - java8, go1.x, provided (2024-01-08; create already blocked)
       - ruby2.7, nodejs14.x, python3.7 (Dec 2023; create already blocked)
       - older runtimes (create AND update already blocked)
 
-      Deprecating within ~6 months:
-      - python3.10: 2026-10-31
+      Deprecating within ~6 months (checked 2026-10-31):
       - dotnet8: 2026-11-10
       - ruby3.3: 2027-03-31
+      - nodejs22.x: 2027-04-30
 
       NOT yet included (add when inside the 6-month window):
-      - nodejs22.x (deprecation 2027-04-30) -> add on/after 2026-10-31
       - python3.11, java11, java17, java8.al2 (deprecation 2027-06-30) -> add after 2026-12-31
       Container-image functions have no Runtime field and are never matched.
 
@@ -58,10 +57,11 @@ policies:
         op: in
         value:
           # Deprecating within ~6 months
-          - 'python3.10'
           - 'dotnet8'
           - 'ruby3.3'
+          - 'nodejs22.x'
           # Deprecated; create blocked 2027-07-29, update blocked 2027-08-31
+          - 'python3.10'
           - 'provided.al2'
           - 'nodejs20.x'
           - 'ruby3.2'
@@ -242,11 +242,11 @@ policies:
 
       Timeline:
       - 2025-05-20: Pinpoint closed to new customers
-      - 2026-10-30: AWS ends support for the Pinpoint engagement features: endpoints,
+      - 2026-10-30: AWS ended support for the Pinpoint engagement features: endpoints,
         segments, campaigns, journeys, analytics/KPI APIs, in-app messaging,
         recommenders, SendUsersMessages and sending to stored endpoint IDs.
 
-      NOT affected (keep working after 2026-10-30): push notifications and push
+      NOT affected (still working after 2026-10-30): push notifications and push
       templates, OTP, phone number validate, SMS/voice/email sending for existing
       customers, message templates, SendMessages, event/metric delivery. Apps,
       projects and channel configurations stay. So an app used only for push/OTP/SMS

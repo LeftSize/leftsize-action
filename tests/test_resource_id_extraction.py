@@ -189,3 +189,23 @@ class TestResourcesThatAlsoCarryAVpcOrVolumeId:
     def test_security_group_is_not_reported_as_the_vpc(self):
         r = {"GroupId": "sg-1", "VpcId": "vpc-1", "IpPermissions": []}
         assert extract_resource_id(r, AWS_CFG) == "arn:aws:ec2:us-east-1::security-group/sg-1"
+
+
+class TestVpcIdOnOtherResources:
+    """Resources that carry a VpcId must not be reported as their VPC."""
+
+    def test_rds_snapshot_with_vpc_id_keeps_its_own_arn(self):
+        from run import extract_resource_id
+        snap = {
+            'DBSnapshotIdentifier': 'final-snap-1',
+            'DBSnapshotArn': 'arn:aws:rds:eu-west-1:123456789012:snapshot:final-snap-1',
+            'VpcId': 'vpc-03ace170b0609e0f0',
+        }
+        config = {'cloud_provider': 'aws', 'targets': {'aws': {'regions': ['eu-west-1']}}}
+        assert extract_resource_id(snap, config) == 'arn:aws:rds:eu-west-1:123456789012:snapshot:final-snap-1'
+
+    def test_real_vpc_still_maps_to_vpc(self):
+        from run import extract_resource_id
+        vpc = {'VpcId': 'vpc-1', 'DhcpOptionsId': 'dopt-1', 'IsDefault': False, 'CidrBlock': '10.0.0.0/16'}
+        config = {'cloud_provider': 'aws', 'targets': {'aws': {'regions': ['eu-west-1']}}}
+        assert extract_resource_id(vpc, config) == 'arn:aws:ec2:eu-west-1::vpc/vpc-1'
