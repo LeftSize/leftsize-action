@@ -76,7 +76,9 @@ def _build_custodian_env() -> dict[str, str]:
     Explicitly excludes GitHub Actions, LeftSize, and other action-specific secrets.
     """
     allow_prefixes = (
-        "AZURE_", "AWS_", "GOOGLE_", "GCP_", "CLOUDFLARE_",
+        "AZURE_", "AWS_", "GOOGLE_", "GCP_",
+        # Only the two Cloudflare variables the provider reads (not e.g. a global API key)
+        "CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_IDS",
         "PATH", "HOME", "USER", "LANG", "LC_", "TZ",
         "PYTHONPATH",
         "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY",
@@ -189,8 +191,11 @@ def validate_cloudflare_account_id(account_id: str) -> bool:
 
 
 def validate_cloudflare_auth(cloudflare_config: Dict[str, Any]) -> bool:
-    """Check that CLOUDFLARE_API_TOKEN can list zones (the Zone Read permission every
-    Cloudflare rule needs), and pass the account filter on to Custodian."""
+    """Check CLOUDFLARE_API_TOKEN and pass the account filter on to Custodian.
+
+    Listing zones (Zone Read) is the normal check. A token without zones (only
+    account-level permissions) is accepted when Cloudflare's verify endpoint says it
+    is active; zone rules are then reported as not run."""
     from c7n_cloudflare.client import CloudflareError, Session
     if not os.environ.get('CLOUDFLARE_API_TOKEN'):
         logger.error("Cloudflare authentication failed: CLOUDFLARE_API_TOKEN is not set. Create a "
@@ -201,15 +206,30 @@ def validate_cloudflare_auth(cloudflare_config: Dict[str, Any]) -> bool:
         os.environ['CLOUDFLARE_ACCOUNT_IDS'] = ','.join(account_ids)
     try:
         session = Session(account_ids=account_ids)
+    except ValueError as e:
+        logger.error("Cloudflare authentication failed", error=str(e))
+        return False
+    try:
         params = {'per_page': 5, **({'account.id': account_ids[0]} if account_ids else {})}
         zones = session.get('/zones', **params) or []
-    except (CloudflareError, requests.RequestException, ValueError) as e:
-        logger.error("Cloudflare authentication failed: the API token can't list zones "
-                     "(it needs Zone Read).", error=str(e))
-        return False
-    accounts = sorted({(z.get('account') or {}).get('id') for z in zones if (z.get('account') or {}).get('id')})
-    logger.info("Cloudflare token works", sample_zones=len(zones), accounts=accounts or account_ids)
-    return True
+        accounts = sorted({(z.get('account') or {}).get('id') for z in zones if (z.get('account') or {}).get('id')})
+        logger.info("Cloudflare token works", sample_zones=len(zones), accounts=accounts or account_ids)
+        return True
+    except (CloudflareError, requests.RequestException) as e:
+        zone_error = str(e)
+    # User tokens verify at /user/tokens/verify, account-owned tokens per account
+    for path in ['/user/tokens/verify'] + [f'/accounts/{a}/tokens/verify' for a in account_ids]:
+        try:
+            if (session.get(path) or {}).get('status') == 'active':
+                logger.warning("Cloudflare token is active but can't list zones (Zone Read missing or no "
+                               "zones): zone rules won't run", error=zone_error)
+                return True
+        except (CloudflareError, requests.RequestException):
+            continue
+    logger.error("Cloudflare authentication failed: the API token can't list zones (it needs Zone Read) "
+                 "and isn't confirmed active. For an account-owned token, also set cloudflare-account-ids.",
+                 error=zone_error)
+    return False
 
 
 def get_aws_account_name(session: Any = None) -> Optional[str]:
@@ -1182,6 +1202,17 @@ def custodian_region_args(config: Dict[str, Any]) -> List[str]:
     return args
 
 
+def sanitize_text(value: str, limit: int = 200) -> str:
+    """Plain, single-line text for a value rendered into Markdown issues and shell
+    comments: no control characters or newlines, no HTML tags, Markdown links or
+    images (brackets), code spans or table pipes, capped length. Wildcards (*) and
+    underscores stay: hostnames and variable names need them."""
+    value = re.sub(r'[\x00-\x1f\x7f]+', ' ', value)
+    value = re.sub(r'[`<>\[\]|\\]', '', value)
+    value = re.sub(r'\s+', ' ', value).strip()
+    return value[:limit]
+
+
 def custodian_command(config: Dict[str, Any]) -> List[str]:
     """The Custodian CLI to run. Cloudflare needs the wrapper that registers the
     c7n_cloudflare provider (Custodian has no plugin loading); AWS and Azure use the
@@ -1262,8 +1293,11 @@ def execute_single_policy_file(policies_file: str, config: Dict[str, Any]) -> Op
                 logger.info("Custodian execution completed")
             # The Cloudflare provider's own notes (e.g. an empty list that may mean a missing
             # token permission) are always shown; they explain a scan without findings.
-            for line in sorted(set(re.findall(r'custodian\.cloudflare:(?:INFO|WARNING) (.+)', result.stderr or ''))):
+            for level, line in sorted(set(re.findall(r'custodian\.cloudflare:(INFO|WARNING) (.+)', result.stderr or ''))):
                 logger.info("Cloudflare", note=line.strip())
+                if level == 'WARNING':
+                    # e.g. one account skipped for a missing permission: the scan is incomplete
+                    record_problem(config, f"Cloudflare: {line.strip()}")
             # Only log Custodian's output when LEFTSIZE_DEBUG is enabled. Its log (per-policy
             # counts, "unable to invoke method" access warnings) goes to stderr.
             if _debug_enabled():
@@ -2172,6 +2206,11 @@ def convert_resource_to_finding(policy_name: str, resource: Dict[str, Any], conf
         
         # Extract metadata from resource - only include what Cloud Custodian provides
         metadata = extract_resource_metadata(resource, resource_id, policy_resource_type)
+        if config.get('cloud_provider') == 'cloudflare':
+            # Names come from the customer's account and end up in GitHub issues and
+            # script comments: keep them plain text
+            metadata = {k: sanitize_text(v) if isinstance(v, str) else v for k, v in (metadata or {}).items()}
+            resource_name = sanitize_text(resource_name)
         
         # Environment (production, acceptance, ...) and how it was decided, for issue titles and lists
         environment, environment_source = classify_environment(resource, config)
@@ -2351,7 +2390,7 @@ RESOURCE_FIELD_PATHS: Dict[str, Dict[str, List[str]]] = {
     'cloudflare.account': {'accountId': ['id'], 'accountName': ['name'],
                            'enforceTwoFactor': ['settings.enforce_twofactor'],
                            'memberCount': ['leftsize.memberCount'],
-                           'membersWithout2fa': ['leftsize.membersWithout2fa[]']},
+                           'membersWithout2faCount': ['leftsize.membersWithout2faCount']},
     'cloudflare.domain': {'domainName': ['domain_name'], 'accountId': ['account.id'], 'status': ['status'],
                           'expiresAt': ['expires_at'], 'autoRenew': ['auto_renew'], 'locked': ['locked'],
                           'privacyMode': ['privacy_mode']},

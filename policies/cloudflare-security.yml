@@ -343,8 +343,7 @@ policies:
             key: settings.enforce_twofactor
             value: false
           - type: value
-            key: leftsize.membersWithout2fa
-            value_type: size
+            key: leftsize.membersWithout2faCount
             op: gt
             value: 0
     metadata:

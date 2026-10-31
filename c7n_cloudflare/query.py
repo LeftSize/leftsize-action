@@ -8,6 +8,8 @@ from c7n.filters import FilterRegistry, ValueFilter
 from c7n.manager import ResourceManager
 from c7n.utils import local_session, type_schema
 
+from .client import CloudflareError
+
 
 log = logging.getLogger("custodian.cloudflare")
 
@@ -77,12 +79,20 @@ class AccountResourceManager(QueryResourceManager):
 
     def list_resources(self, session: Any) -> List[Dict[str, Any]]:
         resources = []
-        for account_id in session.accounts():
+        accounts = session.accounts()
+        for account_id in accounts:
             found = 0
-            for r in self.list_account(session, account_id):
-                r.setdefault("account", {"id": account_id})
-                resources.append(r)
-                found += 1
+            try:
+                for r in self.list_account(session, account_id):
+                    r.setdefault("account", {"id": account_id})
+                    resources.append(r)
+                    found += 1
+            except CloudflareError as e:
+                if len(accounts) == 1:
+                    raise
+                # One account without the permission shouldn't hide the others' findings
+                log.warning("Skipped %s of account %s: %s", self.resource_type.kind, account_id, e)
+                continue
             if not found:
                 # Several Cloudflare list APIs return an empty list, not a 403, without permission
                 log.info("No %s found in account %s (if there should be, check the API token's permissions)",
@@ -111,7 +121,7 @@ class DetailFilter(ValueFilter):
         raise NotImplementedError
 
     def fetch(self, session: Any, resource: Dict[str, Any]) -> Any:
-        return session.get_optional(self.detail_path(resource))
+        return session.get_cached(self.detail_path(resource), optional=True)
 
     def process(self, resources: List[Dict[str, Any]], event: Any = None) -> List[Dict[str, Any]]:
         session = local_session(self.manager.session_factory)

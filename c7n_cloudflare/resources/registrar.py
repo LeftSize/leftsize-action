@@ -24,11 +24,4 @@ class Domain(AccountResourceManager):
         default_report_fields = ("domain_name", "status", "expires_at", "auto_renew", "locked")
 
     def list_account(self, session: Any, account_id: str) -> Iterable[Dict[str, Any]]:
-        path = self.resource_type.path.format(account_id=account_id)
-        cursor = None
-        while True:
-            body = session._request(path, {"per_page": 50, **({"cursor": cursor} if cursor else {})})
-            yield from body.get("result") or []
-            cursor = (body.get("result_info") or {}).get("cursor")
-            if not cursor:
-                return
+        return session.paginate_cursor(self.resource_type.path.format(account_id=account_id), per_page=50)

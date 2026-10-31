@@ -48,6 +48,9 @@ policies:
 
       Workers that only serve static assets are skipped: requests answered
       from assets don't invoke the Worker, so their usage isn't visible here.
+      Request counts come from Workers analytics (30 days); if an account's
+      analytics keep less history, check usage in the dashboard before
+      deleting.
 
       Fix: confirm nothing calls the Worker (routes, custom domains, service
       bindings, queues, cron), then delete it (`wrangler delete`).

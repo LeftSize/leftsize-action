@@ -8,6 +8,7 @@ token can read is listed.
 import logging
 import os
 import time
+from email.utils import parsedate_to_datetime
 from typing import Any, Dict, Iterator, List, Optional
 
 import requests
@@ -33,6 +34,21 @@ class CloudflareError(Exception):
         super().__init__(f"Cloudflare API GET {path} returned {status}: {detail}{hint}")
 
 
+def _retry_wait(response: Any, attempt: int) -> float:
+    """Seconds to wait before a retry: Retry-After as seconds or an HTTP date, else
+    exponential backoff."""
+    value = (getattr(response, "headers", None) or {}).get("Retry-After") if response is not None else None
+    if value:
+        try:
+            return max(0.0, float(value))
+        except ValueError:
+            try:
+                return max(0.0, parsedate_to_datetime(value).timestamp() - time.time())
+            except (TypeError, ValueError):
+                pass
+    return float(2 ** attempt)
+
+
 class Session:
     """Session object handed to resource managers by the provider's session factory."""
 
@@ -45,6 +61,9 @@ class Session:
             account_ids = [a.strip() for a in os.environ.get("CLOUDFLARE_ACCOUNT_IDS", "").split(",") if a.strip()]
         self.account_ids = account_ids
         self._accounts: Optional[List[str]] = None
+        # GET results shared by the policies of one Custodian run (one policy file):
+        # zone settings and listings several filters ask for
+        self._memo: Dict[str, Any] = {}
         self.http = http or requests.Session()
         self.http.headers["Authorization"] = f"Bearer {token}"
         self.http.headers["User-Agent"] = "leftsize-c7n-cloudflare"
@@ -52,13 +71,21 @@ class Session:
     def _request(self, path: str, params: Optional[Dict[str, Any]] = None,
                  json_body: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         for attempt in range(RETRIES + 1):
-            if json_body is None:
-                response = self.http.get(f"{API_BASE}{path}", params=params, timeout=TIMEOUT_SECONDS)
-            else:
-                response = self.http.post(f"{API_BASE}{path}", json=json_body, timeout=TIMEOUT_SECONDS)
+            try:
+                if json_body is None:
+                    response = self.http.get(f"{API_BASE}{path}", params=params, timeout=TIMEOUT_SECONDS)
+                else:
+                    response = self.http.post(f"{API_BASE}{path}", json=json_body, timeout=TIMEOUT_SECONDS)
+            except requests.RequestException as e:
+                if attempt < RETRIES:
+                    wait = _retry_wait(None, attempt)
+                    log.debug("Cloudflare request to %s failed (%s), retrying in %ss", path, type(e).__name__, wait)
+                    time.sleep(wait)
+                    continue
+                raise CloudflareError(path, 0, [{"code": type(e).__name__, "message": "request failed"}]) from e
             if response.status_code == 429 or response.status_code >= 500:
                 if attempt < RETRIES:
-                    wait = float(response.headers.get("Retry-After") or 2 ** attempt)
+                    wait = _retry_wait(response, attempt)
                     log.debug("Cloudflare %s on %s, retrying in %ss", response.status_code, path, wait)
                     time.sleep(min(wait, 60))
                     continue
@@ -78,6 +105,25 @@ class Session:
     def get(self, path: str, **params: Any) -> Any:
         """The `result` of one GET."""
         return self._request(path, params or None).get("result")
+
+    def get_cached(self, path: str, optional: bool = False) -> Any:
+        """`get` (or `get_optional`) once per path for this session."""
+        key = f"{'?' if optional else ''}{path}"
+        if key not in self._memo:
+            self._memo[key] = self.get_optional(path) if optional else self.get(path)
+        return self._memo[key]
+
+    def zones(self) -> List[Dict[str, Any]]:
+        """Zones the token can read (limited to CLOUDFLARE_ACCOUNT_IDS), listed once."""
+        if "zones" not in self._memo:
+            if self.account_ids:
+                zones: List[Dict[str, Any]] = []
+                for account_id in self.account_ids:
+                    zones.extend(self.paginate("/zones", **{"account.id": account_id}))
+            else:
+                zones = list(self.paginate("/zones"))
+            self._memo["zones"] = zones
+        return self._memo["zones"]
 
     def get_optional(self, path: str, **params: Any) -> Any:
         """The `result` of one GET, or None when the object doesn't exist (404), such as
@@ -101,20 +147,24 @@ class Session:
             if not ids:
                 ids = [a["id"] for a in self.paginate("/accounts") if a.get("id")]
             if not ids:
-                ids = sorted({(z.get("account") or {}).get("id") for z in self.paginate("/zones")} - {None})
+                ids = sorted({(z.get("account") or {}).get("id") for z in self.zones()} - {None})
             self._accounts = ids
         return self._accounts
 
-    def paginate_cursor(self, path: str, items_key: str, **params: Any) -> Iterator[Dict[str, Any]]:
-        """All items of a cursor-paginated endpoint whose `result` is an object, such as
-        R2 buckets (`{"buckets": [...]}`, next page via `result_info.cursor`)."""
+    def paginate_cursor(self, path: str, items_key: Optional[str] = None, **params: Any) -> Iterator[Dict[str, Any]]:
+        """All items of a cursor-paginated endpoint (next page via `result_info.cursor`).
+        `items_key` names the list inside an object `result`, such as R2 buckets
+        (`{"buckets": [...]}`); without it `result` is the list (Registrar)."""
         cursor = None
-        while True:
+        for _ in range(MAX_PAGES):
             body = self._request(path, {**params, **({"cursor": cursor} if cursor else {})})
-            yield from (body.get("result") or {}).get(items_key) or []
-            cursor = (body.get("result_info") or {}).get("cursor")
-            if not cursor:
+            result = body.get("result")
+            yield from ((result or {}).get(items_key) if items_key else result) or []
+            next_cursor = (body.get("result_info") or {}).get("cursor")
+            if not next_cursor or next_cursor == cursor:
                 return
+            cursor = next_cursor
+        log.warning("Stopped listing %s after %d pages", path, MAX_PAGES)
 
     def paginate(self, path: str, **params: Any) -> Iterator[Dict[str, Any]]:
         """All items of a page-numbered list endpoint."""

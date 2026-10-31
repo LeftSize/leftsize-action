@@ -10,10 +10,10 @@ from ..query import QueryResourceManager, TypeInfo
 
 
 def _summarize_members(members: List[Dict[str, Any]]) -> Dict[str, Any]:
+    # Only a count: a list of members without 2FA would be a target list in an issue
     accepted = [m for m in members if m.get("status") == "accepted"]
-    without = [((m.get("user") or {}).get("email") or m.get("email") or "unknown") for m in accepted
-               if not (m.get("user") or {}).get("two_factor_authentication_enabled")]
-    return {"memberCount": len(accepted), "membersWithout2fa": sorted(without)}
+    without = [m for m in accepted if not (m.get("user") or {}).get("two_factor_authentication_enabled")]
+    return {"memberCount": len(accepted), "membersWithout2faCount": len(without)}
 
 
 @resources.register("account")

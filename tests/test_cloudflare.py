@@ -470,9 +470,11 @@ def test_account_2fa(cloudflare, tmp_path: Path) -> None:
     })
     run_policy('leftsize-cloudflare-account-2fa-not-enforced', output_dir=str(tmp_path))
     findings = run.parse_custodian_output(str(tmp_path), {'cloud_provider': 'cloudflare'})
-    got = {f['resourceId']: (f['metadata']['enforceTwoFactor'], f['metadata'].get('membersWithout2fa')) for f in findings}
-    assert got == {f'cloudflare:account/{ACCOUNT}/account/{ACCOUNT}': (False, None),
-                   f'cloudflare:account/{other}/account/{other}': (True, 'c@example.com')}
+    got = {f['resourceId']: (f['metadata']['enforceTwoFactor'], f['metadata']['membersWithout2faCount']) for f in findings}
+    assert got == {f'cloudflare:account/{ACCOUNT}/account/{ACCOUNT}': (False, 0),
+                   f'cloudflare:account/{other}/account/{other}': (True, 1)}
+    raw = '\n'.join(p.read_text() for p in tmp_path.rglob('*.json'))
+    assert 'c@example.com' not in raw  # member emails are never kept
 
 
 def test_certificate_expiring(cloudflare, tmp_path: Path) -> None:
@@ -617,3 +619,75 @@ def test_paginate_stops_when_endpoint_ignores_paging(cloudflare) -> None:
     fake = cloudflare({'/things': {'result': items, 'result_info': {'count': 80}}})
     assert len(list(cf_client.Session().paginate('/things'))) == 80
     assert len([c for c in fake.calls if c[0] == '/things']) == 2
+
+
+# ---------- review fixes ----------
+
+def test_retry_after_http_date_and_network_errors(cloudflare, monkeypatch: pytest.MonkeyPatch) -> None:
+    import requests as rq
+    calls = {'n': 0}
+    ok = FakeResponse(200, {'success': True, 'result': [zone('a.com')]})
+
+    class Flaky(FakeHttp):
+        def get(self, url, params=None, timeout=0):  # type: ignore[override]
+            calls['n'] += 1
+            if calls['n'] == 1:
+                raise rq.ConnectionError('reset')
+            if calls['n'] == 2:
+                return FakeResponse(429, {'success': False}, {'Retry-After': 'Wed, 21 Oct 2015 07:28:00 GMT'})
+            return ok
+    reset_session_cache()
+    monkeypatch.setattr(cf_client.requests, 'Session', lambda: Flaky({}))
+    assert [z['name'] for z in cf_client.Session().paginate('/zones')] == ['a.com']
+    assert calls['n'] == 3
+
+
+def test_one_account_failing_doesnt_hide_others(cloudflare, monkeypatch: pytest.MonkeyPatch, caplog) -> None:
+    other = 'f' * 32
+    monkeypatch.setenv('CLOUDFLARE_ACCOUNT_IDS', f'{ACCOUNT},{other}')
+    cloudflare({
+        '/zones': [zone('a.com')],
+        f'/accounts/{ACCOUNT}/access/service_tokens': FakeResponse(403, {'success': False, 'errors': [{'code': 10000}]}),
+        f'/accounts/{other}/access/service_tokens': [{'id': 's1', 'name': 'old', 'last_seen_at': ago(200), 'created_at': ago(400)}],
+    })
+    with caplog.at_level('WARNING', logger='custodian.cloudflare'):
+        found = run_policy('leftsize-cloudflare-access-service-token-unused')
+    assert [t['name'] for t in found] == ['old']
+    assert any('Skipped access-service-token of account' in r.message for r in caplog.records)
+
+
+def test_zone_settings_fetched_once_per_run(cloudflare) -> None:
+    fake = cloudflare({'/zones': [zone('a.com')], **zone_settings('a.com', ssl='flexible')})
+    run_policy('leftsize-cloudflare-zone-ssl-unencrypted-origin')
+    run_policy('leftsize-cloudflare-zone-ssl-full-not-strict')
+    assert len([c for c in fake.calls if c[0].endswith('/settings/ssl')]) == 1
+
+
+def test_withdrawn_setting_counts_as_off(cloudflare) -> None:
+    cloudflare({'/zones': [zone('a.com')]})  # /settings/minify -> 404
+    assert run_policy('leftsize-cloudflare-zone-legacy-features') == []
+
+
+def test_names_are_sanitized_for_issues() -> None:
+    resource = {'id': 'abc', 'name': 'deploy [click](https://evil)\n`rm -rf` <img src=x>', 'status': 'active',
+                'account': {'id': ACCOUNT}, 'c7n:cloudflare-id': f'account/{ACCOUNT}/api-token/abc',
+                'leftsize': {'writePermissions': ['DNS Write']}}
+    f = run.convert_resource_to_finding('leftsize-cloudflare-api-token-unrestricted', resource,
+                                        {'cloud_provider': 'cloudflare'}, 'cloudflare.api-token')
+    assert f['metadata']['tokenName'] == 'deploy click(https://evil) rm -rf img src=x'
+    assert '\n' not in f['resourceName'] and '[' not in f['resourceName']
+
+
+def test_cloudflare_env_allow_list_is_narrow(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv('CLOUDFLARE_API_TOKEN', 't')
+    monkeypatch.setenv('CLOUDFLARE_API_KEY', 'global-key')
+    env = run._build_custodian_env()
+    assert 'CLOUDFLARE_API_TOKEN' in env and 'CLOUDFLARE_API_KEY' not in env
+
+
+def test_auth_accepts_token_without_zones(cloudflare) -> None:
+    cloudflare({'/zones': FakeResponse(403, {'success': False, 'errors': [{'code': 9109}]}),
+                '/user/tokens/verify': {'id': 't', 'status': 'active'}})
+    assert run.validate_cloudflare_auth({}) is True
+    cloudflare({'/zones': FakeResponse(403, {'success': False, 'errors': [{'code': 9109}]})})
+    assert run.validate_cloudflare_auth({}) is False

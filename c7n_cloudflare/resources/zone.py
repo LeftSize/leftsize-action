@@ -34,12 +34,7 @@ class Zone(QueryResourceManager):
         default_report_fields = ("id", "name", "status", "plan.name", "account.name")
 
     def list_resources(self, session: Any) -> List[Dict[str, Any]]:
-        if not session.account_ids:
-            return list(session.paginate("/zones"))
-        zones: List[Dict[str, Any]] = []
-        for account_id in session.account_ids:
-            zones.extend(session.paginate("/zones", **{"account.id": account_id}))
-        return zones
+        return [dict(z) for z in session.zones()]
 
 
 @Zone.filter_registry.register("zone-setting")
@@ -78,7 +73,9 @@ class ZoneSettingFilter(ValueFilter):
         for zone in resources:
             settings = zone.setdefault(self.annotation_key, {})
             if setting not in settings:
-                result = session.get(f"/zones/{zone['id']}/settings/{setting}") or {}
+                # Shared by every zone-setting filter of the run; a withdrawn setting
+                # (404, e.g. a deprecated feature) counts as not set
+                result = session.get_cached(f"/zones/{zone['id']}/settings/{setting}", optional=True) or {}
                 settings[setting] = result.get("value")
             if self.match({"value": settings[setting]}):
                 matched.append(zone)

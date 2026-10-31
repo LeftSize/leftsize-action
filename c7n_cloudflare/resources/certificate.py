@@ -7,12 +7,16 @@ Certificate Manager) are not included. PEM bodies and keys are never stored.
 Token permission (read): SSL and Certificates.
 """
 
-from typing import Any, Dict, List
+import logging
+from typing import Any, Dict, Iterable, List
 
+from ..client import CloudflareError
 from ..provider import resources
 from ..query import QueryResourceManager, TypeInfo
 
 CUSTOM_CERTIFICATE_PLANS = ("business", "enterprise")
+
+log = logging.getLogger("custodian.cloudflare")
 
 KEEP = ("id", "hostnames", "hosts", "expires_on", "issuer", "status", "signature", "request_type",
         "requested_validity", "uploaded_on", "modified_on", "bundle_method", "type")
@@ -35,13 +39,9 @@ class Certificate(QueryResourceManager):
 
     def list_resources(self, session: Any) -> List[Dict[str, Any]]:
         certificates = []
-        zones = list(session.paginate("/zones"))
-        allowed = set(session.account_ids)
-        for zone in zones:
+        for zone in session.zones():
             account = zone.get("account") or {}
-            if allowed and account.get("id") not in allowed:
-                continue
-            sources = [("origin-ca", session.paginate("/certificates", zone_id=zone["id"]))]
+            sources = [("origin-ca", _origin_ca(session, zone))]
             # Custom certificates need a Business or Enterprise plan; other zones refuse the call
             if (zone.get("plan") or {}).get("legacy_id") in CUSTOM_CERTIFICATE_PLANS:
                 sources.append(("custom", session.paginate(f"/zones/{zone['id']}/custom_certificates")))
@@ -54,3 +54,15 @@ class Certificate(QueryResourceManager):
                     record["account"] = {"id": account.get("id"), "name": account.get("name")}
                     certificates.append(record)
         return certificates
+
+
+def _origin_ca(session: Any, zone: Dict[str, Any]) -> Iterable[Dict[str, Any]]:
+    """Origin CA certificates of a zone. If the token may not list them, warn (the scan
+    reports it) and still check the zone's custom certificates."""
+    try:
+        return list(session.paginate("/certificates", zone_id=zone["id"]))
+    except CloudflareError as e:
+        if e.status != 403:
+            raise
+        log.warning("Skipped Origin CA certificates of zone %s: %s", zone.get("name"), e)
+        return []
