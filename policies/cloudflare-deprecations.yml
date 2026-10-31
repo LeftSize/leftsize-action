@@ -45,6 +45,7 @@ policies:
       category: deprecation
       severity: medium
       tier: pro
+      review_by: '2027-04-30'
 
   - name: leftsize-cloudflare-zone-legacy-features
     description: |
@@ -88,3 +89,4 @@ policies:
       category: deprecation
       severity: low
       tier: pro
+      review_by: '2027-04-30'
