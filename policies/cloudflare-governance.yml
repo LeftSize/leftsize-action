@@ -1,0 +1,218 @@
+# ========================================
+# Cloudflare Governance
+# ========================================
+#
+# Hygiene and lifecycle rules: expiring certificates, unused resources and
+# outdated configuration. Runs with cloud-provider: cloudflare.
+# ========================================
+
+policies:
+  - name: leftsize-cloudflare-certificate-expiring
+    description: |
+      Find certificates you manage yourself that expire within 30 days:
+      Cloudflare Origin CA certificates (installed on your origin servers)
+      and custom certificates uploaded to Cloudflare.
+
+      Cloudflare doesn't renew these. An expired Origin CA certificate makes
+      requests fail with error 526 under Full (strict); an expired custom
+      certificate is no longer served to visitors. Certificates Cloudflare
+      issues itself (Universal SSL, Advanced Certificate Manager) renew
+      automatically and aren't checked.
+
+      Fix: issue a new Origin CA certificate (or upload the renewed custom
+      certificate), install it, then revoke or delete the old one.
+
+      References:
+      - https://developers.cloudflare.com/ssl/origin-configuration/origin-ca/
+      - https://developers.cloudflare.com/ssl/edge-certificates/custom-certificates/
+    resource: cloudflare.certificate
+    filters:
+      - type: value
+        key: expires_on
+        value_type: expiration
+        op: lt
+        value: 30
+    metadata:
+      category: governance
+      severity: high
+      tier: pro
+
+  - name: leftsize-cloudflare-worker-unused
+    description: |
+      Find Workers that weren't invoked in the last 30 days and weren't
+      changed in that time either.
+
+      Unused Workers are forgotten code with bindings to data (KV, D1, R2),
+      secrets and sometimes public URLs (workers.dev, routes). They add
+      attack surface and count toward the account's Workers limit.
+
+      Workers that only serve static assets are skipped: requests answered
+      from assets don't invoke the Worker, so their usage isn't visible here.
+      Request counts come from Workers analytics (30 days); if an account's
+      analytics keep less history, check usage in the dashboard before
+      deleting.
+
+      Fix: confirm nothing calls the Worker (routes, custom domains, service
+      bindings, queues, cron), then delete it (`wrangler delete`).
+
+      References:
+      - https://developers.cloudflare.com/workers/wrangler/commands/#delete
+      - https://developers.cloudflare.com/workers/platform/limits/
+    resource: cloudflare.worker-script
+    filters:
+      - type: value
+        key: leftsize.hasAssets
+        value: false
+      - type: value
+        key: modified_on
+        value_type: age
+        op: gt
+        value: 30
+      - type: invocations
+        days: 30
+        op: eq
+        value: 0
+    metadata:
+      category: governance
+      severity: low
+      tier: pro
+
+  - name: leftsize-cloudflare-worker-outdated-compatibility-date
+    description: |
+      Find Workers whose compatibility date is more than 12 months old.
+
+      The compatibility date pins the runtime behaviour a Worker gets. Fixes
+      and changes that Cloudflare ships behind a compatibility date (Node.js
+      compatibility, web standards behaviour, bug fixes) don't reach a Worker
+      until its date is moved forward, and the gap to test grows every month.
+      Old dates keep working; this is maintenance, not an outage.
+
+      Fix: move `compatibility_date` in the Wrangler configuration to a recent
+      date, read the compatibility flags changed in between, test, deploy.
+
+      References:
+      - https://developers.cloudflare.com/workers/configuration/compatibility-dates/
+      - https://developers.cloudflare.com/workers/configuration/compatibility-flags/
+    resource: cloudflare.worker-script
+    filters:
+      - type: value
+        key: leftsize.compatibilityDate
+        value_type: age
+        op: gt
+        value: 365
+    metadata:
+      category: governance
+      severity: low
+      tier: pro
+
+  - name: leftsize-cloudflare-domain-expiring
+    description: |
+      Find domains registered with Cloudflare Registrar that expire within 30
+      days with auto-renew off, or that already expired (expired or in the
+      redemption period).
+
+      When a domain expires, its websites, APIs and email stop working; in
+      the redemption period restoring it costs extra, and after that anyone
+      can register it.
+
+      Fix: turn on auto-renew, or renew the domain manually. Make sure the
+      account has a valid payment method.
+
+      Needs a user API token: account-owned tokens can't read Registrar.
+
+      References:
+      - https://developers.cloudflare.com/registrar/
+      - https://developers.cloudflare.com/api/resources/registrar/subresources/registrations/methods/list/
+    resource: cloudflare.domain
+    filters:
+      - or:
+          - and:
+              - type: value
+                key: status
+                value: active
+              - type: value
+                key: auto_renew
+                value: false
+              - type: value
+                key: expires_at
+                value_type: expiration
+                op: lt
+                value: 30
+          - type: value
+            key: status
+            op: in
+            value: [expired, redemption_period]
+    metadata:
+      category: governance
+      severity: high
+      tier: pro
+
+  - name: leftsize-cloudflare-tunnel-inactive
+    description: |
+      Find Cloudflare Tunnels that have had no connection for more than 30
+      days: tunnels that are down (their connectors stopped) or that never
+      ran at all (inactive).
+
+      An abandoned tunnel still holds its credentials and routes (public
+      hostnames, private networks). Anyone who gets hold of the tunnel token
+      can run a connector for it.
+
+      Fix: if the service is gone, delete the tunnel and its public hostname
+      routes; otherwise restart cloudflared.
+
+      References:
+      - https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/
+      - https://developers.cloudflare.com/api/resources/zero_trust/subresources/tunnels/subresources/cloudflared/methods/list/
+    resource: cloudflare.tunnel
+    filters:
+      - or:
+          - and:
+              - type: value
+                key: status
+                value: down
+              - type: value
+                key: conns_inactive_at
+                value_type: age
+                op: gt
+                value: 30
+          - and:
+              - type: value
+                key: status
+                value: inactive
+              - type: value
+                key: created_at
+                value_type: age
+                op: gt
+                value: 30
+    metadata:
+      category: governance
+      severity: low
+      tier: pro
+
+  - name: leftsize-cloudflare-lb-pool-unused
+    description: |
+      Find load balancer pools that nothing uses, according to Cloudflare's
+      own reference lookup for the pool (no load balancer uses it as default,
+      fallback, region, country or PoP pool, in a pool set or rule override).
+
+      Unused pools are leftovers from removed load balancers or old failover
+      plans. They make it unclear which origins are really in service, and
+      an attached monitor is set up to keep checking the pool's endpoints.
+
+      Fix: confirm the pool isn't needed for a planned failover, then delete
+      it (and its monitor if nothing else uses it).
+
+      References:
+      - https://developers.cloudflare.com/load-balancing/pools/
+      - https://developers.cloudflare.com/load-balancing/monitors/
+    resource: cloudflare.lb-pool
+    filters:
+      - type: value
+        key: leftsize.referrers
+        value_type: size
+        op: eq
+        value: 0
+    metadata:
+      category: governance
+      severity: low
+      tier: pro

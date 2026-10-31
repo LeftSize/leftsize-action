@@ -1,0 +1,157 @@
+# ========================================
+# Cloudflare Cost Optimization
+# ========================================
+#
+# Runs with cloud-provider: cloudflare. Resources come from the c7n_cloudflare
+# provider in this repository (read-only API token).
+# ========================================
+
+policies:
+  - name: leftsize-cloudflare-paid-zone-not-serving
+    description: |
+      Find zones on a paid plan (Pro, Business, Enterprise) that serve no traffic
+      through Cloudflare: the zone is not active (pending nameserver change,
+      initializing or moved away) or Cloudflare is paused on it.
+
+      A zone plan is a subscription billed per zone. Cloudflare deletes Free-plan
+      zones that stay pending for 28 days or moved for 7 days, but a pending zone
+      with a paid plan "will remain pending until the plan is removed", so the
+      subscription keeps running. A pending or moved zone uses none of the plan's
+      features; a paused zone sends traffic straight to the origin (DNS only), so
+      the plan's WAF, cache and image features don't apply either.
+
+      Fix: finish the nameserver change, unpause, downgrade the zone to Free, or
+      delete the zone.
+
+      References:
+      - https://developers.cloudflare.com/dns/zone-setups/reference/domain-status/
+      - https://developers.cloudflare.com/fundamentals/manage-domains/pause-cloudflare/
+      - https://developers.cloudflare.com/billing/change-plan/
+    resource: cloudflare.zone
+    filters:
+      # `ne` alone would also match a zone without plan data
+      - type: value
+        key: plan.legacy_id
+        value: not-null
+      - type: value
+        key: plan.legacy_id
+        value_type: normalize
+        op: ne
+        value: free
+      - or:
+          - type: value
+            key: status
+            op: ne
+            value: active
+          - type: value
+            key: paused
+            value: true
+    metadata:
+      category: cost-optimization
+      severity: medium
+      tier: free
+
+  - name: leftsize-cloudflare-worker-full-log-sampling
+    description: |
+      Find busy Workers that log every invocation: Workers Logs enabled with
+      a head sampling rate of 1 (100%) and at least 10 million requests in
+      the last 7 days.
+
+      From December 1, 2026 Workers Observability is billed by volume:
+      50 GB of ingested logs per month included on Workers Paid, then
+      $0.25/GB, plus storage beyond 10 GB-month at $0.10/GB-month. Logging
+      every request of a busy Worker is the main driver.
+
+      Fix: lower `head_sampling_rate` in the Worker's observability settings
+      (e.g. 0.01 to 0.1), keep logging errors in full through tail Workers
+      or Logpush if needed.
+
+      References:
+      - https://developers.cloudflare.com/workers/observability/logs/workers-logs/
+      - https://developers.cloudflare.com/observability/pricing/
+    resource: cloudflare.worker-script
+    filters:
+      - type: value
+        key: leftsize.logsEnabled
+        value: true
+      - type: value
+        key: leftsize.logSamplingRate
+        op: gte
+        value: 1
+      - type: invocations
+        days: 7
+        op: gte
+        value: 10000000
+    metadata:
+      category: cost-optimization
+      severity: medium
+      tier: free
+
+  - name: leftsize-cloudflare-r2-no-multipart-abort
+    description: |
+      Find R2 buckets without an enabled lifecycle rule that aborts incomplete
+      multipart uploads for the whole bucket.
+
+      Parts of multipart uploads that were never completed or aborted (failed
+      or interrupted uploads, crashed clients) stay in the bucket and count
+      against storage (as Cloudflare's upload examples put it), but don't
+      show up as objects. New buckets get a
+      default rule that aborts them after 7 days; buckets where that rule
+      was removed or replaced keep the parts.
+
+      Fix: add a lifecycle rule "abort incomplete multipart uploads after 7
+      days" for the whole bucket.
+
+      References:
+      - https://developers.cloudflare.com/r2/buckets/object-lifecycles/
+      - https://developers.cloudflare.com/r2/pricing/
+    resource: cloudflare.r2-bucket
+    filters:
+      - type: multipart-abort-rule
+        present: false
+    metadata:
+      category: cost-optimization
+      severity: low
+      tier: free
+
+  - name: leftsize-cloudflare-zero-trust-inactive-seat
+    description: |
+      Find Zero Trust users who hold a seat (Access or Gateway) but haven't
+      signed in for 60 days, or never signed in and were added more than 60
+      days ago.
+
+      On paid Zero Trust plans every seat is billed (pay-as-you-go: $7 per
+      user per month, billed annually). Removed users become Inactive and
+      stop counting toward billing.
+
+      Fix: remove the user's seat (Team & Resources > Users > Remove seat),
+      and set a seat expiration for inactive users in the organization
+      settings so this happens automatically.
+
+      References:
+      - https://developers.cloudflare.com/cloudflare-one/team-and-resources/users/seat-management/
+      - https://www.cloudflare.com/zero-trust/products/access/
+    resource: cloudflare.zero-trust-user
+    filters:
+      - type: value
+        key: leftsize.hasSeat
+        value: true
+      - or:
+          - type: value
+            key: last_successful_login
+            value_type: age
+            op: gt
+            value: 60
+          - and:
+              - type: value
+                key: last_successful_login
+                value: empty
+              - type: value
+                key: created_at
+                value_type: age
+                op: gt
+                value: 60
+    metadata:
+      category: cost-optimization
+      severity: low
+      tier: free

@@ -1,6 +1,6 @@
 # LeftSize: Dependabot for cloud waste
 
-LeftSize scans your AWS and Azure accounts with read-only access and opens **GitHub issues** for idle and orphaned resources, upcoming service retirements, and security and governance gaps. Each issue lists the affected resources, the estimated impact and the fix, so the team that owns the resources can act on it like any other issue.
+LeftSize scans your AWS, Azure and Cloudflare accounts with read-only access and opens **GitHub issues** for idle and orphaned resources, upcoming service retirements, and security and governance gaps. Each issue lists the affected resources, the estimated impact and the fix, so the team that owns the resources can act on it like any other issue.
 
 This repository is the open-source (MIT) GitHub Action that runs the scan. It uses [Cloud Custodian](https://github.com/cloud-custodian/cloud-custodian) under the hood and runs on **your** GitHub Actions runner: cloud credentials never leave it.
 
@@ -31,7 +31,7 @@ A scheduled scan turns each finding group into an issue that is updated on every
 | | Free | Team | Business |
 |---|---|---|---|
 | Repositories | 3 | 10 | Unlimited |
-| Cost optimization rules (AWS + Azure) | ✅ All | ✅ All | ✅ All |
+| Cost optimization rules (AWS, Azure, Cloudflare) | ✅ All | ✅ All | ✅ All |
 | Deprecation & retirement alerts | – | ✅ | ✅ |
 | Security & governance rules | – | ✅ | ✅ |
 | Support | Docs | Email | Priority email |
@@ -41,10 +41,10 @@ Early-access prices; see [leftsize.com/#pricing](https://leftsize.com/#pricing).
 
 ## Features
 
-- 🔍 **Read-only** - Scans with Reader / ReadOnlyAccess; never changes your infrastructure
-- ☁️ **AWS and Azure** - One workflow for both clouds
+- 🔍 **Read-only** - Scans with Reader / ReadOnlyAccess / a read-only Cloudflare API token; never changes your infrastructure
+- ☁️ **AWS, Azure and Cloudflare** - One workflow for all three clouds, one job per cloud ([example](#several-clouds-in-one-workflow))
 - 🐙 **GitHub issues** - Findings land in the repository of the team that owns the resources
-- 🔐 **OIDC** - Keyless sign-in from your runner; no cloud secrets stored by LeftSize
+- 🔐 **OIDC** - Keyless sign-in to AWS and Azure from your runner; no cloud secrets stored by LeftSize (Cloudflare has no OIDC, so it uses a read-only API token kept in a GitHub secret)
 - 📅 **Retirements** - Retiring VM sizes, end-of-support runtimes and engines, with dates
 - 🎯 **Customizable** - Include or exclude policy categories
 
@@ -54,7 +54,7 @@ Early-access prices; see [leftsize.com/#pricing](https://leftsize.com/#pricing).
 
 1. Install the [LeftSize GitHub App](https://github.com/apps/leftsize)
 2. Complete onboarding to get your `installation-id` and `repository-token`
-3. Configure cloud provider authentication (Azure or AWS)
+3. Configure cloud provider authentication (Azure, AWS or Cloudflare)
 
 ### Basic Usage (Azure)
 
@@ -113,6 +113,30 @@ jobs:
           cloud-provider: aws
 ```
 
+### Cloudflare Usage
+
+Cloudflare has no OIDC for API tokens, so pass a read-only API token from a secret. No login step and no `id-token: write` are needed.
+
+```yaml
+permissions:
+  contents: read
+
+jobs:
+  leftsize-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run LeftSize Scan
+        uses: leftsize/leftsize-action@v1
+        with:
+          installation-id: ${{ secrets.LEFTSIZE_INSTALLATION_ID }}
+          repository-token: ${{ secrets.LEFTSIZE_REPOSITORY_TOKEN }}
+          cloud-provider: cloudflare
+          cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          cloudflare-account-ids: ${{ vars.CLOUDFLARE_ACCOUNT_IDS }}  # optional; empty = every account the token can read
+```
+
+See [Cloudflare Setup](#cloudflare-setup-api-token) for the token permissions.
+
 ## Configuration
 
 ### Inputs
@@ -122,9 +146,11 @@ jobs:
 | `installation-id` | ✅ Yes | - | GitHub App installation ID from LeftSize onboarding |
 | `repository-token` | ✅ Yes | - | Secure repository token from LeftSize onboarding |
 | `backend-url` | No | `https://api.leftsize.com` | LeftSize backend API URL (https, LeftSize domains only: the repository token is sent to it) |
-| `cloud-provider` | No | `azure` | Cloud provider: `azure` or `aws` (any case) |
+| `cloud-provider` | No | `azure` | Cloud provider: `azure`, `aws` or `cloudflare` (any case). One cloud per step; use one job per cloud to scan several |
 | `azure-subscription-ids` | No | Login subscription | Subscription ID used for scoping and currency detection. The scan covers the subscription selected by `azure/login`; scan more subscriptions with a matrix (one job per subscription). |
 | `aws-regions` | No | Login region | Comma-separated AWS regions to scan, or `all` for every enabled region |
+| `cloudflare-api-token` | For Cloudflare | - | Read-only Cloudflare API token; pass it from a secret (`${{ secrets.CLOUDFLARE_API_TOKEN }}`). See [Cloudflare Setup](#cloudflare-setup-api-token) for the permissions |
+| `cloudflare-account-ids` | No | Every account the token can read | Comma-separated Cloudflare account IDs to scan (32 hex characters each) |
 | `include-policies` | No | All | Rule categories: `cost-optimization`, `deprecation`, `governance`, `security` |
 | `exclude-policies` | No | None | Rule names to skip (comma-separated, with or without the `leftsize-` prefix) |
 | `environment-name` | No | Detected per resource | Environment of the scanned resources: one value for the whole scan (`Production`), or `name=environment` pairs for a subscription with several environments (`Freelance-NG-A=acceptance, Freelance-NG-P=production`). Values that aren't an environment (such as a matrix label `MAIN`) are ignored. See [Production vs non-production](#production-vs-non-production). |
@@ -149,7 +175,7 @@ Submitting findings is retried on network errors and server errors (three attemp
 
 ### What is sent to LeftSize
 
-Per finding: the rule, the resource ID and name, the region or resource group, the environment LeftSize detected, the fields its issues and savings estimates need (size, SKU, instance type, creation date and similar), and the **names** of the resource's tags. Tag values are never sent. Custodian runs with `--dry-run` and the policies' `actions:` are removed before it runs, so the action can't change anything in your cloud.
+Per finding: the rule, the resource ID and name, the region, resource group or Cloudflare account, the environment LeftSize detected, the fields its issues and savings estimates need (size, SKU, instance type, creation date and similar), and the **names** of the resource's tags. Tag values are never sent. On Cloudflare, the Zero Trust seat and two-factor rules send the email addresses of the users and members they flag; the API token, Worker variable and secret values and certificate files are never sent. Custodian runs with `--dry-run` and the policies' `actions:` are removed before it runs, so the action can't change anything in your cloud.
 
 ### Production vs non-production
 
@@ -210,6 +236,111 @@ jobs:
           repository-token: ${{ secrets.LEFTSIZE_REPOSITORY_TOKEN }}
           cloud-provider: aws
           aws-regions: "us-east-1,eu-west-1,ap-southeast-1"
+```
+
+### Several Clouds in One Workflow
+
+Each run of the action scans one cloud. Give each cloud its own job; the jobs run in parallel and each submits its own findings. Only the AWS and Azure jobs need `id-token: write`, so set permissions per job. A scan of one cloud never closes findings of another cloud. Each job counts as one of the 20 findings submissions an installation can make per day (UTC).
+
+```yaml
+name: LeftSize
+
+on:
+  schedule:
+    - cron: '17 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  aws:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: AWS Login (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: us-east-1
+      - uses: leftsize/leftsize-action@v1
+        with:
+          installation-id: ${{ secrets.LEFTSIZE_INSTALLATION_ID }}
+          repository-token: ${{ secrets.LEFTSIZE_REPOSITORY_TOKEN }}
+          cloud-provider: aws
+          aws-regions: ${{ vars.AWS_REGIONS }}
+
+  azure:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - uses: leftsize/leftsize-action@v1
+        with:
+          installation-id: ${{ secrets.LEFTSIZE_INSTALLATION_ID }}
+          repository-token: ${{ secrets.LEFTSIZE_REPOSITORY_TOKEN }}
+          cloud-provider: azure
+
+  cloudflare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: leftsize/leftsize-action@v1
+        with:
+          installation-id: ${{ secrets.LEFTSIZE_INSTALLATION_ID }}
+          repository-token: ${{ secrets.LEFTSIZE_REPOSITORY_TOKEN }}
+          cloud-provider: cloudflare
+          cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+```
+
+The same as a matrix, with one list of steps. A matrix shares one permissions block, so the Cloudflare entry also gets `id-token: write` (unused); `fail-fast: false` keeps one failing cloud from cancelling the others. Add an `include` entry per extra AWS account or Azure subscription (e.g. `cloud: aws` with `environment: PROD`, secrets ending in `_PROD`). See [Scanning several clouds from one workflow](https://support.leftsize.com/workflow/#the-same-as-a-matrix).
+
+```yaml
+jobs:
+  leftsize:
+    name: Scan ${{ matrix.cloud }} ${{ matrix.environment }}
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { cloud: aws, environment: MAIN }
+          - { cloud: azure, environment: MAIN }
+          - { cloud: cloudflare, environment: MAIN }
+    steps:
+      - name: AWS Login (OIDC)
+        if: matrix.cloud == 'aws'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets[format('AWS_ROLE_ARN_{0}', matrix.environment)] }}
+          aws-region: us-east-1
+      - name: Azure Login (OIDC)
+        if: matrix.cloud == 'azure'
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets[format('AZURE_CLIENT_ID_{0}', matrix.environment)] }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets[format('AZURE_SUBSCRIPTION_ID_{0}', matrix.environment)] }}
+      - uses: leftsize/leftsize-action@v1
+        with:
+          installation-id: ${{ secrets.LEFTSIZE_INSTALLATION_ID }}
+          repository-token: ${{ secrets.LEFTSIZE_REPOSITORY_TOKEN }}
+          cloud-provider: ${{ matrix.cloud }}
+          environment-name: ${{ matrix.environment }}
+          aws-regions: ${{ vars.AWS_REGIONS }}
+          cloudflare-api-token: ${{ matrix.cloud == 'cloudflare' && secrets.CLOUDFLARE_API_TOKEN || '' }}
+          cloudflare-account-ids: ${{ vars.CLOUDFLARE_ACCOUNT_IDS }}
 ```
 
 ### Filter Policies
@@ -366,9 +497,40 @@ aws iam attach-role-policy \
 - `LEFTSIZE_INSTALLATION_ID`: From LeftSize onboarding
 - `LEFTSIZE_REPOSITORY_TOKEN`: From LeftSize onboarding
 
+## Cloudflare Setup (API Token)
+
+Cloudflare has no OIDC or workload identity federation for API tokens, so the scan uses a read-only API token stored as a GitHub secret. The token stays on your runner; LeftSize never receives it.
+
+### 1. Create an account-owned, read-only token
+
+Use an account-owned token (**Manage Account** > **Account API tokens**): it isn't tied to a person. Include all zones of the account. The LeftSize onboarding page and the [Cloudflare setup guide](https://support.leftsize.com/cloudflare-setup) have a link that opens the dashboard with these permissions filled in. All are **Read**:
+
+| Scope | Permissions |
+|-------|-------------|
+| Zone | Zone, Zone Settings, DNS, SSL and Certificates |
+| Account | Account Settings, Account Analytics, Account API Tokens, Workers Scripts, Workers R2 Storage, Access: Apps and Policies, Access: Service Tokens, Access: Audit Logs, Access: Organizations, Identity Providers, and Groups, Cloudflare Tunnel, Load Balancing: Monitors and Pools |
+
+Account-owned tokens can't read Page Rules or Registrar. The rules `leftsize-cloudflare-page-rules-deprecated`, `leftsize-cloudflare-domain-expiring` and `leftsize-cloudflare-domain-transfer-unlocked` need a **user API token** with Page Rules Read (zone) and Registrar Domains Read (account) added; the trade-off is that a user token is tied to a person.
+
+Give the token a TTL and renew it before it expires: client IP filtering isn't practical with GitHub-hosted runners, whose addresses change.
+
+### 2. Add Secrets to GitHub
+
+- `CLOUDFLARE_API_TOKEN`: the token from step 1
+- `LEFTSIZE_INSTALLATION_ID`: From LeftSize onboarding
+- `LEFTSIZE_REPOSITORY_TOKEN`: From LeftSize onboarding
+
+Optional variable: `CLOUDFLARE_ACCOUNT_IDS`, the account IDs to scan (comma-separated).
+
+### Missing permissions
+
+The action first checks that the token can list zones (Zone Read). If it can't, it asks Cloudflare whether the token is active (an account-owned token only for the accounts in `cloudflare-account-ids`): an active token still runs the account-level rules and the zone rules are listed as not run; otherwise the step fails. Any other missing permission stops only the rules that need it: they are listed under **Incomplete scan** and in `failed-policies`. Some Cloudflare APIs return an empty list instead of an error without permission (Workers, Access applications, service tokens, tunnels); the log then shows a note like `No <kind> found in account <id> (if there should be, check the API token's permissions)`.
+
+Not scanned: Logpush jobs (listing them requires Logs Write, and LeftSize stays read-only), and Firewall Rules and the previous rate limiting rules (Cloudflare already converted them).
+
 ## Policies Included
 
-The action ships the curated LeftSize policies in [`policies/`](policies/): cost optimization, deprecations and retirements, security and governance for AWS and Azure. The [rule catalog](https://leftsize.com/rules/) documents every rule: what it checks, why it matters and how to fix it.
+The action ships the curated LeftSize policies in [`policies/`](policies/): cost optimization, deprecations and retirements, security and governance for AWS, Azure and Cloudflare. The [rule catalog](https://leftsize.com/rules/) documents every rule: what it checks, why it matters and how to fix it.
 
 ## Runner Requirements
 
@@ -391,10 +553,10 @@ For larger organizations, use [self-hosted runners](https://docs.github.com/en/a
 
 ## Security
 
-- ✅ **No Cloud Credentials Stored** - Uses OIDC (keyless authentication)
+- ✅ **No Cloud Credentials Stored** - Uses OIDC (keyless authentication) for AWS and Azure; Cloudflare's read-only API token stays in your GitHub secrets and on your runner
 - ✅ **Read-Only Operations** - All policies are 100% safe, no destructive actions
 - ✅ **Multi-Tenant Secure** - Repository tokens prevent cross-tenant attacks
-- ✅ **Minimal Permissions** - Only requires Reader and Monitoring Reader roles
+- ✅ **Minimal Permissions** - Reader and Monitoring Reader on Azure, ReadOnlyAccess on AWS, read-only permissions on Cloudflare
 
 ## Troubleshooting
 
@@ -417,6 +579,14 @@ aws sts get-caller-identity
 
 # Verify role trust policy
 aws iam get-role --role-name LeftSize-GitHub-Action
+```
+
+**Cloudflare**: `Cloudflare authentication failed: the API token can't list zones (it needs Zone Read) and isn't confirmed active` means the token is wrong or expired, or lacks Zone Read and couldn't be verified. For an account-owned token without Zone Read, set `cloudflare-account-ids` so it can be verified.
+
+```bash
+# Check the token (an account-owned token)
+curl -s "https://api.cloudflare.com/client/v4/accounts/$ACCOUNT_ID/tokens/verify" \
+  -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN"
 ```
 
 ### No Findings

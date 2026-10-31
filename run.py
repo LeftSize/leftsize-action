@@ -43,6 +43,10 @@ structlog.configure(
 
 logger = structlog.get_logger()
 
+# Values of the cloud-provider input; also the prefix of each provider's policy files
+# and scopes (aws-*.yml, aws:account/...)
+CLOUD_PROVIDERS = ('azure', 'aws', 'cloudflare')
+
 
 def configure_logging(verbose: bool) -> None:
     """INFO for everything; with verbose or LEFTSIZE_DEBUG, DEBUG for LeftSize's own
@@ -71,6 +75,9 @@ def _build_custodian_env() -> dict[str, str]:
     Only allows cloud provider credentials and essential system env vars.
     Explicitly excludes GitHub Actions, LeftSize, and other action-specific secrets.
     """
+    # Only the two Cloudflare variables the provider reads, by exact name (not e.g. a
+    # global API key or CLOUDFLARE_API_TOKEN_PRODUCTION)
+    allow_exact = ("CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_IDS")
     allow_prefixes = (
         "AZURE_", "AWS_", "GOOGLE_", "GCP_",
         "PATH", "HOME", "USER", "LANG", "LC_", "TZ",
@@ -87,7 +94,7 @@ def _build_custodian_env() -> dict[str, str]:
         if any(k.startswith(p) for p in exclude_prefixes):
             continue
         # Include if it matches an allow prefix
-        if any(k == p or k.startswith(p) for p in allow_prefixes):
+        if k in allow_exact or any(k == p or k.startswith(p) for p in allow_prefixes):
             filtered[k] = v
     
     # Ensure critical keys exist even if not in allow_prefixes
@@ -177,6 +184,53 @@ def validate_aws_region(region: str) -> bool:
     # AWS region pattern: us-east-1, eu-west-2, us-gov-west-1, etc.
     region_pattern = r'^[a-z]{2}(-gov|-iso[a-z]?)?-[a-z]+-\d+$'
     return re.match(region_pattern, region.strip()) is not None
+
+
+def validate_cloudflare_account_id(account_id: str) -> bool:
+    """Cloudflare account IDs are 32 lowercase hex characters."""
+    return re.fullmatch(r'[0-9a-f]{32}', account_id.strip()) is not None
+
+
+def validate_cloudflare_auth(cloudflare_config: Dict[str, Any]) -> bool:
+    """Check CLOUDFLARE_API_TOKEN and pass the account filter on to Custodian.
+
+    Listing zones (Zone Read) is the normal check. A token without zones (only
+    account-level permissions) is accepted when Cloudflare's verify endpoint says it
+    is active; zone rules are then reported as not run."""
+    from c7n_cloudflare.client import CloudflareError, Session
+    if not os.environ.get('CLOUDFLARE_API_TOKEN'):
+        logger.error("Cloudflare authentication failed: CLOUDFLARE_API_TOKEN is not set. Create a "
+                     "read-only API token and pass it to the action as cloudflare-api-token.")
+        return False
+    account_ids = cloudflare_config.get('account_ids') or []
+    if account_ids:
+        os.environ['CLOUDFLARE_ACCOUNT_IDS'] = ','.join(account_ids)
+    try:
+        session = Session(account_ids=account_ids)
+    except ValueError as e:
+        logger.error("Cloudflare authentication failed", error=str(e))
+        return False
+    try:
+        params = {'per_page': 5, **({'account.id': account_ids[0]} if account_ids else {})}
+        zones = session.get('/zones', **params) or []
+        accounts = sorted({(z.get('account') or {}).get('id') for z in zones if (z.get('account') or {}).get('id')})
+        logger.info("Cloudflare token works", sample_zones=len(zones), accounts=accounts or account_ids)
+        return True
+    except (CloudflareError, requests.RequestException) as e:
+        zone_error = str(e)
+    # User tokens verify at /user/tokens/verify, account-owned tokens per account
+    for path in ['/user/tokens/verify'] + [f'/accounts/{a}/tokens/verify' for a in account_ids]:
+        try:
+            if (session.get(path) or {}).get('status') == 'active':
+                logger.warning("Cloudflare token is active but can't list zones (Zone Read missing or no "
+                               "zones): zone rules won't run", error=zone_error)
+                return True
+        except (CloudflareError, requests.RequestException):
+            continue
+    logger.error("Cloudflare authentication failed: the API token can't list zones (it needs Zone Read) "
+                 "and isn't confirmed active. For an account-owned token, also set cloudflare-account-ids.",
+                 error=zone_error)
+    return False
 
 
 def get_aws_account_name(session: Any = None) -> Optional[str]:
@@ -275,6 +329,7 @@ def github_action_main():
     cloud_provider = os.getenv('LEFTSIZE_CLOUD_PROVIDER', 'azure')
     azure_subscription_ids = os.getenv('LEFTSIZE_AZURE_SUBSCRIPTION_IDS', '')
     aws_regions = os.getenv('LEFTSIZE_AWS_REGIONS', '')
+    cloudflare_account_ids = os.getenv('LEFTSIZE_CLOUDFLARE_ACCOUNT_IDS', '')
     environment_name = os.getenv('LEFTSIZE_ENVIRONMENT_NAME', '')
     currency = os.getenv('LEFTSIZE_CURRENCY', '')
     include_policies = os.getenv('LEFTSIZE_INCLUDE_POLICIES', '')
@@ -308,8 +363,8 @@ def github_action_main():
     
     # Validate cloud provider input
     cloud_provider = cloud_provider.strip().lower()
-    if cloud_provider not in ['azure', 'aws']:
-        logger.error("Invalid cloud-provider. Must be 'azure' or 'aws'.", provider=cloud_provider)
+    if cloud_provider not in CLOUD_PROVIDERS:
+        logger.error("Invalid cloud-provider. Must be 'azure', 'aws' or 'cloudflare'.", provider=cloud_provider)
         set_github_output('findings-submitted', 'false')
         return 1
     
@@ -354,6 +409,16 @@ def github_action_main():
                     set_github_output('findings-submitted', 'false')
                     return 1
                 config_data.setdefault('targets', {}).setdefault('aws', {})['regions'] = regions
+        elif cloud_provider == 'cloudflare':
+            if cloudflare_account_ids:
+                accounts = [a.strip() for a in cloudflare_account_ids.split(',') if a.strip()]
+                invalid_accounts = [a for a in accounts if not validate_cloudflare_account_id(a)]
+                if invalid_accounts:
+                    logger.error("Invalid Cloudflare account ID(s): expected 32 hex characters",
+                                 invalid=invalid_accounts)
+                    set_github_output('findings-submitted', 'false')
+                    return 1
+                config_data.setdefault('targets', {}).setdefault('cloudflare', {})['account_ids'] = accounts
         
         # Configure policies with validation
         if include_policies:
@@ -427,6 +492,17 @@ def github_action_main():
             aws_account_alias = get_aws_account_alias()
             if aws_account_alias:
                 config_data.setdefault('targets', {}).setdefault('aws', {})['account_alias'] = aws_account_alias
+        
+        elif cloud_provider == 'cloudflare':
+            # Cloudflare bills in USD
+            config_data['currency'] = currency.upper() if currency else 'USD'
+            cloudflare_config = config_data.setdefault('targets', {}).setdefault('cloudflare', {})
+            # The action input; Custodian only receives CLOUDFLARE_* variables
+            if os.getenv('LEFTSIZE_CLOUDFLARE_API_TOKEN'):
+                os.environ['CLOUDFLARE_API_TOKEN'] = os.environ['LEFTSIZE_CLOUDFLARE_API_TOKEN']
+            if not validate_cloudflare_auth(cloudflare_config):
+                set_github_output('findings-submitted', 'false')
+                return 1
         
         # Execute Cloud Custodian policies
         findings = execute_custodian_policies(policies_dir, config_data)
@@ -1061,10 +1137,8 @@ def execute_custodian_policies(policies_dir: str, config: Dict[str, Any]) -> Opt
             # Skip example files
             if 'example' in file.name.lower():
                 continue
-            # Filter by cloud provider prefix
-            if cloud_provider == 'azure' and file.name.startswith('aws-'):
-                continue
-            if cloud_provider == 'aws' and file.name.startswith('azure-'):
+            # Only the provider's own files (aws-*.yml, azure-*.yml, cloudflare-*.yml)
+            if not file.name.startswith(f'{cloud_provider}-'):
                 continue
             policy_files.append(file.name)
         
@@ -1129,6 +1203,29 @@ def custodian_region_args(config: Dict[str, Any]) -> List[str]:
     return args
 
 
+def sanitize_text(value: str, limit: int = 200) -> str:
+    """Plain, single-line text for a value rendered into Markdown issues and shell
+    comments: no control characters or newlines, no HTML tags, Markdown links or
+    images (brackets), code spans or table pipes, capped length. Wildcards (*) and
+    underscores stay: hostnames and variable names need them."""
+    value = re.sub(r'[\x00-\x1f\x7f]+', ' ', value)
+    value = re.sub(r'[`<>\[\]|\\]', '', value)
+    value = re.sub(r'\s+', ' ', value).strip()
+    return value[:limit]
+
+
+def custodian_command(config: Dict[str, Any]) -> List[str]:
+    """The Custodian CLI to run. Cloudflare needs the wrapper that registers the
+    c7n_cloudflare provider (Custodian has no plugin loading); AWS and Azure use the
+    stock `custodian` from the same Python environment."""
+    if config.get('cloud_provider') == 'cloudflare':
+        return [sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'leftsize_custodian.py')]
+    custodian_bin = os.path.join(os.path.dirname(sys.executable), 'custodian')
+    if not os.path.isfile(custodian_bin):
+        custodian_bin = 'custodian'  # Fall back to PATH
+    return [custodian_bin]
+
+
 def _debug_enabled() -> bool:
     return os.environ.get("LEFTSIZE_DEBUG", "").lower() in ("1", "true", "yes")
 
@@ -1144,13 +1241,10 @@ def execute_single_policy_file(policies_file: str, config: Dict[str, Any]) -> Op
         os.makedirs(output_dir, exist_ok=True)
         
         # Build Custodian command - use the custodian from the same Python environment
-        custodian_bin = os.path.join(os.path.dirname(sys.executable), 'custodian')
-        if not os.path.isfile(custodian_bin):
-            custodian_bin = 'custodian'  # Fall back to PATH
         cache_file = config.get('_custodian_cache')
         cache_args = ['--cache', cache_file, '--cache-period', '60'] if cache_file else ['--cache-period', '0']
         cmd = [
-            custodian_bin, 'run',
+            *custodian_command(config), 'run',
             '--output-dir', output_dir,
             *cache_args,
             policies_file
@@ -1198,6 +1292,13 @@ def execute_single_policy_file(policies_file: str, config: Dict[str, Any]) -> Op
                 return None
             else:
                 logger.info("Custodian execution completed")
+            # The Cloudflare provider's own notes (e.g. an empty list that may mean a missing
+            # token permission) are always shown; they explain a scan without findings.
+            for level, line in sorted(set(re.findall(r'custodian\.cloudflare:(INFO|WARNING) (.+)', result.stderr or ''))):
+                logger.info("Cloudflare", note=line.strip())
+                if level == 'WARNING':
+                    # e.g. one account skipped for a missing permission: the scan is incomplete
+                    record_problem(config, f"Cloudflare: {line.strip()}")
             # Only log Custodian's output when LEFTSIZE_DEBUG is enabled. Its log (per-policy
             # counts, "unable to invoke method" access warnings) goes to stderr.
             if _debug_enabled():
@@ -1256,6 +1357,11 @@ def build_scope_from_resource_id(resource_id: str, config: Dict[str, Any]) -> st
         return default_aws_region(config)
     
     try:
+        if cloud_provider == 'cloudflare':
+            # cloudflare:account/{account_id}/zone/{zone_name} -> one scope per account
+            match = re.match(r'^cloudflare:account/([^/]+)', resource_id)
+            return f"cloudflare:account/{match.group(1) if match else 'unknown'}"
+        
         if cloud_provider == 'aws':
             # AWS ARN format: arn:aws:service:region:account:resource
             # Extract both account and region from ARN when available
@@ -1883,6 +1989,15 @@ def extract_resource_id(resource: Dict[str, Any], config: Dict[str, Any]) -> str
     
     cloud_provider = config.get('cloud_provider', 'azure')
     
+    # Cloudflare: set by the c7n_cloudflare provider, e.g. account/{id}/zone/{name}.
+    # Zones use the name, not the ID, so a finding survives deleting and re-adding the zone.
+    if cloud_provider == 'cloudflare':
+        if resource.get('c7n:cloudflare-id'):
+            return f"cloudflare:{resource['c7n:cloudflare-id']}"
+        if resource.get('name'):
+            account_id = (resource.get('account') or {}).get('id') or 'unknown'
+            return f"cloudflare:account/{account_id}/zone/{resource['name']}"
+    
     # Azure resources have 'id' field
     if resource.get('id'):
         return resource['id']
@@ -2080,19 +2195,29 @@ def convert_resource_to_finding(policy_name: str, resource: Dict[str, Any], conf
         # Azure uses 'id', AWS uses various fields depending on resource type
         resource_id = extract_resource_id(resource, config)
         resource_name = resource_display_name(resource)
+        if config.get('cloud_provider') == 'cloudflare' and not resource_name:
+            # Workers scripts: the ID is the name; Registrar domains only have domain_name
+            resource_name = str(resource.get('id') or resource.get('domain_name') or '')
         resource_type = resource.get('type', '') or resource.get('c7n:resource-type', '')
+        if config.get('cloud_provider') == 'cloudflare' and policy_resource_type:
+            # A zone's `type` is its setup (full, partial, secondary), not a resource type
+            resource_type = policy_resource_type
         
         # Build scope from resource ID
         scope = build_scope_from_resource_id(resource_id, config)
         
         # Extract metadata from resource - only include what Cloud Custodian provides
         metadata = extract_resource_metadata(resource, resource_id, policy_resource_type)
-        
         # Environment (production, acceptance, ...) and how it was decided, for issue titles and lists
         environment, environment_source = classify_environment(resource, config)
         metadata = metadata or {}
         metadata['environment'] = environment
         metadata['environmentSource'] = environment_source
+        if config.get('cloud_provider') == 'cloudflare':
+            # Names come from the customer's account and end up in GitHub issues and
+            # script comments: keep them plain text (also the copy in environmentSource)
+            metadata = {k: sanitize_text(v) if isinstance(v, str) else v for k, v in metadata.items()}
+            resource_name = sanitize_text(resource_name)
         
         finding = {
             'ruleId': rule_id,
@@ -2236,6 +2361,74 @@ RESOURCE_FIELD_PATHS: Dict[str, Dict[str, List[str]]] = {
     'azure.hdinsight': {'clusterVersion': ['properties.clusterVersion'],
                         'clusterState': ['properties.clusterState'],
                         'clusterKind': ['properties.clusterDefinition.kind']},
+    # --- Cloudflare ---
+    'cloudflare.zone': {'zoneId': ['id'], 'zoneName': ['name'], 'status': ['status'], 'paused': ['paused'],
+                        'accountId': ['account.id'], 'accountName': ['account.name'],
+                        'planName': ['plan.name'], 'planPrice': ['plan.price'],
+                        'planFrequency': ['plan.frequency'], 'planCurrency': ['plan.currency'],
+                        'nameServers': ['name_servers[]'], 'activatedOn': ['activated_on'],
+                        'zoneType': ['type'], 'sslMode': ['c7n:zone-settings.ssl'],
+                        'minTlsVersion': ['c7n:zone-settings.min_tls_version'],
+                        'alwaysUseHttps': ['c7n:zone-settings.always_use_https'],
+                        'hstsEnabled': ['c7n:zone-settings.security_header.strict_transport_security.enabled'],
+                        'hstsMaxAge': ['c7n:zone-settings.security_header.strict_transport_security.max_age'],
+                        'dnssecStatus': ['c7n:details.dnssec.status'],
+                        'dnssecModifiedOn': ['c7n:details.dnssec.modified_on'],
+                        'pageRuleCount': ['c7n:page-rules.count'], 'pageRulesActive': ['c7n:page-rules.active'],
+                        'pageRuleSettings': ['c7n:page-rules.settings[]'],
+                        'pageRulesUnmigrated': ['c7n:page-rules.unmigrated[]'],
+                        'pageRuleUrls': ['c7n:page-rules.urls[]']},
+    'cloudflare.worker-script': {'scriptName': ['id'], 'accountId': ['account.id'], 'modifiedOn': ['modified_on'],
+                                 'usageModel': ['leftsize.usageModel'],
+                                 'compatibilityDate': ['leftsize.compatibilityDate'],
+                                 'logsEnabled': ['leftsize.logsEnabled'],
+                                 'logSamplingRate': ['leftsize.logSamplingRate'],
+                                 'requests': ['leftsize.requests'], 'requestDays': ['leftsize.requestDays'],
+                                 'plaintextSecretNames': ['leftsize.plaintextSecretNames[]'],
+                                 'hasAssets': ['leftsize.hasAssets'], 'routes': ['leftsize.routes[]'],
+                                 'customDomains': ['leftsize.customDomains[]'],
+                                 'cronTriggers': ['leftsize.cronTriggers[]'], 'createdOn': ['created_on']},
+    'cloudflare.account': {'accountId': ['id'], 'accountName': ['name'],
+                           'enforceTwoFactor': ['settings.enforce_twofactor'],
+                           'memberCount': ['leftsize.memberCount'],
+                           'membersWithout2faCount': ['leftsize.membersWithout2faCount']},
+    'cloudflare.domain': {'domainName': ['domain_name'], 'accountId': ['account.id'], 'status': ['status'],
+                          'expiresAt': ['expires_at'], 'autoRenew': ['auto_renew'], 'locked': ['locked'],
+                          'privacyMode': ['privacy_mode']},
+    'cloudflare.zero-trust-user': {'userId': ['id'], 'email': ['email'], 'userName': ['name'],
+                                   'accountId': ['account.id'], 'accessSeat': ['access_seat'],
+                                   'gatewaySeat': ['gateway_seat'], 'lastLogin': ['last_successful_login'],
+                                   'createdAt': ['created_at'], 'seatExpiration': ['leftsize.seatExpiration']},
+    'cloudflare.access-app': {'appId': ['id'], 'appName': ['name'], 'domain': ['domain'], 'appType': ['type'],
+                              'accountId': ['account.id'],
+                              'everyonePolicies': ['leftsize.everyonePolicies[]']},
+    'cloudflare.access-service-token': {'serviceTokenId': ['id'], 'serviceTokenName': ['name'],
+                                        'clientId': ['client_id'], 'accountId': ['account.id'],
+                                        'lastSeenAt': ['last_seen_at'], 'expiresAt': ['expires_at'],
+                                        'createdAt': ['created_at'], 'duration': ['duration']},
+    'cloudflare.tunnel': {'tunnelId': ['id'], 'tunnelName': ['name'], 'accountId': ['account.id'],
+                          'status': ['status'], 'connsActiveAt': ['conns_active_at'],
+                          'connsInactiveAt': ['conns_inactive_at'], 'createdAt': ['created_at'],
+                          'configSource': ['config_src'], 'tunnelType': ['tun_type']},
+    'cloudflare.lb-pool': {'poolId': ['id'], 'poolName': ['name'], 'accountId': ['account.id'],
+                           'enabled': ['enabled'], 'originCount': ['leftsize.originCount'],
+                           'referrers': ['leftsize.referrers[]'],
+                           'origins': ['origins[].address'], 'monitorId': ['monitor']},
+    'cloudflare.certificate': {'certificateId': ['id'], 'certificateKind': ['kind'],
+                               'hostnames': ['hostnames[]'], 'expiresOn': ['expires_on'],
+                               'issuer': ['issuer'], 'status': ['status'],
+                               'zoneName': ['zone.name'], 'zoneId': ['zone.id'], 'accountId': ['account.id']},
+    'cloudflare.api-token': {'tokenId': ['id'], 'tokenName': ['name'], 'accountId': ['account.id'],
+                             'status': ['status'], 'issuedOn': ['issued_on'], 'lastUsedOn': ['last_used_on'],
+                             'expiresOn': ['expires_on'], 'ipRestricted': ['leftsize.ipRestricted'],
+                             'permissionGroups': ['leftsize.permissionGroups[]'],
+                             'writePermissions': ['leftsize.writePermissions[]']},
+    'cloudflare.r2-bucket': {'bucketName': ['name'], 'accountId': ['account.id'], 'location': ['location'],
+                             'storageClass': ['storage_class'], 'creationDate': ['creation_date'],
+                             'devUrl': ['c7n:details.domains/managed.domain'],
+                             'corsOrigins': ['c7n:details.cors.rules[].allowed.origins[]'],
+                             'corsMethods': ['c7n:details.cors.rules[].allowed.methods[]'],
+                             'lifecycleRuleCount': ['leftsize.lifecycleRuleCount']},
 }
 
 
@@ -2374,7 +2567,16 @@ def _s3_bucket_region(resource: Dict[str, Any]) -> Optional[str]:
 
 
 # Fields that need more than a path lookup (counts, lists, derived values).
+def _cloudflare_minify_on(resource: Dict[str, Any]) -> Optional[str]:
+    """File types Auto Minify is still on for, e.g. 'css, js'."""
+    minify = (resource.get('c7n:zone-settings') or {}).get('minify')
+    if not isinstance(minify, dict):
+        return None
+    return ', '.join(k for k in ('css', 'html', 'js') if minify.get(k) == 'on') or None
+
+
 RESOURCE_FIELD_BUILDERS: Dict[str, Dict[str, Any]] = {
+    'cloudflare.zone': {'minifyOn': _cloudflare_minify_on},
     'azure.aks': {'nodePools': _aks_node_pools, 'nodeCount': _aks_node_count, 'vmSizes': _aks_vm_sizes,
                   'retiringNodePools': _aks_retiring_pools, 'retirementDate': _aks_retirement_date,
                   'avgNodeCpuPercent': _aks_avg_node_cpu, 'avgNodeMemoryPercent': _aks_avg_node_memory,
@@ -2690,7 +2892,8 @@ def group_findings(findings: List[Dict[str, Any]], currency: str = 'USD') -> Lis
         
         if key not in groups:
             # Determine cloud_provider from scope string
-            cloud_provider = 'azure' if scope.startswith('azure:') else 'aws'
+            prefix = scope.split(':', 1)[0]
+            cloud_provider = prefix if prefix in CLOUD_PROVIDERS else 'aws'
             groups[key] = {
                 'policy': rule_id,
                 'scope': scope,

@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.31] - 2026-10-31
+
+### Added
+- **Cloudflare** (`cloud-provider: cloudflare`): 25 rules for zones, Workers, R2, API tokens, account 2FA, certificates, Registrar domains, Zero Trust, tunnels and load balancer pools (4 cost, 13 security, 6 governance, 2 deprecation). The action signs in with a read-only API token (`cloudflare-api-token`; Cloudflare has no OIDC), optionally limited to `cloudflare-account-ids`. Issues are grouped per Cloudflare account. Rules whose permission the token lacks are listed as not run. See support.leftsize.com/cloudflare-setup.
+- README: scanning several clouds from one workflow as a matrix, next to the one-job-per-cloud example.
+
 ## [1.0.30] - 2026-10-31
 
 ### Fixed

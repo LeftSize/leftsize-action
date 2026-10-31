@@ -1,5 +1,5 @@
 name: 'LeftSize Cloud Cost Optimization'
-description: 'Dependabot for cloud waste: scan AWS and Azure read-only and get GitHub issues for idle resources and retirements'
+description: 'Dependabot for cloud waste: scan AWS, Azure and Cloudflare read-only and get GitHub issues for idle resources and retirements'
 author: 'LeftSize'
 branding:
   icon: 'cloud'
@@ -45,7 +45,7 @@ inputs:
   
   # Cloud provider configuration (scan mode)
   cloud-provider:
-    description: 'Cloud provider to scan (azure or aws)'
+    description: 'Cloud provider to scan (azure, aws or cloudflare)'
     required: false
     default: 'azure'
   
@@ -59,6 +59,15 @@ inputs:
     description: 'Comma-separated AWS regions to scan, or "all" for every enabled region (empty = the region of the AWS login step)'
     required: false
   
+  # Cloudflare-specific inputs
+  cloudflare-api-token:
+    description: 'Read-only Cloudflare API token (cloud-provider: cloudflare); see support.leftsize.com/cloudflare-setup. Account-owned token, all Read: Zone, Zone Settings, DNS, SSL and Certificates (zone); Account Settings, Account Analytics, Account API Tokens, Workers Scripts, Workers R2 Storage, Access: Apps and Policies, Access: Service Tokens, Access: Audit Logs, Access: Organizations, Identity Providers, and Groups, Cloudflare Tunnel, Load Balancing: Monitors and Pools (account). Page Rules and Registrar rules need a user token with Page Rules Read and Registrar Domains Read. Rules whose permission is missing are reported as not run. Pass it from a secret; without it, CLOUDFLARE_API_TOKEN from the environment is used.'
+    required: false
+
+  cloudflare-account-ids:
+    description: 'Comma-separated Cloudflare account IDs to scan (empty = every account the token can read)'
+    required: false
+
   # Environment configuration
   environment-name:
     description: 'Environment of the scanned resources. Leave empty to detect it per resource from environment tags and resource / resource group names. Set one value for the whole scan (e.g. Production), or name=environment pairs for a subscription or account with several environments (e.g. "Freelance-NG-A=acceptance, Freelance-NG-P=production, *-dev-*=development"), matched against resource group and resource names. Values that are not an environment (such as the matrix label MAIN) are ignored.'
@@ -174,6 +183,8 @@ runs:
         LEFTSIZE_CLOUD_PROVIDER: ${{ inputs.cloud-provider }}
         LEFTSIZE_AZURE_SUBSCRIPTION_IDS: ${{ inputs.azure-subscription-ids }}
         LEFTSIZE_AWS_REGIONS: ${{ inputs.aws-regions }}
+        LEFTSIZE_CLOUDFLARE_ACCOUNT_IDS: ${{ inputs.cloudflare-account-ids }}
+        LEFTSIZE_CLOUDFLARE_API_TOKEN: ${{ inputs.cloudflare-api-token }}
         LEFTSIZE_ENVIRONMENT_NAME: ${{ inputs.environment-name }}
         LEFTSIZE_CURRENCY: ${{ inputs.currency }}
         LEFTSIZE_INCLUDE_POLICIES: ${{ inputs.include-policies }}
