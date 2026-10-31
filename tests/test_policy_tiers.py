@@ -10,7 +10,8 @@ import pytest
 import yaml
 
 POLICIES_DIR = Path(__file__).parent.parent / 'policies'
-FREE_FILES = {'aws-cost-optimization.yml', 'azure-cost-optimization.yml', 'azure-aks-optimization.yml'}
+FREE_FILES = {'aws-cost-optimization.yml', 'azure-cost-optimization.yml', 'azure-aks-optimization.yml',
+              'cloudflare-cost-optimization.yml'}
 
 
 def _policies() -> list:

@@ -43,6 +43,10 @@ structlog.configure(
 
 logger = structlog.get_logger()
 
+# Values of the cloud-provider input; also the prefix of each provider's policy files
+# and scopes (aws-*.yml, aws:account/...)
+CLOUD_PROVIDERS = ('azure', 'aws', 'cloudflare')
+
 
 def configure_logging(verbose: bool) -> None:
     """INFO for everything; with verbose or LEFTSIZE_DEBUG, DEBUG for LeftSize's own
@@ -72,7 +76,7 @@ def _build_custodian_env() -> dict[str, str]:
     Explicitly excludes GitHub Actions, LeftSize, and other action-specific secrets.
     """
     allow_prefixes = (
-        "AZURE_", "AWS_", "GOOGLE_", "GCP_",
+        "AZURE_", "AWS_", "GOOGLE_", "GCP_", "CLOUDFLARE_",
         "PATH", "HOME", "USER", "LANG", "LC_", "TZ",
         "PYTHONPATH",
         "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY",
@@ -179,6 +183,35 @@ def validate_aws_region(region: str) -> bool:
     return re.match(region_pattern, region.strip()) is not None
 
 
+def validate_cloudflare_account_id(account_id: str) -> bool:
+    """Cloudflare account IDs are 32 lowercase hex characters."""
+    return re.fullmatch(r'[0-9a-f]{32}', account_id.strip()) is not None
+
+
+def validate_cloudflare_auth(cloudflare_config: Dict[str, Any]) -> bool:
+    """Check that CLOUDFLARE_API_TOKEN can list zones (the Zone Read permission every
+    Cloudflare rule needs), and pass the account filter on to Custodian."""
+    from c7n_cloudflare.client import CloudflareError, Session
+    if not os.environ.get('CLOUDFLARE_API_TOKEN'):
+        logger.error("Cloudflare authentication failed: CLOUDFLARE_API_TOKEN is not set. Create a "
+                     "read-only API token and pass it to the action as cloudflare-api-token.")
+        return False
+    account_ids = cloudflare_config.get('account_ids') or []
+    if account_ids:
+        os.environ['CLOUDFLARE_ACCOUNT_IDS'] = ','.join(account_ids)
+    try:
+        session = Session(account_ids=account_ids)
+        params = {'per_page': 5, **({'account.id': account_ids[0]} if account_ids else {})}
+        zones = session.get('/zones', **params) or []
+    except (CloudflareError, requests.RequestException, ValueError) as e:
+        logger.error("Cloudflare authentication failed: the API token can't list zones "
+                     "(it needs Zone Read).", error=str(e))
+        return False
+    accounts = sorted({(z.get('account') or {}).get('id') for z in zones if (z.get('account') or {}).get('id')})
+    logger.info("Cloudflare token works", sample_zones=len(zones), accounts=accounts or account_ids)
+    return True
+
+
 def get_aws_account_name(session: Any = None) -> Optional[str]:
     """The AWS account name (account:GetAccountInformation for the caller's own account,
     read-only and part of ReadOnlyAccess), e.g. "flux-acc". In AWS Organizations this is
@@ -275,6 +308,7 @@ def github_action_main():
     cloud_provider = os.getenv('LEFTSIZE_CLOUD_PROVIDER', 'azure')
     azure_subscription_ids = os.getenv('LEFTSIZE_AZURE_SUBSCRIPTION_IDS', '')
     aws_regions = os.getenv('LEFTSIZE_AWS_REGIONS', '')
+    cloudflare_account_ids = os.getenv('LEFTSIZE_CLOUDFLARE_ACCOUNT_IDS', '')
     environment_name = os.getenv('LEFTSIZE_ENVIRONMENT_NAME', '')
     currency = os.getenv('LEFTSIZE_CURRENCY', '')
     include_policies = os.getenv('LEFTSIZE_INCLUDE_POLICIES', '')
@@ -308,8 +342,8 @@ def github_action_main():
     
     # Validate cloud provider input
     cloud_provider = cloud_provider.strip().lower()
-    if cloud_provider not in ['azure', 'aws']:
-        logger.error("Invalid cloud-provider. Must be 'azure' or 'aws'.", provider=cloud_provider)
+    if cloud_provider not in CLOUD_PROVIDERS:
+        logger.error("Invalid cloud-provider. Must be 'azure', 'aws' or 'cloudflare'.", provider=cloud_provider)
         set_github_output('findings-submitted', 'false')
         return 1
     
@@ -354,6 +388,16 @@ def github_action_main():
                     set_github_output('findings-submitted', 'false')
                     return 1
                 config_data.setdefault('targets', {}).setdefault('aws', {})['regions'] = regions
+        elif cloud_provider == 'cloudflare':
+            if cloudflare_account_ids:
+                accounts = [a.strip() for a in cloudflare_account_ids.split(',') if a.strip()]
+                invalid_accounts = [a for a in accounts if not validate_cloudflare_account_id(a)]
+                if invalid_accounts:
+                    logger.error("Invalid Cloudflare account ID(s): expected 32 hex characters",
+                                 invalid=invalid_accounts)
+                    set_github_output('findings-submitted', 'false')
+                    return 1
+                config_data.setdefault('targets', {}).setdefault('cloudflare', {})['account_ids'] = accounts
         
         # Configure policies with validation
         if include_policies:
@@ -427,6 +471,17 @@ def github_action_main():
             aws_account_alias = get_aws_account_alias()
             if aws_account_alias:
                 config_data.setdefault('targets', {}).setdefault('aws', {})['account_alias'] = aws_account_alias
+        
+        elif cloud_provider == 'cloudflare':
+            # Cloudflare bills in USD
+            config_data['currency'] = currency.upper() if currency else 'USD'
+            cloudflare_config = config_data.setdefault('targets', {}).setdefault('cloudflare', {})
+            # The action input; Custodian only receives CLOUDFLARE_* variables
+            if os.getenv('LEFTSIZE_CLOUDFLARE_API_TOKEN'):
+                os.environ['CLOUDFLARE_API_TOKEN'] = os.environ['LEFTSIZE_CLOUDFLARE_API_TOKEN']
+            if not validate_cloudflare_auth(cloudflare_config):
+                set_github_output('findings-submitted', 'false')
+                return 1
         
         # Execute Cloud Custodian policies
         findings = execute_custodian_policies(policies_dir, config_data)
@@ -1061,10 +1116,8 @@ def execute_custodian_policies(policies_dir: str, config: Dict[str, Any]) -> Opt
             # Skip example files
             if 'example' in file.name.lower():
                 continue
-            # Filter by cloud provider prefix
-            if cloud_provider == 'azure' and file.name.startswith('aws-'):
-                continue
-            if cloud_provider == 'aws' and file.name.startswith('azure-'):
+            # Only the provider's own files (aws-*.yml, azure-*.yml, cloudflare-*.yml)
+            if not file.name.startswith(f'{cloud_provider}-'):
                 continue
             policy_files.append(file.name)
         
@@ -1129,6 +1182,18 @@ def custodian_region_args(config: Dict[str, Any]) -> List[str]:
     return args
 
 
+def custodian_command(config: Dict[str, Any]) -> List[str]:
+    """The Custodian CLI to run. Cloudflare needs the wrapper that registers the
+    c7n_cloudflare provider (Custodian has no plugin loading); AWS and Azure use the
+    stock `custodian` from the same Python environment."""
+    if config.get('cloud_provider') == 'cloudflare':
+        return [sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'leftsize_custodian.py')]
+    custodian_bin = os.path.join(os.path.dirname(sys.executable), 'custodian')
+    if not os.path.isfile(custodian_bin):
+        custodian_bin = 'custodian'  # Fall back to PATH
+    return [custodian_bin]
+
+
 def _debug_enabled() -> bool:
     return os.environ.get("LEFTSIZE_DEBUG", "").lower() in ("1", "true", "yes")
 
@@ -1144,13 +1209,10 @@ def execute_single_policy_file(policies_file: str, config: Dict[str, Any]) -> Op
         os.makedirs(output_dir, exist_ok=True)
         
         # Build Custodian command - use the custodian from the same Python environment
-        custodian_bin = os.path.join(os.path.dirname(sys.executable), 'custodian')
-        if not os.path.isfile(custodian_bin):
-            custodian_bin = 'custodian'  # Fall back to PATH
         cache_file = config.get('_custodian_cache')
         cache_args = ['--cache', cache_file, '--cache-period', '60'] if cache_file else ['--cache-period', '0']
         cmd = [
-            custodian_bin, 'run',
+            *custodian_command(config), 'run',
             '--output-dir', output_dir,
             *cache_args,
             policies_file
@@ -1256,6 +1318,11 @@ def build_scope_from_resource_id(resource_id: str, config: Dict[str, Any]) -> st
         return default_aws_region(config)
     
     try:
+        if cloud_provider == 'cloudflare':
+            # cloudflare:account/{account_id}/zone/{zone_name} -> one scope per account
+            match = re.match(r'^cloudflare:account/([^/]+)', resource_id)
+            return f"cloudflare:account/{match.group(1) if match else 'unknown'}"
+        
         if cloud_provider == 'aws':
             # AWS ARN format: arn:aws:service:region:account:resource
             # Extract both account and region from ARN when available
@@ -1883,6 +1950,11 @@ def extract_resource_id(resource: Dict[str, Any], config: Dict[str, Any]) -> str
     
     cloud_provider = config.get('cloud_provider', 'azure')
     
+    # Cloudflare zones: readable, and stable when a zone is deleted and added again (new ID)
+    if cloud_provider == 'cloudflare' and resource.get('name'):
+        account_id = (resource.get('account') or {}).get('id') or 'unknown'
+        return f"cloudflare:account/{account_id}/zone/{resource['name']}"
+    
     # Azure resources have 'id' field
     if resource.get('id'):
         return resource['id']
@@ -2081,6 +2153,9 @@ def convert_resource_to_finding(policy_name: str, resource: Dict[str, Any], conf
         resource_id = extract_resource_id(resource, config)
         resource_name = resource_display_name(resource)
         resource_type = resource.get('type', '') or resource.get('c7n:resource-type', '')
+        if config.get('cloud_provider') == 'cloudflare' and policy_resource_type:
+            # A zone's `type` is its setup (full, partial, secondary), not a resource type
+            resource_type = policy_resource_type
         
         # Build scope from resource ID
         scope = build_scope_from_resource_id(resource_id, config)
@@ -2236,6 +2311,17 @@ RESOURCE_FIELD_PATHS: Dict[str, Dict[str, List[str]]] = {
     'azure.hdinsight': {'clusterVersion': ['properties.clusterVersion'],
                         'clusterState': ['properties.clusterState'],
                         'clusterKind': ['properties.clusterDefinition.kind']},
+    # --- Cloudflare ---
+    'cloudflare.zone': {'zoneId': ['id'], 'zoneName': ['name'], 'status': ['status'], 'paused': ['paused'],
+                        'accountId': ['account.id'], 'accountName': ['account.name'],
+                        'planName': ['plan.name'], 'planPrice': ['plan.price'],
+                        'planFrequency': ['plan.frequency'], 'planCurrency': ['plan.currency'],
+                        'nameServers': ['name_servers[]'], 'activatedOn': ['activated_on'],
+                        'sslMode': ['c7n:zone-settings.ssl'],
+                        'pageRuleCount': ['c7n:page-rules.count'], 'pageRulesActive': ['c7n:page-rules.active'],
+                        'pageRuleSettings': ['c7n:page-rules.settings[]'],
+                        'pageRulesUnmigrated': ['c7n:page-rules.unmigrated[]'],
+                        'pageRuleUrls': ['c7n:page-rules.urls[]']},
 }
 
 
@@ -2690,7 +2776,8 @@ def group_findings(findings: List[Dict[str, Any]], currency: str = 'USD') -> Lis
         
         if key not in groups:
             # Determine cloud_provider from scope string
-            cloud_provider = 'azure' if scope.startswith('azure:') else 'aws'
+            prefix = scope.split(':', 1)[0]
+            cloud_provider = prefix if prefix in CLOUD_PROVIDERS else 'aws'
             groups[key] = {
                 'policy': rule_id,
                 'scope': scope,

@@ -1,0 +1,46 @@
+# ========================================
+# Cloudflare Security
+# ========================================
+#
+# Runs with cloud-provider: cloudflare. Resources come from the c7n_cloudflare
+# provider in this repository (read-only API token).
+# ========================================
+
+policies:
+  - name: leftsize-cloudflare-zone-ssl-unencrypted-origin
+    description: |
+      Find active zones whose SSL/TLS encryption mode is Off or Flexible.
+
+      - Off: no HTTPS at all, between visitors and Cloudflare or to the origin.
+      - Flexible: visitors get HTTPS, but Cloudflare connects to the origin over
+        plain HTTP. Visitors see a padlock while their data (logins, cookies,
+        form posts) crosses the internet unencrypted between Cloudflare and the
+        origin. Flexible also causes redirect loops when the origin redirects
+        HTTP to HTTPS.
+
+      With Automatic SSL/TLS (the default for new zones) the reported mode is the
+      one Cloudflare picked for the origin.
+
+      Fix: give the origin a certificate (a free Cloudflare Origin CA certificate
+      works) and set the mode to Full (strict).
+
+      References:
+      - https://developers.cloudflare.com/ssl/origin-configuration/ssl-modes/
+      - https://developers.cloudflare.com/ssl/origin-configuration/ssl-modes/flexible/
+      - https://developers.cloudflare.com/ssl/origin-configuration/origin-ca/
+    resource: cloudflare.zone
+    filters:
+      - type: value
+        key: status
+        value: active
+      - type: value
+        key: paused
+        value: false
+      - type: zone-setting
+        setting: ssl
+        op: in
+        value: ['off', 'flexible']
+    metadata:
+      category: security
+      severity: high
+      tier: pro

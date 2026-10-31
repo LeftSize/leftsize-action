@@ -1,0 +1,46 @@
+# ========================================
+# Cloudflare Deprecations & Retirements
+# ========================================
+#
+# Features Cloudflare has deprecated or will remove. These are migrations, not
+# cost savings. Runs with cloud-provider: cloudflare.
+# ========================================
+
+policies:
+  - name: leftsize-cloudflare-page-rules-deprecated
+    description: |
+      Find active zones that still have Page Rules.
+
+      Page Rules are deprecated and replaced by dedicated Rules products: Redirect
+      Rules, Cache Rules, Configuration Rules, Origin Rules and Transform Rules.
+      Cloudflare will migrate remaining Page Rules automatically and notify
+      before changing anything, but has published no final date. Some settings
+      are not migrated at all (Disable Performance, Disable Security, Disable
+      Railgun, Response Buffering, Web Application Firewall), and migrated rules
+      can behave differently: for Page Rules the first match wins, while the new
+      Rules stack and the last match wins.
+
+      Timeline:
+      - 2022: replacement announced; new features only land in the new Rules
+      - 2025 onward: automatic migration of remaining Page Rules, announced in
+        advance (no end date published as of October 2026)
+
+      Fix: recreate each Page Rule in its Rules product yourself (Cloudflare
+      documents the replacement per setting), turn the Page Rule off, test, then
+      delete it.
+
+      References:
+      - https://developers.cloudflare.com/rules/reference/page-rules-migration/
+      - https://blog.cloudflare.com/future-of-page-rules/
+    resource: cloudflare.zone
+    filters:
+      - type: value
+        key: status
+        value: active
+      - type: page-rules
+        count: 1
+        op: gte
+    metadata:
+      category: deprecation
+      severity: medium
+      tier: pro

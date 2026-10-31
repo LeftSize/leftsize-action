@@ -1,0 +1,52 @@
+# ========================================
+# Cloudflare Cost Optimization
+# ========================================
+#
+# Runs with cloud-provider: cloudflare. Resources come from the c7n_cloudflare
+# provider in this repository (read-only API token).
+# ========================================
+
+policies:
+  - name: leftsize-cloudflare-paid-zone-not-serving
+    description: |
+      Find zones on a paid plan (Pro, Business, Enterprise) that serve no traffic
+      through Cloudflare: the zone is not active (pending nameserver change,
+      initializing or moved away) or Cloudflare is paused on it.
+
+      A zone plan is a subscription billed per zone. Cloudflare deletes Free-plan
+      zones that stay pending for 28 days or moved for 7 days, but a pending zone
+      with a paid plan "will remain pending until the plan is removed", so the
+      subscription keeps running. A pending or moved zone uses none of the plan's
+      features; a paused zone sends traffic straight to the origin (DNS only), so
+      the plan's WAF, cache and image features don't apply either.
+
+      Fix: finish the nameserver change, unpause, downgrade the zone to Free, or
+      delete the zone.
+
+      References:
+      - https://developers.cloudflare.com/dns/zone-setups/reference/domain-status/
+      - https://developers.cloudflare.com/fundamentals/manage-domains/pause-cloudflare/
+      - https://developers.cloudflare.com/billing/change-plan/
+    resource: cloudflare.zone
+    filters:
+      # `ne` alone would also match a zone without plan data
+      - type: value
+        key: plan.legacy_id
+        value: not-null
+      - type: value
+        key: plan.legacy_id
+        value_type: normalize
+        op: ne
+        value: free
+      - or:
+          - type: value
+            key: status
+            op: ne
+            value: active
+          - type: value
+            key: paused
+            value: true
+    metadata:
+      category: cost-optimization
+      severity: medium
+      tier: free
