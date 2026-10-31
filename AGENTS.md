@@ -31,11 +31,14 @@ LeftSize is a "Dependabot for Cloud Waste" - it scans your cloud infrastructure 
 - RDS: `arn:aws:rds:{region}::db/{id}`
 - EBS: `arn:aws:ec2:{region}::volume/{id}`
 
+**Cloudflare** (zones): `cloudflare:account/{account_id}/zone/{zone_name}`. The zone name, not the zone ID, so a finding survives deleting and re-adding the zone.
+
 ### Scope Format
 
 Scope is used to group findings and is derived from resource IDs:
 - **Azure**: `azure:subscription/{id}/resourceGroup/{rg}`
 - **AWS**: `aws:account/{account_id}/region/{region}` (e.g., `aws:account/123456789012/region/eu-west-1`)
+- **Cloudflare**: `cloudflare:account/{account_id}`
 
 **Multi-account AND multi-region support**: AWS scopes use the 12-digit account ID (retrieved via STS GetCallerIdentity at scan start) combined with the region to properly isolate findings. This prevents findings from one account/region being incorrectly marked as "resolved" when scanning a different account or region.
 
@@ -77,6 +80,22 @@ Also update the `resourceName` fallback chain in `convert_resource_to_finding()`
 
 **Test coverage is mandatory**: add a case to `tests/test_resource_id_extraction.py` for every new branch. The suite must never fall through to the `aws:/unknown` path for a supported resource.
 
+### Cloudflare provider (`c7n_cloudflare/`)
+
+Cloud Custodian has no Cloudflare provider, so this repository ships one (read-only, API token in `CLOUDFLARE_API_TOKEN`; optional `CLOUDFLARE_ACCOUNT_IDS`).
+
+- c7n 0.9.48 has no plugin loading: the stock `custodian` CLI never imports an out-of-tree provider. `run.py` runs `leftsize_custodian.py` (imports `c7n_cloudflare`, then calls `c7n.cli.main`) for `cloud-provider: cloudflare`; AWS and Azure still use `custodian`.
+- Resources:
+  - `cloudflare.zone` (`GET /zones`). Filters: `zone-setting` (any `/zones/{id}/settings/{setting}`), `zone-detail` (any `GET /zones/{id}/{path}`, e.g. `dnssec`), `page-rules`.
+  - `cloudflare.worker-script` (settings summarised under `leftsize`; binding values are never stored). Filters: `invocations` (GraphQL request count), `plaintext-secrets`.
+  - `cloudflare.api-token` (account-owned tokens; `leftsize.writePermissions`, `leftsize.ipRestricted`).
+  - `cloudflare.r2-bucket` (default jurisdiction). Filters: `bucket-detail` (e.g. `domains/managed`, `cors`), `multipart-abort-rule`.
+  - Account-level resources scan `CLOUDFLARE_ACCOUNT_IDS`, else `/accounts`, else the accounts of the zones the token can read.
+  - Every resource gets `c7n:cloudflare-id` (`account/{id}/{kind}/{name}`), which `extract_resource_id()` turns into the LeftSize resource ID. Plain `value` filters work on the API fields.
+- New resource type: add a class in `c7n_cloudflare/resources/`, register it in `Cloudflare.resource_map` (`provider.py`), add `RESOURCE_FIELD_PATHS['cloudflare.<type>']` and a resource ID branch in `extract_resource_id()`.
+- Policies live in `policies/cloudflare-*.yml`; each provider only runs files with its own prefix. Tests: `tests/test_cloudflare.py` (Custodian's real filter chain, HTTP replaced by a fake).
+- Token permissions: see the `cloudflare-api-token` input in `action.yml`. A missing permission fails only the rules that need it (Custodian exit 2, recorded as a scan problem).
+
 ## Architecture
 
 ### Action Type
@@ -111,7 +130,7 @@ Also update the `resourceName` fallback chain in `convert_resource_to_finding()`
 
 **Optional**:
 - `backend-url` - LeftSize backend API URL (default: `https://api.leftsize.com`)
-- `cloud-provider` - Cloud provider: `azure` or `aws` (default: `azure`)
+- `cloud-provider` - Cloud provider: `azure`, `aws` or `cloudflare` (default: `azure`)
 - `azure-subscription-ids` - Comma-separated Azure subscription IDs (default: all accessible)
 - `aws-regions` - Comma-separated AWS regions (default: all accessible)
 - `include-policies` - Policy categories: `cost-optimization`, `governance`, `security` (default: all)
