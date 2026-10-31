@@ -301,6 +301,48 @@ jobs:
           cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 ```
 
+The same as a matrix, with one list of steps. A matrix shares one permissions block, so the Cloudflare entry also gets `id-token: write` (unused); `fail-fast: false` keeps one failing cloud from cancelling the others. Add an `include` entry per extra AWS account or Azure subscription (e.g. `cloud: aws` with `environment: PROD`, secrets ending in `_PROD`). See [Scanning several clouds from one workflow](https://support.leftsize.com/workflow/#the-same-as-a-matrix).
+
+```yaml
+jobs:
+  leftsize:
+    name: Scan ${{ matrix.cloud }} ${{ matrix.environment }}
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { cloud: aws, environment: MAIN }
+          - { cloud: azure, environment: MAIN }
+          - { cloud: cloudflare, environment: MAIN }
+    steps:
+      - name: AWS Login (OIDC)
+        if: matrix.cloud == 'aws'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets[format('AWS_ROLE_ARN_{0}', matrix.environment)] }}
+          aws-region: us-east-1
+      - name: Azure Login (OIDC)
+        if: matrix.cloud == 'azure'
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets[format('AZURE_CLIENT_ID_{0}', matrix.environment)] }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets[format('AZURE_SUBSCRIPTION_ID_{0}', matrix.environment)] }}
+      - uses: leftsize/leftsize-action@v1
+        with:
+          installation-id: ${{ secrets.LEFTSIZE_INSTALLATION_ID }}
+          repository-token: ${{ secrets.LEFTSIZE_REPOSITORY_TOKEN }}
+          cloud-provider: ${{ matrix.cloud }}
+          environment-name: ${{ matrix.environment }}
+          aws-regions: ${{ vars.AWS_REGIONS }}
+          cloudflare-api-token: ${{ matrix.cloud == 'cloudflare' && secrets.CLOUDFLARE_API_TOKEN || '' }}
+          cloudflare-account-ids: ${{ vars.CLOUDFLARE_ACCOUNT_IDS }}
+```
+
 ### Filter Policies
 
 ```yaml
