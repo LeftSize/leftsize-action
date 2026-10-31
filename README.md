@@ -482,7 +482,7 @@ Optional variable: `CLOUDFLARE_ACCOUNT_IDS`, the account IDs to scan (comma-sepa
 
 ### Missing permissions
 
-The action first checks that the token can list zones (Zone Read); if not, the step fails. Any other missing permission stops only the rules that need it: they are listed under **Incomplete scan** and in `failed-policies`. Some Cloudflare APIs return an empty list instead of an error without permission (Workers, Access applications, service tokens, tunnels); the log then shows a note like `No <kind> found in account <id> (if there should be, check the API token's permissions)`.
+The action first checks that the token can list zones (Zone Read). If it can't, it asks Cloudflare whether the token is active (an account-owned token only for the accounts in `cloudflare-account-ids`): an active token still runs the account-level rules and the zone rules are listed as not run; otherwise the step fails. Any other missing permission stops only the rules that need it: they are listed under **Incomplete scan** and in `failed-policies`. Some Cloudflare APIs return an empty list instead of an error without permission (Workers, Access applications, service tokens, tunnels); the log then shows a note like `No <kind> found in account <id> (if there should be, check the API token's permissions)`.
 
 Not scanned: Logpush jobs (listing them requires Logs Write, and LeftSize stays read-only), and Firewall Rules and the previous rate limiting rules (Cloudflare already converted them).
 
@@ -539,7 +539,7 @@ aws sts get-caller-identity
 aws iam get-role --role-name LeftSize-GitHub-Action
 ```
 
-**Cloudflare**: `Cloudflare authentication failed: the API token can't list zones (it needs Zone Read)` means the token is wrong, expired or lacks Zone Read.
+**Cloudflare**: `Cloudflare authentication failed: the API token can't list zones (it needs Zone Read) and isn't confirmed active` means the token is wrong or expired, or lacks Zone Read and couldn't be verified. For an account-owned token without Zone Read, set `cloudflare-account-ids` so it can be verified.
 
 ```bash
 # Check the token (an account-owned token)
