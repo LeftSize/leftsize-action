@@ -422,6 +422,10 @@ policies:
       - https://developers.cloudflare.com/cloudflare-one/access-controls/service-credentials/service-tokens/
     resource: cloudflare.access-service-token
     filters:
+      - type: value
+        key: enabled
+        op: ne
+        value: false
       - or:
           - type: value
             key: last_seen_at

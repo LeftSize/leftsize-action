@@ -2372,6 +2372,7 @@ RESOURCE_FIELD_PATHS: Dict[str, Dict[str, List[str]]] = {
                           'configSource': ['config_src'], 'tunnelType': ['tun_type']},
     'cloudflare.lb-pool': {'poolId': ['id'], 'poolName': ['name'], 'accountId': ['account.id'],
                            'enabled': ['enabled'], 'originCount': ['leftsize.originCount'],
+                           'referrers': ['leftsize.referrers[]'],
                            'origins': ['origins[].address'], 'monitorId': ['monitor']},
     'cloudflare.certificate': {'certificateId': ['id'], 'certificateKind': ['kind'],
                                'hostnames': ['hostnames[]'], 'expiresOn': ['expires_on'],

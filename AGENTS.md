@@ -130,7 +130,7 @@ Cloud Custodian has no Cloudflare provider, so this repository ships one (read-o
 
 **Optional**:
 - `backend-url` - LeftSize backend API URL (default: `https://api.leftsize.com`)
-- `cloud-provider` - Cloud provider: `azure` or `aws` (default: `azure`)
+- `cloud-provider` - Cloud provider: `azure`, `aws` or `cloudflare` (default: `azure`)
 - `azure-subscription-ids` - Comma-separated Azure subscription IDs (default: all accessible)
 - `aws-regions` - Comma-separated AWS regions (default: all accessible)
 - `include-policies` - Policy categories: `cost-optimization`, `governance`, `security` (default: all)

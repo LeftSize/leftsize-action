@@ -576,6 +576,7 @@ def test_access_service_token_unused(cloudflare) -> None:
         {'id': 's2', 'name': 'used', 'last_seen_at': ago(1), 'created_at': ago(400)},
         {'id': 's3', 'name': 'never-old', 'created_at': ago(200)},
         {'id': 's4', 'name': 'never-new', 'created_at': ago(5)},
+        {'id': 's5', 'name': 'disabled-old', 'enabled': False, 'last_seen_at': ago(300), 'created_at': ago(400)},
     ]}))
     assert sorted(t['name'] for t in run_policy('leftsize-cloudflare-access-service-token-unused')) == ['never-old', 'old']
 
@@ -597,17 +598,22 @@ def test_tunnel_inactive_and_pagination(cloudflare) -> None:
 
 
 def test_lb_pool_unused(cloudflare) -> None:
+    pools_path = f'/accounts/{ACCOUNT}/load_balancers/pools'
+    lb = {'reference_type': 'referrer', 'resource_type': 'load_balancer', 'resource_name': 'www.a.com', 'resource_id': 'lb1'}
+    monitor = {'reference_type': 'referral', 'resource_type': 'monitor', 'resource_name': 'health', 'resource_id': 'm1'}
     cloudflare({
-        '/zones': [zone('a.com'), zone('b.com')], '/accounts': [],
-        f'/accounts/{ACCOUNT}/load_balancers/pools': [
-            {'id': 'p-default', 'name': 'default', 'origins': [{'address': '192.0.2.1'}]},
-            {'id': 'p-fallback', 'name': 'fallback', 'origins': []},
-            {'id': 'p-region', 'name': 'eu', 'origins': []},
-            {'id': 'p-orphan', 'name': 'orphan', 'origins': [{'address': '192.0.2.9'}, {'address': '192.0.2.10'}]},
-        ],
-        '/zones/id-a.com/load_balancers': [{'name': 'www.a.com', 'default_pools': ['p-default'], 'fallback_pool': 'p-fallback'}],
-        '/zones/id-b.com/load_balancers': [{'name': 'api.b.com', 'default_pools': ['p-default'],
-                                            'region_pools': {'WEU': ['p-region']}}],
+        '/zones': [zone('a.com')], '/accounts': [],
+        pools_path: [{'id': 'p-used', 'name': 'used', 'origins': [{'address': '192.0.2.1'}]},
+                     {'id': 'p-orphan', 'name': 'orphan', 'origins': [{'address': '192.0.2.9'}, {'address': '192.0.2.10'}]}],
+        f'{pools_path}/p-used/references': [lb, monitor],
+        f'{pools_path}/p-orphan/references': [monitor],
     })
     found = run_policy('leftsize-cloudflare-lb-pool-unused')
-    assert [(p['name'], p['leftsize']['originCount']) for p in found] == [('orphan', 2)]
+    assert [(p['name'], p['leftsize']['originCount'], p['leftsize']['referrers']) for p in found] == [('orphan', 2, [])]
+
+
+def test_paginate_stops_when_endpoint_ignores_paging(cloudflare) -> None:
+    items = [{'id': f'g{i}'} for i in range(80)]
+    fake = cloudflare({'/things': {'result': items, 'result_info': {'count': 80}}})
+    assert len(list(cf_client.Session().paginate('/things'))) == 80
+    assert len([c for c in fake.calls if c[0] == '/things']) == 2

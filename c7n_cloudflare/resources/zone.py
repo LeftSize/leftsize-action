@@ -1,7 +1,7 @@
 """cloudflare.zone: zones (domains) with their plan, plus per-zone filters.
 
-Token permissions (read): Zone, Zone Settings, Page Rules; DNS (DNSSEC) and
-Firewall Services (legacy firewall and rate limiting rules) for those rules.
+Token permissions (read): Zone, Zone Settings; DNS for DNSSEC; Page Rules (user
+tokens only: account-owned tokens can't have it).
 """
 
 from typing import Any, Dict, List, Optional

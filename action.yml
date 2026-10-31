@@ -61,7 +61,7 @@ inputs:
   
   # Cloudflare-specific inputs
   cloudflare-api-token:
-    description: 'Read-only Cloudflare API token (cloud-provider: cloudflare). Zone permissions: Zone Read, Zone Settings Read, Page Rules Read, DNS Read, Firewall Services Read. Account permissions: Account Settings Read, Account Analytics Read, Workers Scripts Read, Workers R2 Storage Read, Account API Tokens Read. Rules whose permission is missing are reported as not run. Pass it from a secret; without it, CLOUDFLARE_API_TOKEN from the environment is used.'
+    description: 'Read-only Cloudflare API token (cloud-provider: cloudflare); see support.leftsize.com/cloudflare-setup. Account-owned token, all Read: Zone, Zone Settings, DNS, SSL and Certificates (zone); Account Settings, Account Analytics, Account API Tokens, Workers Scripts, Workers R2 Storage, Access: Apps and Policies, Access: Service Tokens, Access: Audit Logs, Access: Organizations, Identity Providers, and Groups, Cloudflare Tunnel, Load Balancing: Monitors and Pools (account). Page Rules and Registrar rules need a user token with Page Rules Read and Registrar Domains Read. Rules whose permission is missing are reported as not run. Pass it from a secret; without it, CLOUDFLARE_API_TOKEN from the environment is used.'
     required: false
 
   cloudflare-account-ids:

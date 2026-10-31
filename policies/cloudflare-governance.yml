@@ -188,9 +188,9 @@ policies:
 
   - name: leftsize-cloudflare-lb-pool-unused
     description: |
-      Find load balancer pools that no load balancer uses (not a default,
-      fallback, region, country or PoP pool of any load balancer in the
-      account's zones).
+      Find load balancer pools that nothing uses, according to Cloudflare's
+      own reference lookup for the pool (no load balancer uses it as default,
+      fallback, region, country or PoP pool, in a pool set or rule override).
 
       Unused pools are leftovers from removed load balancers or old failover
       plans. They make it unclear which origins are really in service, and
@@ -205,7 +205,7 @@ policies:
     resource: cloudflare.lb-pool
     filters:
       - type: value
-        key: leftsize.loadBalancers
+        key: leftsize.referrers
         value_type: size
         op: eq
         value: 0

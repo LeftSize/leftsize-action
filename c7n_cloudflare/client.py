@@ -16,6 +16,7 @@ API_BASE = "https://api.cloudflare.com/client/v4"
 TIMEOUT_SECONDS = 30
 RETRIES = 4
 PER_PAGE = 50
+MAX_PAGES = 1000
 
 log = logging.getLogger("custodian.cloudflare")
 
@@ -118,9 +119,15 @@ class Session:
     def paginate(self, path: str, **params: Any) -> Iterator[Dict[str, Any]]:
         """All items of a page-numbered list endpoint."""
         page = 1
+        previous_first = None
         while True:
             body = self._request(path, {**params, "page": page, "per_page": PER_PAGE})
             items = body.get("result") or []
+            # An endpoint that ignores paging returns the same items for every page
+            first = items[0] if items else None
+            if page > 1 and first is not None and first == previous_first:
+                return
+            previous_first = first
             yield from items
             info = body.get("result_info") or {}
             if "total_pages" in info:
@@ -130,3 +137,6 @@ class Session:
                 # Some lists (tunnels, members) report no total_pages: stop at a short page
                 return
             page += 1
+            if page > MAX_PAGES:
+                log.warning("Stopped listing %s after %d pages", path, MAX_PAGES)
+                return
