@@ -51,6 +51,14 @@ class FakeHttp:
         self.headers: Dict[str, str] = {}
         self.calls: List[tuple] = []
 
+    def post(self, url: str, json: Optional[Dict[str, Any]] = None, timeout: int = 0) -> FakeResponse:
+        path = url[len(cf_client.API_BASE):]
+        self.calls.append((path, dict((json or {}).get('variables') or {})))
+        answer = self.routes.get(path)
+        if callable(answer):
+            answer = answer((json or {}).get('variables') or {})
+        return FakeResponse(200, {'data': answer, 'errors': None})
+
     def get(self, url: str, params: Optional[Dict[str, Any]] = None, timeout: int = 0) -> FakeResponse:
         path = url[len(cf_client.API_BASE):]
         self.calls.append((path, dict(params or {})))
@@ -259,3 +267,179 @@ def test_account_id_validation() -> None:
     assert run.validate_cloudflare_account_id(ACCOUNT)
     assert not run.validate_cloudflare_account_id('not-an-account')
     assert not run.validate_cloudflare_account_id(ACCOUNT.upper())
+
+
+# ---------- more zone rules ----------
+
+def zone_settings(name: str, **settings: Any) -> Dict[str, Any]:
+    return {f'/zones/id-{name}/settings/{k}': {'id': k, 'value': v} for k, v in settings.items()}
+
+
+HSTS_ON = {'strict_transport_security': {'enabled': True, 'max_age': 15552000}}
+HSTS_OFF = {'strict_transport_security': {'enabled': False, 'max_age': 0}}
+
+
+def test_ssl_full_not_strict(cloudflare) -> None:
+    cloudflare({'/zones': [zone('full.com'), zone('strict.com')],
+                **zone_settings('full.com', ssl='full'), **zone_settings('strict.com', ssl='strict')})
+    assert [z['name'] for z in run_policy('leftsize-cloudflare-zone-ssl-full-not-strict')] == ['full.com']
+
+
+def test_weak_tls_settings(cloudflare) -> None:
+    good = dict(min_tls_version='1.2', always_use_https='on', security_header=HSTS_ON)
+    cloudflare({
+        '/zones': [zone('old-tls.com'), zone('http.com'), zone('no-hsts.com'), zone('good.com')],
+        **zone_settings('old-tls.com', **{**good, 'min_tls_version': '1.0'}),
+        **zone_settings('http.com', **{**good, 'always_use_https': 'off'}),
+        **zone_settings('no-hsts.com', **{**good, 'security_header': HSTS_OFF}),
+        **zone_settings('good.com', **good),
+    })
+    found = run_policy('leftsize-cloudflare-zone-weak-tls-settings')
+    assert sorted(z['name'] for z in found) == ['http.com', 'no-hsts.com', 'old-tls.com']
+
+
+def test_dnssec_disabled(cloudflare) -> None:
+    cloudflare({
+        '/zones': [zone('off.com'), zone('on.com'), {**zone('partial.com'), 'type': 'partial'}],
+        '/zones/id-off.com/dnssec': {'status': 'disabled'},
+        '/zones/id-on.com/dnssec': {'status': 'active'},
+    })
+    assert [z['name'] for z in run_policy('leftsize-cloudflare-zone-dnssec-disabled')] == ['off.com']
+
+
+def test_legacy_zone_features(cloudflare, tmp_path: Path) -> None:
+    minify_off = {'css': 'off', 'html': 'off', 'js': 'off'}
+    cloudflare({'/zones': [zone('minify.com'), zone('clean.com')],
+                **zone_settings('minify.com', minify={**minify_off, 'css': 'on', 'js': 'on'}),
+                **zone_settings('clean.com', minify=minify_off)})
+    run_policy('leftsize-cloudflare-zone-legacy-features', output_dir=str(tmp_path))
+    findings = run.parse_custodian_output(str(tmp_path), {'cloud_provider': 'cloudflare'})
+    assert [(f['resourceName'], f['metadata']['minifyOn']) for f in findings] == [('minify.com', 'css, js')]
+
+
+# ---------- Workers ----------
+
+def worker_routes(scripts: Dict[str, Dict[str, Any]], requests: Dict[str, int]) -> Dict[str, Any]:
+    routes: Dict[str, Any] = {
+        '/zones': [zone('a.com')],
+        '/accounts': [],
+        f'/accounts/{ACCOUNT}/workers/scripts': [{'id': n, 'modified_on': '2026-10-01T00:00:00Z'} for n in scripts],
+        '/graphql': lambda v: {'viewer': {'accounts': [{'workersInvocationsAdaptive': [
+            {'sum': {'requests': n}, 'dimensions': {'scriptName': s}} for s, n in requests.items()]}]}},
+    }
+    for name, settings in scripts.items():
+        routes[f'/accounts/{ACCOUNT}/workers/scripts/{name}/settings'] = settings
+    return routes
+
+
+def test_worker_full_log_sampling(cloudflare) -> None:
+    fake = cloudflare(worker_routes({
+        'busy-full': {'observability': {'enabled': True}},
+        'busy-sampled': {'observability': {'enabled': True, 'head_sampling_rate': 0.05}},
+        'busy-logs-off': {'observability': {'enabled': False}},
+        'quiet-full': {'observability': {'enabled': True, 'logs': {'enabled': True, 'head_sampling_rate': 1}}},
+    }, {'busy-full': 12_000_000, 'busy-sampled': 50_000_000, 'busy-logs-off': 50_000_000, 'quiet-full': 1_000}))
+    found = run_policy('leftsize-cloudflare-worker-full-log-sampling')
+    assert [w['id'] for w in found] == ['busy-full']
+    assert found[0]['leftsize']['requests'] == 12_000_000
+    # Accounts come from the zones when /accounts lists nothing; one GraphQL query per account
+    graphql = [v for p, v in fake.calls if p == '/graphql']
+    assert len(graphql) == 1 and graphql[0]['accountTag'] == ACCOUNT
+
+
+def test_worker_plaintext_secrets_never_stores_values(cloudflare, tmp_path: Path) -> None:
+    cloudflare(worker_routes({
+        'leaky': {'bindings': [{'name': 'STRIPE_SECRET_KEY', 'type': 'plain_text', 'text': 'sk_live_supersecret'},
+                               {'name': 'API_TOKEN', 'type': 'secret_text'},
+                               {'name': 'PUBLIC_URL', 'type': 'plain_text', 'text': 'https://x'}]},
+        'clean': {'bindings': [{'name': 'DB_PASSWORD', 'type': 'secret_text'}]},
+    }, {}))
+    run_policy('leftsize-cloudflare-worker-plaintext-secrets', output_dir=str(tmp_path))
+    raw = '\n'.join(p.read_text() for p in tmp_path.rglob('*.json'))
+    assert 'sk_live_supersecret' not in raw
+    findings = run.parse_custodian_output(str(tmp_path), {'cloud_provider': 'cloudflare'})
+    assert [(f['resourceId'], f['resourceName'], f['metadata']['plaintextSecretNames']) for f in findings] == [
+        (f'cloudflare:account/{ACCOUNT}/worker/leaky', 'leaky', 'STRIPE_SECRET_KEY')]
+
+
+# ---------- API tokens ----------
+
+def token(tid: str, issued_days: int, used_days: Optional[int], status: str = 'active', **extra: Any) -> Dict[str, Any]:
+    from datetime import datetime, timedelta, timezone
+    now = datetime.now(timezone.utc)
+    t = {'id': tid, 'name': f'token {tid}', 'status': status,
+         'issued_on': (now - timedelta(days=issued_days)).isoformat(), 'policies': []}
+    if used_days is not None:
+        t['last_used_on'] = (now - timedelta(days=used_days)).isoformat()
+    t.update(extra)
+    return t
+
+
+def test_api_token_unused(cloudflare) -> None:
+    cloudflare({'/zones': [zone('a.com')], '/accounts': [], f'/accounts/{ACCOUNT}/tokens': [
+        token('stale', 400, 120), token('never-used-old', 200, None), token('never-used-new', 10, None),
+        token('recent', 400, 3), token('disabled-stale', 400, 200, status='disabled'),
+    ]})
+    found = run_policy('leftsize-cloudflare-api-token-unused')
+    assert sorted(t['id'] for t in found) == ['never-used-old', 'stale']
+
+
+def test_api_token_unrestricted(cloudflare, tmp_path: Path) -> None:
+    write = [{'effect': 'allow', 'permission_groups': [{'id': 'g1', 'name': 'DNS Write'}, {'id': 'g2', 'name': 'Zone Read'}],
+              'resources': {}}]
+    read = [{'effect': 'allow', 'permission_groups': [{'id': 'g2', 'name': 'Zone Read'}], 'resources': {}}]
+    cloudflare({'/zones': [zone('a.com')], '/accounts': [], f'/accounts/{ACCOUNT}/tokens': [
+        token('wide-open', 30, 1, policies=write),
+        token('expires', 30, 1, policies=write, expires_on='2027-01-01T00:00:00Z'),
+        token('ip-locked', 30, 1, policies=write, condition={'request_ip': {'in': ['192.0.2.0/24']}}),
+        token('read-only', 30, 1, policies=read),
+    ]})
+    run_policy('leftsize-cloudflare-api-token-unrestricted', output_dir=str(tmp_path))
+    findings = run.parse_custodian_output(str(tmp_path), {'cloud_provider': 'cloudflare'})
+    assert [(f['resourceId'], f['resourceName'], f['metadata']['writePermissions']) for f in findings] == [
+        (f'cloudflare:account/{ACCOUNT}/api-token/wide-open', 'token wide-open', 'DNS Write')]
+
+
+# ---------- R2 ----------
+
+def r2_routes(buckets: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
+    routes: Dict[str, Any] = {
+        '/zones': [zone('a.com')], '/accounts': [],
+        f'/accounts/{ACCOUNT}/r2/buckets': {'result': {'buckets': [
+            {'name': n, 'creation_date': '2025-01-01T00:00:00Z', 'location': 'WEUR', 'storage_class': 'Standard'}
+            for n in buckets]}, 'result_info': {'cursor': ''}},
+    }
+    for name, parts in buckets.items():
+        for path, value in parts.items():
+            routes[f'/accounts/{ACCOUNT}/r2/buckets/{name}/{path}'] = value
+    return routes
+
+
+def test_r2_public_dev_url(cloudflare) -> None:
+    cloudflare(r2_routes({
+        'public': {'domains/managed': {'bucketId': 'b1', 'domain': 'pub-abc.r2.dev', 'enabled': True}},
+        'private': {'domains/managed': {'bucketId': 'b2', 'domain': 'pub-def.r2.dev', 'enabled': False}},
+    }))
+    assert [b['name'] for b in run_policy('leftsize-cloudflare-r2-public-dev-url')] == ['public']
+
+
+def test_r2_cors_any_origin(cloudflare) -> None:
+    cloudflare(r2_routes({
+        'any': {'cors': {'rules': [{'allowed': {'origins': ['*'], 'methods': ['GET']}}]}},
+        'mine': {'cors': {'rules': [{'allowed': {'origins': ['https://example.com'], 'methods': ['GET']}}]}},
+        'none': {'cors': FakeResponse(404, {'success': False, 'errors': [{'code': 10059, 'message': 'no cors'}]})},
+    }))
+    assert [b['name'] for b in run_policy('leftsize-cloudflare-r2-cors-any-origin')] == ['any']
+
+
+def test_r2_no_multipart_abort(cloudflare) -> None:
+    abort = {'abortMultipartUploadsTransition': {'condition': {'maxAge': 604800, 'type': 'Age'}}}
+    cloudflare(r2_routes({
+        'default-rule': {'lifecycle': {'rules': [{'id': 'd', 'enabled': True, 'conditions': {'prefix': ''}, **abort}]}},
+        'no-rules': {'lifecycle': {'rules': []}},
+        'prefix-only': {'lifecycle': {'rules': [{'id': 'p', 'enabled': True, 'conditions': {'prefix': 'tmp/'}, **abort}]}},
+        'disabled': {'lifecycle': {'rules': [{'id': 'x', 'enabled': False, 'conditions': {}, **abort}]}},
+    }))
+    found = run_policy('leftsize-cloudflare-r2-no-multipart-abort')
+    assert sorted(b['name'] for b in found) == ['disabled', 'no-rules', 'prefix-only']
+    assert all(b['leftsize']['multipartAbortDays'] is None for b in found)

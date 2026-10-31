@@ -44,3 +44,264 @@ policies:
       category: security
       severity: high
       tier: pro
+
+  - name: leftsize-cloudflare-zone-ssl-full-not-strict
+    description: |
+      Find active zones whose SSL/TLS encryption mode is Full instead of Full
+      (strict).
+
+      Full encrypts traffic between Cloudflare and the origin but doesn't
+      validate the origin's certificate: any certificate is accepted,
+      including self-signed, expired or one for another hostname. Anyone who
+      can intercept or redirect traffic to the origin can present their own
+      certificate. Full (strict) validates it.
+
+      Fix: make sure the origin has a valid certificate for the hostname (a free
+      Cloudflare Origin CA certificate works) and switch to Full (strict).
+
+      References:
+      - https://developers.cloudflare.com/ssl/origin-configuration/ssl-modes/full/
+      - https://developers.cloudflare.com/ssl/origin-configuration/ssl-modes/full-strict/
+    resource: cloudflare.zone
+    filters:
+      - type: value
+        key: status
+        value: active
+      - type: value
+        key: paused
+        value: false
+      - type: zone-setting
+        setting: ssl
+        value: full
+    metadata:
+      category: security
+      severity: low
+      tier: pro
+
+  - name: leftsize-cloudflare-zone-weak-tls-settings
+    description: |
+      Find active zones with weak HTTPS settings for visitors: a minimum TLS
+      version below 1.2, Always Use HTTPS off (plain HTTP still served), or
+      HSTS off.
+
+      TLS 1.0 and 1.1 are deprecated (RFC 8996); PCI DSS doesn't accept
+      TLS 1.0 as strong cryptography. Without
+      Always Use HTTPS, visitors following an http:// link stay on HTTP.
+      Without HSTS, browsers can be downgraded to HTTP on the first request.
+
+      Fix: set Minimum TLS Version to 1.2, turn on Always Use HTTPS, and
+      enable HSTS once every subdomain serves HTTPS.
+
+      References:
+      - https://developers.cloudflare.com/ssl/edge-certificates/additional-options/minimum-tls/
+      - https://developers.cloudflare.com/ssl/edge-certificates/additional-options/always-use-https/
+      - https://developers.cloudflare.com/ssl/edge-certificates/additional-options/http-strict-transport-security/
+    resource: cloudflare.zone
+    filters:
+      - type: value
+        key: status
+        value: active
+      - type: value
+        key: paused
+        value: false
+      - or:
+          - type: zone-setting
+            setting: min_tls_version
+            op: in
+            value: ['1.0', '1.1']
+          - type: zone-setting
+            setting: always_use_https
+            value: 'off'
+          - type: zone-setting
+            setting: security_header
+            key: value.strict_transport_security.enabled
+            op: ne
+            value: true
+    metadata:
+      category: security
+      severity: medium
+      tier: pro
+
+  - name: leftsize-cloudflare-zone-dnssec-disabled
+    description: |
+      Find active zones with DNS on Cloudflare (full setup) where DNSSEC is
+      off.
+
+      Without DNSSEC, resolvers can't verify that DNS answers for the domain
+      are authentic, so cache poisoning and spoofed answers can send visitors
+      or email to another server. Cloudflare signs the zone; the registrar
+      must publish the DS record.
+
+      Fix: enable DNSSEC in Cloudflare (DNS > Settings), then add the DS record
+      at the registrar (automatic for Cloudflare Registrar).
+
+      References:
+      - https://developers.cloudflare.com/dns/dnssec/
+    resource: cloudflare.zone
+    filters:
+      - type: value
+        key: status
+        value: active
+      - type: value
+        key: type
+        value: full
+      - type: zone-detail
+        path: dnssec
+        key: value.status
+        value: disabled
+    metadata:
+      category: security
+      severity: medium
+      tier: pro
+
+  - name: leftsize-cloudflare-worker-plaintext-secrets
+    description: |
+      Find Workers with plain-text environment variables whose name looks like
+      a credential (secret, password, token, API key, private key,
+      credential).
+
+      Plain-text variables are visible to everyone with access to the Worker
+      in the dashboard and are returned by the API. Secrets are encrypted
+      and their values are never shown again after they are set.
+
+      Fix: move the value to a secret (`wrangler secret put NAME`, or the
+      Secrets Store), remove it from wrangler.toml / [vars], and rotate the
+      credential, since it was exposed.
+
+      LeftSize only reads the variable names; values are never stored.
+
+      References:
+      - https://developers.cloudflare.com/workers/configuration/secrets/
+      - https://developers.cloudflare.com/workers/configuration/environment-variables/
+    resource: cloudflare.worker-script
+    filters:
+      - type: plaintext-secrets
+    metadata:
+      category: security
+      severity: high
+      tier: pro
+
+  - name: leftsize-cloudflare-api-token-unused
+    description: |
+      Find active account API tokens that haven't been used for 90 days, or
+      were never used and were created more than 90 days ago.
+
+      Every active token is a credential that can leak (CI variables, old
+      laptops, former employees). A token nobody uses gives no value and
+      only adds risk.
+
+      Fix: confirm nothing uses the token, then roll or delete it.
+
+      References:
+      - https://developers.cloudflare.com/fundamentals/api/get-started/account-owned-tokens/
+      - https://developers.cloudflare.com/fundamentals/api/how-to/roll-token/
+    resource: cloudflare.api-token
+    filters:
+      - type: value
+        key: status
+        value: active
+      - or:
+          - type: value
+            key: last_used_on
+            value_type: age
+            op: gt
+            value: 90
+          - and:
+              - type: value
+                key: last_used_on
+                value: absent
+              - type: value
+                key: issued_on
+                value_type: age
+                op: gt
+                value: 90
+    metadata:
+      category: security
+      severity: medium
+      tier: pro
+
+  - name: leftsize-cloudflare-api-token-unrestricted
+    description: |
+      Find active account API tokens that can make changes (a permission with
+      Write, Edit or Admin), never expire and have no client IP restriction.
+
+      If such a token leaks, it works from anywhere, forever, until someone
+      notices. An expiry date or an IP allow-list limits the damage.
+
+      Fix: add a TTL (expiry date) and restrict client IP addresses to the CI
+      runners or servers that use the token, or replace it with a token that
+      has only read permissions.
+
+      References:
+      - https://developers.cloudflare.com/fundamentals/api/get-started/create-token/
+      - https://developers.cloudflare.com/fundamentals/api/reference/permissions/
+    resource: cloudflare.api-token
+    filters:
+      - type: value
+        key: status
+        value: active
+      - type: value
+        key: expires_on
+        value: empty
+      - type: value
+        key: leftsize.ipRestricted
+        value: false
+      - type: value
+        key: leftsize.writePermissions
+        value_type: size
+        op: gt
+        value: 0
+    metadata:
+      category: security
+      severity: low
+      tier: pro
+
+  - name: leftsize-cloudflare-r2-public-dev-url
+    description: |
+      Find R2 buckets with public access through the r2.dev development URL.
+
+      Every object in the bucket can be downloaded by anyone who knows or
+      guesses the URL. Cloudflare says r2.dev "is rate-limited and should
+      only be used for development purposes": WAF, caching, access control
+      and bot management are not available on it.
+
+      Fix: if the bucket should be public, serve it through a custom domain
+      (with cache and WAF) and turn off the r2.dev URL; if not, just turn off
+      the r2.dev URL.
+
+      References:
+      - https://developers.cloudflare.com/r2/buckets/public-buckets/
+    resource: cloudflare.r2-bucket
+    filters:
+      - type: bucket-detail
+        path: domains/managed
+        key: value.enabled
+        value: true
+    metadata:
+      category: security
+      severity: medium
+      tier: pro
+
+  - name: leftsize-cloudflare-r2-cors-any-origin
+    description: |
+      Find R2 buckets whose CORS policy allows any origin (`*`).
+
+      Any website can then make browsers read from (and, with PUT/POST/DELETE
+      allowed, write to) the bucket through presigned URLs or public access,
+      using the visitor's browser.
+
+      Fix: replace `*` with the exact origins of your own sites.
+
+      References:
+      - https://developers.cloudflare.com/r2/buckets/cors/
+    resource: cloudflare.r2-bucket
+    filters:
+      - type: bucket-detail
+        path: cors
+        key: value.rules[].allowed.origins[]
+        op: contains
+        value: '*'
+    metadata:
+      category: security
+      severity: low
+      tier: pro

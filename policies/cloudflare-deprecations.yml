@@ -44,3 +44,46 @@ policies:
       category: deprecation
       severity: medium
       tier: pro
+
+  - name: leftsize-cloudflare-zone-legacy-features
+    description: |
+      Find active zones that still have deprecated zone features configured.
+
+      Currently checked: Auto Minify (CSS, HTML or JavaScript), deprecated on
+      August 5, 2024 together with its API endpoints
+      (GET/PATCH /zones/{zone_id}/settings/minify). Cloudflare advises turning
+      it off; Terraform or scripts that still set it should be updated.
+
+      Not checked: Firewall Rules and the previous Rate Limiting rules
+      (deprecated June 15, 2025). Cloudflare already converted them to WAF
+      custom rules and rate limiting rules, and their API endpoints now
+      return 410 Gone.
+
+      Fix: turn Auto Minify off (PATCH the minify setting with css, html and
+      js set to off) and remove it from IaC.
+
+      References:
+      - https://developers.cloudflare.com/fundamentals/api/reference/deprecations/
+      - https://developers.cloudflare.com/speed/optimization/content/troubleshooting/disable-auto-minify/
+    resource: cloudflare.zone
+    filters:
+      - type: value
+        key: status
+        value: active
+      - or:
+          - type: zone-setting
+            setting: minify
+            key: value.css
+            value: 'on'
+          - type: zone-setting
+            setting: minify
+            key: value.html
+            value: 'on'
+          - type: zone-setting
+            setting: minify
+            key: value.js
+            value: 'on'
+    metadata:
+      category: deprecation
+      severity: low
+      tier: pro

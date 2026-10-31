@@ -1950,10 +1950,14 @@ def extract_resource_id(resource: Dict[str, Any], config: Dict[str, Any]) -> str
     
     cloud_provider = config.get('cloud_provider', 'azure')
     
-    # Cloudflare zones: readable, and stable when a zone is deleted and added again (new ID)
-    if cloud_provider == 'cloudflare' and resource.get('name'):
-        account_id = (resource.get('account') or {}).get('id') or 'unknown'
-        return f"cloudflare:account/{account_id}/zone/{resource['name']}"
+    # Cloudflare: set by the c7n_cloudflare provider, e.g. account/{id}/zone/{name}.
+    # Zones use the name, not the ID, so a finding survives deleting and re-adding the zone.
+    if cloud_provider == 'cloudflare':
+        if resource.get('c7n:cloudflare-id'):
+            return f"cloudflare:{resource['c7n:cloudflare-id']}"
+        if resource.get('name'):
+            account_id = (resource.get('account') or {}).get('id') or 'unknown'
+            return f"cloudflare:account/{account_id}/zone/{resource['name']}"
     
     # Azure resources have 'id' field
     if resource.get('id'):
@@ -2152,6 +2156,8 @@ def convert_resource_to_finding(policy_name: str, resource: Dict[str, Any], conf
         # Azure uses 'id', AWS uses various fields depending on resource type
         resource_id = extract_resource_id(resource, config)
         resource_name = resource_display_name(resource)
+        if config.get('cloud_provider') == 'cloudflare' and not resource_name:
+            resource_name = str(resource.get('id') or '')  # Workers scripts: the ID is the name
         resource_type = resource.get('type', '') or resource.get('c7n:resource-type', '')
         if config.get('cloud_provider') == 'cloudflare' and policy_resource_type:
             # A zone's `type` is its setup (full, partial, secondary), not a resource type
@@ -2317,11 +2323,34 @@ RESOURCE_FIELD_PATHS: Dict[str, Dict[str, List[str]]] = {
                         'planName': ['plan.name'], 'planPrice': ['plan.price'],
                         'planFrequency': ['plan.frequency'], 'planCurrency': ['plan.currency'],
                         'nameServers': ['name_servers[]'], 'activatedOn': ['activated_on'],
-                        'sslMode': ['c7n:zone-settings.ssl'],
+                        'zoneType': ['type'], 'sslMode': ['c7n:zone-settings.ssl'],
+                        'minTlsVersion': ['c7n:zone-settings.min_tls_version'],
+                        'alwaysUseHttps': ['c7n:zone-settings.always_use_https'],
+                        'hstsEnabled': ['c7n:zone-settings.security_header.strict_transport_security.enabled'],
+                        'hstsMaxAge': ['c7n:zone-settings.security_header.strict_transport_security.max_age'],
+                        'dnssecStatus': ['c7n:details.dnssec.status'],
                         'pageRuleCount': ['c7n:page-rules.count'], 'pageRulesActive': ['c7n:page-rules.active'],
                         'pageRuleSettings': ['c7n:page-rules.settings[]'],
                         'pageRulesUnmigrated': ['c7n:page-rules.unmigrated[]'],
                         'pageRuleUrls': ['c7n:page-rules.urls[]']},
+    'cloudflare.worker-script': {'scriptName': ['id'], 'accountId': ['account.id'], 'modifiedOn': ['modified_on'],
+                                 'usageModel': ['leftsize.usageModel'],
+                                 'compatibilityDate': ['leftsize.compatibilityDate'],
+                                 'logsEnabled': ['leftsize.logsEnabled'],
+                                 'logSamplingRate': ['leftsize.logSamplingRate'],
+                                 'requests': ['leftsize.requests'], 'requestDays': ['leftsize.requestDays'],
+                                 'plaintextSecretNames': ['leftsize.plaintextSecretNames[]']},
+    'cloudflare.api-token': {'tokenId': ['id'], 'tokenName': ['name'], 'accountId': ['account.id'],
+                             'status': ['status'], 'issuedOn': ['issued_on'], 'lastUsedOn': ['last_used_on'],
+                             'expiresOn': ['expires_on'], 'ipRestricted': ['leftsize.ipRestricted'],
+                             'permissionGroups': ['leftsize.permissionGroups[]'],
+                             'writePermissions': ['leftsize.writePermissions[]']},
+    'cloudflare.r2-bucket': {'bucketName': ['name'], 'accountId': ['account.id'], 'location': ['location'],
+                             'storageClass': ['storage_class'], 'creationDate': ['creation_date'],
+                             'devUrl': ['c7n:details.domains/managed.domain'],
+                             'corsOrigins': ['c7n:details.cors.rules[].allowed.origins[]'],
+                             'corsMethods': ['c7n:details.cors.rules[].allowed.methods[]'],
+                             'lifecycleRuleCount': ['leftsize.lifecycleRuleCount']},
 }
 
 
@@ -2460,7 +2489,16 @@ def _s3_bucket_region(resource: Dict[str, Any]) -> Optional[str]:
 
 
 # Fields that need more than a path lookup (counts, lists, derived values).
+def _cloudflare_minify_on(resource: Dict[str, Any]) -> Optional[str]:
+    """File types Auto Minify is still on for, e.g. 'css, js'."""
+    minify = (resource.get('c7n:zone-settings') or {}).get('minify')
+    if not isinstance(minify, dict):
+        return None
+    return ', '.join(k for k in ('css', 'html', 'js') if minify.get(k) == 'on') or None
+
+
 RESOURCE_FIELD_BUILDERS: Dict[str, Dict[str, Any]] = {
+    'cloudflare.zone': {'minifyOn': _cloudflare_minify_on},
     'azure.aks': {'nodePools': _aks_node_pools, 'nodeCount': _aks_node_count, 'vmSizes': _aks_vm_sizes,
                   'retiringNodePools': _aks_retiring_pools, 'retirementDate': _aks_retirement_date,
                   'avgNodeCpuPercent': _aks_avg_node_cpu, 'avgNodeMemoryPercent': _aks_avg_node_memory,

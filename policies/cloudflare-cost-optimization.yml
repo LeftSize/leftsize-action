@@ -50,3 +50,66 @@ policies:
       category: cost-optimization
       severity: medium
       tier: free
+
+  - name: leftsize-cloudflare-worker-full-log-sampling
+    description: |
+      Find busy Workers that log every invocation: Workers Logs enabled with
+      a head sampling rate of 1 (100%) and at least 10 million requests in
+      the last 7 days.
+
+      From December 1, 2026 Workers Observability is billed by volume:
+      50 GB of ingested logs per month included on Workers Paid, then
+      $0.25/GB, plus storage beyond 10 GB-month at $0.10/GB-month. Logging
+      every request of a busy Worker is the main driver.
+
+      Fix: lower `head_sampling_rate` in the Worker's observability settings
+      (e.g. 0.01 to 0.1), keep logging errors in full through tail Workers
+      or Logpush if needed.
+
+      References:
+      - https://developers.cloudflare.com/workers/observability/logs/workers-logs/
+      - https://developers.cloudflare.com/observability/pricing/
+    resource: cloudflare.worker-script
+    filters:
+      - type: value
+        key: leftsize.logsEnabled
+        value: true
+      - type: value
+        key: leftsize.logSamplingRate
+        op: gte
+        value: 1
+      - type: invocations
+        days: 7
+        op: gte
+        value: 10000000
+    metadata:
+      category: cost-optimization
+      severity: medium
+      tier: free
+
+  - name: leftsize-cloudflare-r2-no-multipart-abort
+    description: |
+      Find R2 buckets without an enabled lifecycle rule that aborts incomplete
+      multipart uploads for the whole bucket.
+
+      Parts of multipart uploads that were never completed or aborted (failed
+      or interrupted uploads, crashed clients) stay in the bucket and count
+      against storage (as Cloudflare's upload examples put it), but don't
+      show up as objects. New buckets get a
+      default rule that aborts them after 7 days; buckets where that rule
+      was removed or replaced keep the parts.
+
+      Fix: add a lifecycle rule "abort incomplete multipart uploads after 7
+      days" for the whole bucket.
+
+      References:
+      - https://developers.cloudflare.com/r2/buckets/object-lifecycles/
+      - https://developers.cloudflare.com/r2/pricing/
+    resource: cloudflare.r2-bucket
+    filters:
+      - type: multipart-abort-rule
+        present: false
+    metadata:
+      category: cost-optimization
+      severity: low
+      tier: free

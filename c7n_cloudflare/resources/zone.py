@@ -1,6 +1,7 @@
-"""cloudflare.zone: zones (domains) with their plan, plus per-zone setting and Page Rules filters.
+"""cloudflare.zone: zones (domains) with their plan, plus per-zone filters.
 
-Token permissions (read): Zone, Zone Settings, Page Rules.
+Token permissions (read): Zone, Zone Settings, Page Rules; DNS (DNSSEC) and
+Firewall Services (legacy firewall and rate limiting rules) for those rules.
 """
 
 from typing import Any, Dict, List, Optional
@@ -10,7 +11,7 @@ from c7n.filters.core import OPERATORS
 from c7n.utils import local_session, type_schema
 
 from ..provider import resources
-from ..query import QueryResourceManager, TypeInfo
+from ..query import DetailFilter, QueryResourceManager, TypeInfo
 
 # Page Rules settings Cloudflare's migration does not carry over (no direct replacement).
 # https://developers.cloudflare.com/rules/reference/page-rules-migration/
@@ -29,6 +30,7 @@ class Zone(QueryResourceManager):
 
     class resource_type(TypeInfo):
         path = "/zones"
+        kind = "zone"
         default_report_fields = ("id", "name", "status", "plan.name", "account.name")
 
     def list_resources(self, session: Any) -> List[Dict[str, Any]]:
@@ -44,8 +46,9 @@ class Zone(QueryResourceManager):
 class ZoneSettingFilter(ValueFilter):
     """Match on one zone setting (`GET /zones/{id}/settings/{setting}`).
 
-    The setting's `value` is compared like a value filter; the value is stored on the
-    resource under `c7n:zone-settings`.
+    The setting's `value` is compared like a value filter (`key` defaults to `value`;
+    use e.g. `value.strict_transport_security.enabled` for object settings). The value
+    is stored on the resource under `c7n:zone-settings`.
 
     :example:
 
@@ -66,7 +69,7 @@ class ZoneSettingFilter(ValueFilter):
     permissions = ("Zone Settings Read",)
 
     def __init__(self, data: Dict[str, Any], manager: Any = None) -> None:
-        super().__init__({**data, "key": "value"}, manager)
+        super().__init__({"key": "value", **data}, manager)
 
     def process(self, resources: List[Dict[str, Any]], event: Any = None) -> List[Dict[str, Any]]:
         session = local_session(self.manager.session_factory)
@@ -80,6 +83,29 @@ class ZoneSettingFilter(ValueFilter):
             if self.match({"value": settings[setting]}):
                 matched.append(zone)
         return matched
+
+
+@Zone.filter_registry.register("zone-detail")
+class ZoneDetailFilter(DetailFilter):
+    """Match on `GET /zones/{id}/{path}`, e.g. `path: dnssec` with `key: value.status`,
+    or a list endpoint with `value_type: size`.
+
+    :example:
+
+    .. code-block:: yaml
+
+        filters:
+          - type: zone-detail
+            path: dnssec
+            key: value.status
+            value: disabled
+    """
+
+    schema = type_schema("zone-detail", rinherit=DetailFilter.schema, required=["path"],
+                         path={"type": "string", "pattern": "^[a-z0-9_/]+$"})
+
+    def detail_path(self, resource: Dict[str, Any]) -> str:
+        return f"/zones/{resource['id']}/{self.data['path']}"
 
 
 @Zone.filter_registry.register("page-rules")

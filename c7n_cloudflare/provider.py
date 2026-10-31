@@ -20,6 +20,9 @@ class Cloudflare(Provider):
     resources = PluginRegistry("%s.resources" % resource_prefix)
     resource_map = {
         "cloudflare.zone": "c7n_cloudflare.resources.zone.Zone",
+        "cloudflare.worker-script": "c7n_cloudflare.resources.worker.WorkerScript",
+        "cloudflare.api-token": "c7n_cloudflare.resources.token.ApiToken",
+        "cloudflare.r2-bucket": "c7n_cloudflare.resources.r2.R2Bucket",
     }
 
     def initialize(self, options: Any) -> Any:
