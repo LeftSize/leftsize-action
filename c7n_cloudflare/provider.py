@@ -23,6 +23,14 @@ class Cloudflare(Provider):
         "cloudflare.worker-script": "c7n_cloudflare.resources.worker.WorkerScript",
         "cloudflare.api-token": "c7n_cloudflare.resources.token.ApiToken",
         "cloudflare.r2-bucket": "c7n_cloudflare.resources.r2.R2Bucket",
+        "cloudflare.account": "c7n_cloudflare.resources.account.Account",
+        "cloudflare.certificate": "c7n_cloudflare.resources.certificate.Certificate",
+        "cloudflare.domain": "c7n_cloudflare.resources.registrar.Domain",
+        "cloudflare.zero-trust-user": "c7n_cloudflare.resources.zerotrust.ZeroTrustUser",
+        "cloudflare.access-app": "c7n_cloudflare.resources.zerotrust.AccessApp",
+        "cloudflare.access-service-token": "c7n_cloudflare.resources.zerotrust.AccessServiceToken",
+        "cloudflare.tunnel": "c7n_cloudflare.resources.zerotrust.Tunnel",
+        "cloudflare.lb-pool": "c7n_cloudflare.resources.loadbalancer.LoadBalancerPool",
     }
 
     def initialize(self, options: Any) -> Any:

@@ -318,3 +318,126 @@ policies:
       category: security
       severity: low
       tier: pro
+
+  - name: leftsize-cloudflare-account-2fa-not-enforced
+    description: |
+      Find accounts that don't require two-factor authentication for their
+      members, or that have members without two-factor authentication.
+
+      A member without 2FA can be taken over with just a password (phishing,
+      reuse from another breach) and then change DNS, certificates, Workers
+      and API tokens for every zone in the account. Enforcing 2FA for the
+      account makes every member set it up.
+
+      Fix: as a Super Administrator, turn on 2FA Enforcement for the account
+      and ask members without 2FA to set it up (My Profile > Authentication),
+      or have them sign in through an identity provider with its own MFA.
+
+      References:
+      - https://developers.cloudflare.com/fundamentals/user-profiles/2fa/
+      - https://developers.cloudflare.com/fundamentals/manage-members/
+    resource: cloudflare.account
+    filters:
+      - or:
+          - type: value
+            key: settings.enforce_twofactor
+            value: false
+          - type: value
+            key: leftsize.membersWithout2fa
+            value_type: size
+            op: gt
+            value: 0
+    metadata:
+      category: security
+      severity: high
+      tier: pro
+
+  - name: leftsize-cloudflare-domain-transfer-unlocked
+    description: |
+      Find active domains registered with Cloudflare Registrar whose transfer
+      lock is off.
+
+      The transfer lock blocks transfers to another registrar. Without it, a
+      leaked authorization code or a compromised account is enough to move
+      the domain away.
+
+      Fix: turn the transfer lock back on unless a transfer is in progress.
+
+      Needs a user API token: account-owned tokens can't read Registrar.
+
+      References:
+      - https://developers.cloudflare.com/registrar/
+    resource: cloudflare.domain
+    filters:
+      - type: value
+        key: status
+        value: active
+      - type: value
+        key: locked
+        value: false
+    metadata:
+      category: security
+      severity: medium
+      tier: pro
+
+  - name: leftsize-cloudflare-access-app-allows-everyone
+    description: |
+      Find Cloudflare Access applications with an Allow policy that includes
+      "Everyone" and has no Require rule.
+
+      Everyone matches any user who can sign in with one of the account's
+      identity providers. With the One-time PIN login method, that is anyone
+      with an email address, so the application is effectively public behind
+      a login screen.
+
+      Fix: replace Everyone with specific emails, email domains or identity
+      provider groups, or add a Require rule.
+
+      References:
+      - https://developers.cloudflare.com/cloudflare-one/access-controls/policies/
+    resource: cloudflare.access-app
+    filters:
+      - type: value
+        key: leftsize.everyonePolicies
+        value_type: size
+        op: gt
+        value: 0
+    metadata:
+      category: security
+      severity: high
+      tier: pro
+
+  - name: leftsize-cloudflare-access-service-token-unused
+    description: |
+      Find Access service tokens that weren't used for 90 days, or were never
+      used and were created more than 90 days ago.
+
+      A service token lets a machine pass Access policies. An unused one is a
+      credential that can leak without anyone noticing.
+
+      Fix: confirm nothing uses it, then delete it. Consider the organization
+      setting that disables or deletes inactive service tokens automatically.
+
+      References:
+      - https://developers.cloudflare.com/cloudflare-one/access-controls/service-credentials/service-tokens/
+    resource: cloudflare.access-service-token
+    filters:
+      - or:
+          - type: value
+            key: last_seen_at
+            value_type: age
+            op: gt
+            value: 90
+          - and:
+              - type: value
+                key: last_seen_at
+                value: empty
+              - type: value
+                key: created_at
+                value_type: age
+                op: gt
+                value: 90
+    metadata:
+      category: security
+      severity: medium
+      tier: pro

@@ -1,11 +1,15 @@
 """Base resource managers and filters: list a Cloudflare collection, cache it, run the filters."""
 
+import logging
 from typing import Any, Dict, Iterable, List
 
 from c7n.actions import ActionRegistry
 from c7n.filters import FilterRegistry, ValueFilter
 from c7n.manager import ResourceManager
 from c7n.utils import local_session, type_schema
+
+
+log = logging.getLogger("custodian.cloudflare")
 
 
 class TypeInfo:
@@ -74,9 +78,15 @@ class AccountResourceManager(QueryResourceManager):
     def list_resources(self, session: Any) -> List[Dict[str, Any]]:
         resources = []
         for account_id in session.accounts():
+            found = 0
             for r in self.list_account(session, account_id):
                 r.setdefault("account", {"id": account_id})
                 resources.append(r)
+                found += 1
+            if not found:
+                # Several Cloudflare list APIs return an empty list, not a 403, without permission
+                log.info("No %s found in account %s (if there should be, check the API token's permissions)",
+                         self.resource_type.kind, account_id)
         return resources
 
 

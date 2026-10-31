@@ -113,3 +113,45 @@ policies:
       category: cost-optimization
       severity: low
       tier: free
+
+  - name: leftsize-cloudflare-zero-trust-inactive-seat
+    description: |
+      Find Zero Trust users who hold a seat (Access or Gateway) but haven't
+      signed in for 60 days, or never signed in and were added more than 60
+      days ago.
+
+      On paid Zero Trust plans every seat is billed (pay-as-you-go: $7 per
+      user per month, billed annually). Removed users become Inactive and
+      stop counting toward billing.
+
+      Fix: remove the user's seat (Team & Resources > Users > Remove seat),
+      and set a seat expiration for inactive users in the organization
+      settings so this happens automatically.
+
+      References:
+      - https://developers.cloudflare.com/cloudflare-one/team-and-resources/users/seat-management/
+      - https://www.cloudflare.com/zero-trust/products/access/
+    resource: cloudflare.zero-trust-user
+    filters:
+      - type: value
+        key: leftsize.hasSeat
+        value: true
+      - or:
+          - type: value
+            key: last_successful_login
+            value_type: age
+            op: gt
+            value: 60
+          - and:
+              - type: value
+                key: last_successful_login
+                value: empty
+              - type: value
+                key: created_at
+                value_type: age
+                op: gt
+                value: 60
+    metadata:
+      category: cost-optimization
+      severity: low
+      tier: free

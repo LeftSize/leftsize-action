@@ -1260,6 +1260,10 @@ def execute_single_policy_file(policies_file: str, config: Dict[str, Any]) -> Op
                 return None
             else:
                 logger.info("Custodian execution completed")
+            # The Cloudflare provider's own notes (e.g. an empty list that may mean a missing
+            # token permission) are always shown; they explain a scan without findings.
+            for line in sorted(set(re.findall(r'custodian\.cloudflare:(?:INFO|WARNING) (.+)', result.stderr or ''))):
+                logger.info("Cloudflare", note=line.strip())
             # Only log Custodian's output when LEFTSIZE_DEBUG is enabled. Its log (per-policy
             # counts, "unable to invoke method" access warnings) goes to stderr.
             if _debug_enabled():
@@ -2340,7 +2344,39 @@ RESOURCE_FIELD_PATHS: Dict[str, Dict[str, List[str]]] = {
                                  'logsEnabled': ['leftsize.logsEnabled'],
                                  'logSamplingRate': ['leftsize.logSamplingRate'],
                                  'requests': ['leftsize.requests'], 'requestDays': ['leftsize.requestDays'],
-                                 'plaintextSecretNames': ['leftsize.plaintextSecretNames[]']},
+                                 'plaintextSecretNames': ['leftsize.plaintextSecretNames[]'],
+                                 'hasAssets': ['leftsize.hasAssets'], 'routes': ['leftsize.routes[]'],
+                                 'customDomains': ['leftsize.customDomains[]'],
+                                 'cronTriggers': ['leftsize.cronTriggers[]'], 'createdOn': ['created_on']},
+    'cloudflare.account': {'accountId': ['id'], 'accountName': ['name'],
+                           'enforceTwoFactor': ['settings.enforce_twofactor'],
+                           'memberCount': ['leftsize.memberCount'],
+                           'membersWithout2fa': ['leftsize.membersWithout2fa[]']},
+    'cloudflare.domain': {'domainName': ['domain_name'], 'accountId': ['account.id'], 'status': ['status'],
+                          'expiresAt': ['expires_at'], 'autoRenew': ['auto_renew'], 'locked': ['locked'],
+                          'privacyMode': ['privacy_mode']},
+    'cloudflare.zero-trust-user': {'userId': ['id'], 'email': ['email'], 'userName': ['name'],
+                                   'accountId': ['account.id'], 'accessSeat': ['access_seat'],
+                                   'gatewaySeat': ['gateway_seat'], 'lastLogin': ['last_successful_login'],
+                                   'createdAt': ['created_at'], 'seatExpiration': ['leftsize.seatExpiration']},
+    'cloudflare.access-app': {'appId': ['id'], 'appName': ['name'], 'domain': ['domain'], 'appType': ['type'],
+                              'accountId': ['account.id'],
+                              'everyonePolicies': ['leftsize.everyonePolicies[]']},
+    'cloudflare.access-service-token': {'serviceTokenId': ['id'], 'serviceTokenName': ['name'],
+                                        'clientId': ['client_id'], 'accountId': ['account.id'],
+                                        'lastSeenAt': ['last_seen_at'], 'expiresAt': ['expires_at'],
+                                        'createdAt': ['created_at'], 'duration': ['duration']},
+    'cloudflare.tunnel': {'tunnelId': ['id'], 'tunnelName': ['name'], 'accountId': ['account.id'],
+                          'status': ['status'], 'connsActiveAt': ['conns_active_at'],
+                          'connsInactiveAt': ['conns_inactive_at'], 'createdAt': ['created_at'],
+                          'configSource': ['config_src'], 'tunnelType': ['tun_type']},
+    'cloudflare.lb-pool': {'poolId': ['id'], 'poolName': ['name'], 'accountId': ['account.id'],
+                           'enabled': ['enabled'], 'originCount': ['leftsize.originCount'],
+                           'origins': ['origins[].address'], 'monitorId': ['monitor']},
+    'cloudflare.certificate': {'certificateId': ['id'], 'certificateKind': ['kind'],
+                               'hostnames': ['hostnames[]'], 'expiresOn': ['expires_on'],
+                               'issuer': ['issuer'], 'status': ['status'],
+                               'zoneName': ['zone.name'], 'zoneId': ['zone.id'], 'accountId': ['account.id']},
     'cloudflare.api-token': {'tokenId': ['id'], 'tokenName': ['name'], 'accountId': ['account.id'],
                              'status': ['status'], 'issuedOn': ['issued_on'], 'lastUsedOn': ['last_used_on'],
                              'expiresOn': ['expires_on'], 'ipRestricted': ['leftsize.ipRestricted'],

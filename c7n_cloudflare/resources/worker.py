@@ -69,13 +69,24 @@ class WorkerScript(AccountResourceManager):
 
     def list_account(self, session: Any, account_id: str) -> Iterable[Dict[str, Any]]:
         scripts = session.get(self.resource_type.path.format(account_id=account_id)) or []
+        domains: Dict[str, List[str]] = {}
+        if scripts:
+            for d in session.get(f"/accounts/{account_id}/workers/domains") or []:
+                domains.setdefault(d.get("service"), []).append(d.get("hostname"))
         if not scripts:
             # Without Workers Scripts Read the API returns an empty list, not a 403
             log.warning("No Workers listed for account %s. If it has Workers, the API token is "
                         "missing the Workers Scripts Read permission.", account_id)
         for script in scripts:
             settings = session.get(f"/accounts/{account_id}/workers/scripts/{script['id']}/settings") or {}
-            script["leftsize"] = _summarize(settings)
+            schedules = (session.get(f"/accounts/{account_id}/workers/scripts/{script['id']}/schedules") or {})
+            script["leftsize"] = {
+                **_summarize(settings),
+                "hasAssets": bool(script.get("has_assets")),
+                "routes": [r.get("pattern") for r in script.get("routes") or [] if r.get("pattern")],
+                "customDomains": sorted(h for h in domains.get(script["id"], []) if h),
+                "cronTriggers": [c.get("cron") for c in schedules.get("schedules") or [] if c.get("cron")],
+            }
         return scripts
 
 

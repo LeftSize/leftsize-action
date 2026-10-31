@@ -4,4 +4,4 @@ Importing this package registers the `cloudflare` provider and its resources.
 """
 
 from . import provider  # noqa: F401  registers the provider
-from .resources import r2, token, worker, zone  # noqa: F401  registers the resources
+from .resources import account, certificate, loadbalancer, r2, registrar, token, worker, zerotrust, zone  # noqa: F401  registers the resources

@@ -120,8 +120,13 @@ class Session:
         page = 1
         while True:
             body = self._request(path, {**params, "page": page, "per_page": PER_PAGE})
-            yield from body.get("result") or []
-            total_pages = (body.get("result_info") or {}).get("total_pages") or 1
-            if page >= total_pages:
+            items = body.get("result") or []
+            yield from items
+            info = body.get("result_info") or {}
+            if "total_pages" in info:
+                if page >= (info.get("total_pages") or 1):
+                    return
+            elif len(items) < int(info.get("per_page") or PER_PAGE) or not items:
+                # Some lists (tunnels, members) report no total_pages: stop at a short page
                 return
             page += 1

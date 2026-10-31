@@ -323,16 +323,21 @@ def test_legacy_zone_features(cloudflare, tmp_path: Path) -> None:
 
 # ---------- Workers ----------
 
-def worker_routes(scripts: Dict[str, Dict[str, Any]], requests: Dict[str, int]) -> Dict[str, Any]:
+def worker_routes(scripts: Dict[str, Dict[str, Any]], requests: Dict[str, int],
+                  listing: Optional[Dict[str, Dict[str, Any]]] = None) -> Dict[str, Any]:
+    listing = listing or {}
     routes: Dict[str, Any] = {
         '/zones': [zone('a.com')],
         '/accounts': [],
-        f'/accounts/{ACCOUNT}/workers/scripts': [{'id': n, 'modified_on': '2026-10-01T00:00:00Z'} for n in scripts],
+        f'/accounts/{ACCOUNT}/workers/scripts': [
+            {'id': n, 'modified_on': '2026-10-01T00:00:00Z', **listing.get(n, {})} for n in scripts],
+        f'/accounts/{ACCOUNT}/workers/domains': [],
         '/graphql': lambda v: {'viewer': {'accounts': [{'workersInvocationsAdaptive': [
             {'sum': {'requests': n}, 'dimensions': {'scriptName': s}} for s, n in requests.items()]}]}},
     }
     for name, settings in scripts.items():
         routes[f'/accounts/{ACCOUNT}/workers/scripts/{name}/settings'] = settings
+        routes[f'/accounts/{ACCOUNT}/workers/scripts/{name}/schedules'] = {'schedules': []}
     return routes
 
 
@@ -447,3 +452,162 @@ def test_r2_no_multipart_abort(cloudflare) -> None:
     found = run_policy('leftsize-cloudflare-r2-no-multipart-abort')
     assert sorted(b['name'] for b in found) == ['disabled', 'no-rules', 'prefix-only']
     assert all(b['leftsize']['multipartAbortDays'] is None for b in found)
+
+
+# ---------- account, certificates, Worker hygiene ----------
+
+def test_account_2fa(cloudflare, tmp_path: Path) -> None:
+    member = lambda email, tfa, status='accepted': {'id': email, 'status': status,  # noqa: E731
+                                                    'user': {'email': email, 'two_factor_authentication_enabled': tfa}}
+    other = 'f' * 32
+    cloudflare({
+        '/zones': [zone('a.com'), zone('b.com', account=other)], '/accounts': [],
+        f'/accounts/{ACCOUNT}': {'id': ACCOUNT, 'name': 'Main', 'settings': {'enforce_twofactor': False}},
+        f'/accounts/{ACCOUNT}/members': [member('a@example.com', True)],
+        f'/accounts/{other}': {'id': other, 'name': 'Other', 'settings': {'enforce_twofactor': True}},
+        f'/accounts/{other}/members': [member('b@example.com', True), member('c@example.com', False),
+                                       member('pending@example.com', False, status='pending')],
+    })
+    run_policy('leftsize-cloudflare-account-2fa-not-enforced', output_dir=str(tmp_path))
+    findings = run.parse_custodian_output(str(tmp_path), {'cloud_provider': 'cloudflare'})
+    got = {f['resourceId']: (f['metadata']['enforceTwoFactor'], f['metadata'].get('membersWithout2fa')) for f in findings}
+    assert got == {f'cloudflare:account/{ACCOUNT}/account/{ACCOUNT}': (False, None),
+                   f'cloudflare:account/{other}/account/{other}': (True, 'c@example.com')}
+
+
+def test_certificate_expiring(cloudflare, tmp_path: Path) -> None:
+    from datetime import timedelta
+    soon = (datetime.now(timezone.utc) + timedelta(days=10)).isoformat()
+    later = (datetime.now(timezone.utc) + timedelta(days=200)).isoformat()
+    cloudflare({
+        '/zones': [zone('a.com', plan='business'), zone('free.com')],
+        '/zones/id-free.com/custom_certificates': FakeResponse(403, {'success': False, 'errors': [{'code': 9109}]}),
+        '/certificates': lambda p: [{'id': 'oca-soon', 'hostnames': ['a.com', '*.a.com'], 'expires_on': soon,
+                                     'certificate': '-----BEGIN CERTIFICATE-----secret-pem'},
+                                    {'id': 'oca-later', 'hostnames': ['a.com'], 'expires_on': later}]
+        if p.get('zone_id') == 'id-a.com' else [],
+        '/zones/id-a.com/custom_certificates': [{'id': 'custom-soon', 'hosts': ['shop.a.com'], 'expires_on': soon,
+                                                'issuer': 'DigiCert', 'status': 'active'}],
+    })
+    run_policy('leftsize-cloudflare-certificate-expiring', output_dir=str(tmp_path))
+    assert 'BEGIN CERTIFICATE' not in '\n'.join(p.read_text() for p in tmp_path.rglob('*.json'))
+    findings = run.parse_custodian_output(str(tmp_path), {'cloud_provider': 'cloudflare'})
+    got = sorted((f['resourceId'].rsplit('/', 1)[1], f['metadata']['certificateKind'], f['metadata']['hostnames'])
+                 for f in findings)
+    assert got == [('custom-soon', 'custom', 'shop.a.com'), ('oca-soon', 'origin-ca', 'a.com, *.a.com')]
+
+
+def test_worker_unused(cloudflare) -> None:
+    cloudflare(worker_routes(
+        {'idle': {}, 'busy': {}, 'assets-only': {}, 'new': {}},
+        {'busy': 500},
+        {'assets-only': {'has_assets': True}, 'new': {'modified_on': datetime.now(timezone.utc).isoformat()}},
+    ))
+    assert [w['id'] for w in run_policy('leftsize-cloudflare-worker-unused')] == ['idle']
+
+
+def test_worker_outdated_compatibility_date(cloudflare) -> None:
+    cloudflare(worker_routes({'old': {'compatibility_date': '2024-01-01'},
+                              'recent': {'compatibility_date': datetime.now(timezone.utc).date().isoformat()}}, {}))
+    assert [w['id'] for w in run_policy('leftsize-cloudflare-worker-outdated-compatibility-date')] == ['old']
+
+
+# ---------- Registrar, Zero Trust, tunnels, load balancing ----------
+
+def ago(days: int) -> str:
+    from datetime import timedelta
+    return (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+
+
+def base_routes(**extra: Any) -> Dict[str, Any]:
+    return {'/zones': [zone('a.com')], '/accounts': [], **extra}
+
+
+def test_domains(cloudflare) -> None:
+    domains = [
+        {'domain_name': 'expiring.com', 'status': 'active', 'auto_renew': False, 'locked': True, 'expires_at': ago(-10)},
+        {'domain_name': 'renews.com', 'status': 'active', 'auto_renew': True, 'locked': True, 'expires_at': ago(-10)},
+        {'domain_name': 'later.com', 'status': 'active', 'auto_renew': False, 'locked': True, 'expires_at': ago(-200)},
+        {'domain_name': 'gone.com', 'status': 'redemption_period', 'auto_renew': False, 'locked': True, 'expires_at': ago(5)},
+        {'domain_name': 'unlocked.com', 'status': 'active', 'auto_renew': True, 'locked': False, 'expires_at': ago(-300)},
+    ]
+    fake = cloudflare(base_routes(**{f'/accounts/{ACCOUNT}/registrar/registrations':
+                                     {'result': domains, 'result_info': {'cursor': ''}}}))
+    assert sorted(d['domain_name'] for d in run_policy('leftsize-cloudflare-domain-expiring')) == ['expiring.com', 'gone.com']
+    assert [d['domain_name'] for d in run_policy('leftsize-cloudflare-domain-transfer-unlocked')] == ['unlocked.com']
+    assert all(p['per_page'] == 50 for path, p in fake.calls if path.endswith('/registrations'))
+
+
+def test_zero_trust_inactive_seat(cloudflare, tmp_path: Path) -> None:
+    users = [
+        {'id': 'u1', 'email': 'stale@example.com', 'access_seat': True, 'gateway_seat': False,
+         'last_successful_login': ago(90), 'created_at': ago(400)},
+        {'id': 'u2', 'email': 'active@example.com', 'access_seat': True, 'gateway_seat': True,
+         'last_successful_login': ago(2), 'created_at': ago(400)},
+        {'id': 'u3', 'email': 'never@example.com', 'access_seat': False, 'gateway_seat': True, 'created_at': ago(100)},
+        {'id': 'u4', 'email': 'removed@example.com', 'access_seat': False, 'gateway_seat': False,
+         'last_successful_login': ago(300), 'created_at': ago(400)},
+    ]
+    cloudflare(base_routes(**{f'/accounts/{ACCOUNT}/access/users': users,
+                              f'/accounts/{ACCOUNT}/access/organizations': {'user_seat_expiration_inactive_time': None}}))
+    run_policy('leftsize-cloudflare-zero-trust-inactive-seat', output_dir=str(tmp_path))
+    findings = run.parse_custodian_output(str(tmp_path), {'cloud_provider': 'cloudflare'})
+    assert sorted((f['resourceId'].rsplit('/', 1)[1], f['metadata']['email']) for f in findings) == [
+        ('u1', 'stale@example.com'), ('u3', 'never@example.com')]
+
+
+def test_access_app_allows_everyone(cloudflare) -> None:
+    def app(aid: str, *policies: Dict[str, Any]) -> Dict[str, Any]:
+        return {'id': aid, 'name': aid, 'domain': f'{aid}.a.com', 'type': 'self_hosted', 'policies': list(policies)}
+    everyone = {'name': 'all', 'decision': 'allow', 'include': [{'everyone': {}}], 'require': [], 'exclude': []}
+    cloudflare(base_routes(**{f'/accounts/{ACCOUNT}/access/apps': [
+        app('open', everyone),
+        app('required', {**everyone, 'require': [{'email_domain': {'domain': 'a.com'}}]}),
+        app('bypass', {**everyone, 'decision': 'bypass'}),
+        app('emails', {'name': 'team', 'decision': 'allow', 'include': [{'email_domain': {'domain': 'a.com'}}]}),
+    ]}))
+    found = run_policy('leftsize-cloudflare-access-app-allows-everyone')
+    assert [(a['id'], a['leftsize']['everyonePolicies']) for a in found] == [('open', ['all'])]
+
+
+def test_access_service_token_unused(cloudflare) -> None:
+    cloudflare(base_routes(**{f'/accounts/{ACCOUNT}/access/service_tokens': [
+        {'id': 's1', 'name': 'old', 'last_seen_at': ago(120), 'created_at': ago(400)},
+        {'id': 's2', 'name': 'used', 'last_seen_at': ago(1), 'created_at': ago(400)},
+        {'id': 's3', 'name': 'never-old', 'created_at': ago(200)},
+        {'id': 's4', 'name': 'never-new', 'created_at': ago(5)},
+    ]}))
+    assert sorted(t['name'] for t in run_policy('leftsize-cloudflare-access-service-token-unused')) == ['never-old', 'old']
+
+
+def test_tunnel_inactive_and_pagination(cloudflare) -> None:
+    tunnels = [{'id': f't{i}', 'name': f'filler-{i}', 'status': 'healthy', 'created_at': ago(400)} for i in range(50)]
+    tunnels += [{'id': 'down-old', 'name': 'down-old', 'status': 'down', 'conns_inactive_at': ago(60), 'created_at': ago(400)},
+                {'id': 'down-new', 'name': 'down-new', 'status': 'down', 'conns_inactive_at': ago(3), 'created_at': ago(400)},
+                {'id': 'never', 'name': 'never', 'status': 'inactive', 'created_at': ago(45)}]
+
+    def pages(params: Dict[str, Any]) -> Dict[str, Any]:
+        start = (params['page'] - 1) * params['per_page']
+        assert params['is_deleted'] == 'false'
+        # Like the tunnels API: no total_pages in result_info
+        return {'result': tunnels[start:start + params['per_page']],
+                'result_info': {'page': params['page'], 'per_page': params['per_page']}}
+    cloudflare(base_routes(**{f'/accounts/{ACCOUNT}/cfd_tunnel': pages}))
+    assert sorted(t['id'] for t in run_policy('leftsize-cloudflare-tunnel-inactive')) == ['down-old', 'never']
+
+
+def test_lb_pool_unused(cloudflare) -> None:
+    cloudflare({
+        '/zones': [zone('a.com'), zone('b.com')], '/accounts': [],
+        f'/accounts/{ACCOUNT}/load_balancers/pools': [
+            {'id': 'p-default', 'name': 'default', 'origins': [{'address': '192.0.2.1'}]},
+            {'id': 'p-fallback', 'name': 'fallback', 'origins': []},
+            {'id': 'p-region', 'name': 'eu', 'origins': []},
+            {'id': 'p-orphan', 'name': 'orphan', 'origins': [{'address': '192.0.2.9'}, {'address': '192.0.2.10'}]},
+        ],
+        '/zones/id-a.com/load_balancers': [{'name': 'www.a.com', 'default_pools': ['p-default'], 'fallback_pool': 'p-fallback'}],
+        '/zones/id-b.com/load_balancers': [{'name': 'api.b.com', 'default_pools': ['p-default'],
+                                            'region_pools': {'WEU': ['p-region']}}],
+    })
+    found = run_policy('leftsize-cloudflare-lb-pool-unused')
+    assert [(p['name'], p['leftsize']['originCount']) for p in found] == [('orphan', 2)]
