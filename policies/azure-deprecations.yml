@@ -76,6 +76,7 @@ policies:
       category: deprecation
       severity: critical
       tier: pro
+      review_by: '2027-01-31'
 
   # ========================================
   # ⚡ AZURE FUNCTIONS DEPRECATIONS
@@ -115,6 +116,7 @@ policies:
       category: deprecation
       severity: medium
       tier: pro
+      review_by: '2028-09-30'
 
     filters:
       # Linux Consumption hosting plan (Y1 / Dynamic SKU)
@@ -197,6 +199,7 @@ policies:
       category: deprecation
       severity: high
       tier: pro
+      review_by: '2026-11-30'
 
   # ========================================
   # 🌐 APPLICATION GATEWAY DEPRECATIONS
@@ -254,6 +257,7 @@ policies:
       category: deprecation
       severity: critical
       tier: pro
+      review_by: '2027-04-30'
 
     actions:
       - type: tag
@@ -350,6 +354,7 @@ policies:
     metadata:
       category: deprecation
       tier: pro
+      review_by: '2028-09-08'
 
   # ========================================
   # 🗄️ SERVICE DEPRECATIONS (Sep 2025)
@@ -391,6 +396,7 @@ policies:
       category: deprecation
       severity: critical
       tier: pro
+      review_by: '2027-04-30'
 
     actions:
       - type: tag
@@ -447,6 +453,7 @@ policies:
       category: deprecation
       severity: high
       tier: pro
+      review_by: '2027-04-30'
 
     actions:
       - type: tag
@@ -510,6 +517,7 @@ policies:
       category: deprecation
       severity: critical
       tier: pro
+      review_by: '2027-04-30'
 
   # ========================================
   # 📝 TEMPLATE FOR FUTURE DEPRECATIONS
@@ -602,6 +610,7 @@ policies:
       category: deprecation
       severity: high
       tier: pro
+      review_by: '2027-04-30'
 
   # ========================================
   # 🖥️ VM SIZE RETIREMENTS (2027-2029)
@@ -652,6 +661,7 @@ policies:
       category: deprecation
       severity: high
       tier: pro
+      review_by: '2027-03-31'
 
   - name: leftsize-vm-hpc-fpga-retirement-2027
     description: |
@@ -688,6 +698,7 @@ policies:
       category: deprecation
       severity: high
       tier: pro
+      review_by: '2027-05-31'
 
   - name: leftsize-vm-series-retirement-2028-05
     description: |
@@ -719,6 +730,7 @@ policies:
       category: deprecation
       severity: medium
       tier: pro
+      review_by: '2027-02-01'
 
   - name: leftsize-vm-series-retirement-2028-11
     description: |
@@ -749,6 +761,7 @@ policies:
       category: deprecation
       severity: medium
       tier: pro
+      review_by: '2027-02-01'
 
   - name: leftsize-vm-v3-series-retirement-2029
     description: |
@@ -779,6 +792,7 @@ policies:
       category: deprecation
       severity: low
       tier: pro
+      review_by: '2027-02-01'
 
   # ========================================
   # ☸️ AKS NODE OS / NETWORKING / ADD-ON RETIREMENTS
@@ -822,6 +836,7 @@ policies:
       category: deprecation
       severity: critical
       tier: pro
+      review_by: '2027-04-30'
 
   - name: leftsize-aks-ubuntu-2004-node-pools
     description: |
@@ -858,6 +873,7 @@ policies:
       category: deprecation
       severity: high
       tier: pro
+      review_by: '2027-03-17'
 
   - name: leftsize-aks-ubuntu-2204-node-pools
     description: |
@@ -902,6 +918,7 @@ policies:
       category: deprecation
       severity: medium
       tier: pro
+      review_by: '2027-06-30'
 
   - name: leftsize-aks-windows-unsupported-node-pools
     description: |
@@ -952,6 +969,7 @@ policies:
       category: deprecation
       severity: critical
       tier: pro
+      review_by: '2027-04-01'
 
   - name: leftsize-aks-kubenet-retirement
     description: |
@@ -986,6 +1004,7 @@ policies:
       category: deprecation
       severity: medium
       tier: pro
+      review_by: '2028-03-31'
 
   - name: leftsize-aks-open-service-mesh-retirement
     description: |
@@ -1017,6 +1036,7 @@ policies:
       category: deprecation
       severity: medium
       tier: pro
+      review_by: '2027-09-30'
 
   # ========================================
   # ⚡ AZURE FUNCTIONS - RUNTIME / LANGUAGE END OF SUPPORT
@@ -1048,6 +1068,7 @@ policies:
       category: deprecation
       severity: high
       tier: pro
+      review_by: '2026-11-10'
 
     filters:
       # Function apps only (kind is e.g. "functionapp,linux")
@@ -1103,6 +1124,7 @@ policies:
       category: deprecation
       severity: high
       tier: pro
+      review_by: '2026-11-10'
 
     filters:
       - type: value
@@ -1152,6 +1174,7 @@ policies:
       category: deprecation
       severity: high
       tier: pro
+      review_by: '2027-04-30'
 
     filters:
       - type: value
@@ -1181,6 +1204,7 @@ policies:
       category: deprecation
       severity: high
       tier: pro
+      review_by: '2027-03-15'
 
     filters:
       - type: value
@@ -1212,6 +1236,7 @@ policies:
       category: deprecation
       severity: high
       tier: pro
+      review_by: '2028-03-31'
 
   # ========================================
   # ☁️ CLOUD SERVICES (EXTENDED SUPPORT) RETIREMENT
@@ -1234,6 +1259,7 @@ policies:
       category: deprecation
       severity: critical
       tier: pro
+      review_by: '2027-03-31'
 
     filters:
       - type: resource-type
@@ -1281,6 +1307,7 @@ policies:
       category: deprecation
       severity: high
       tier: pro
+      review_by: '2027-04-30'
 
   # HIGH: Application Gateway WAF v2 legacy "WAF configuration" retires March 15, 2027
   - name: leftsize-appgateway-waf-config-retirement
@@ -1319,6 +1346,7 @@ policies:
       category: deprecation
       severity: high
       tier: pro
+      review_by: '2027-03-15'
 
   # HIGH: Azure Front Door (classic) retires March 31, 2027
   - name: leftsize-front-door-classic-retirement
@@ -1349,6 +1377,7 @@ policies:
       category: deprecation
       severity: high
       tier: pro
+      review_by: '2027-03-31'
 
   # MEDIUM: Azure CDN Standard from Microsoft (classic) retires September 30, 2027
   - name: leftsize-cdn-classic-retirement
@@ -1383,6 +1412,7 @@ policies:
       category: deprecation
       severity: medium
       tier: pro
+      review_by: '2027-09-30'
 
   # MEDIUM: NSG flow logs retire September 30, 2027 (flow log resources are deleted)
   - name: leftsize-nsg-flow-logs-retirement
@@ -1417,6 +1447,7 @@ policies:
       category: deprecation
       severity: medium
       tier: pro
+      review_by: '2027-09-30'
 
   # ========================================
   # 🗄️ DATABASE / CACHE / ANALYTICS RETIREMENTS
@@ -1460,6 +1491,7 @@ policies:
       category: deprecation
       severity: medium
       tier: pro
+      review_by: '2027-01-31'
 
   # MEDIUM: MySQL Flexible Server 5.7 in paid extended support (8.0 from Feb 1, 2027)
   - name: leftsize-mysql-flexible-extended-support
@@ -1492,6 +1524,7 @@ policies:
       category: deprecation
       severity: medium
       tier: pro
+      review_by: '2027-01-31'
 
   # HIGH: Azure Cache for Redis Enterprise / Enterprise Flash retire March 31, 2027
   - name: leftsize-redis-enterprise-retirement
@@ -1528,6 +1561,7 @@ policies:
       category: deprecation
       severity: high
       tier: pro
+      review_by: '2027-03-31'
 
   # MEDIUM: Azure Cache for Redis Basic / Standard / Premium retire September 30, 2028
   - name: leftsize-redis-cache-retirement
@@ -1553,6 +1587,7 @@ policies:
       category: deprecation
       severity: medium
       tier: pro
+      review_by: '2028-09-30'
 
   # CRITICAL: HDInsight 4.0 and 5.0 were retired on March 31, 2025
   - name: leftsize-hdinsight-retired-version
@@ -1582,6 +1617,7 @@ policies:
       category: deprecation
       severity: critical
       tier: pro
+      review_by: '2027-04-30'
 
   # ========================================
   # 📉 VM SIZE RETIREMENTS: SCALE SETS AND AKS NODE POOLS
@@ -1675,6 +1711,7 @@ policies:
       category: deprecation
       severity: high
       tier: pro
+      review_by: '2027-03-31'
 
   - name: leftsize-aks-node-pool-retiring-size
     description: |
@@ -1735,3 +1772,4 @@ policies:
       category: deprecation
       severity: high
       tier: pro
+      review_by: '2027-03-31'
