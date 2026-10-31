@@ -125,7 +125,8 @@ policies:
   - name: leftsize-cloudflare-zone-dnssec-disabled
     description: |
       Find active zones with DNS on Cloudflare (full setup) where DNSSEC is
-      off.
+      off, or was turned on more than 7 days ago but is still pending because
+      the registrar never got the DS record (so nothing is validated).
 
       Without DNSSEC, resolvers can't verify that DNS answers for the domain
       are authentic, so cache poisoning and spoofed answers can send visitors
@@ -145,10 +146,22 @@ policies:
       - type: value
         key: type
         value: full
-      - type: zone-detail
-        path: dnssec
-        key: value.status
-        value: disabled
+      - or:
+          - type: zone-detail
+            path: dnssec
+            key: value.status
+            value: disabled
+          - and:
+              - type: zone-detail
+                path: dnssec
+                key: value.status
+                value: pending
+              - type: zone-detail
+                path: dnssec
+                key: value.modified_on
+                value_type: age
+                op: gt
+                value: 7
     metadata:
       category: security
       severity: medium

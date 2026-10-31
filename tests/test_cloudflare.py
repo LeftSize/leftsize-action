@@ -7,6 +7,7 @@ HTTP layer is replaced by FakeHttp, which answers Cloudflare API paths with cann
 """
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -300,11 +301,14 @@ def test_weak_tls_settings(cloudflare) -> None:
 
 def test_dnssec_disabled(cloudflare) -> None:
     cloudflare({
-        '/zones': [zone('off.com'), zone('on.com'), {**zone('partial.com'), 'type': 'partial'}],
+        '/zones': [zone('off.com'), zone('on.com'), zone('stuck.com'), zone('new.com'),
+                   {**zone('partial.com'), 'type': 'partial'}],
         '/zones/id-off.com/dnssec': {'status': 'disabled'},
         '/zones/id-on.com/dnssec': {'status': 'active'},
+        '/zones/id-stuck.com/dnssec': {'status': 'pending', 'modified_on': '2026-01-01T00:00:00+00:00'},
+        '/zones/id-new.com/dnssec': {'status': 'pending', 'modified_on': datetime.now(timezone.utc).isoformat()},
     })
-    assert [z['name'] for z in run_policy('leftsize-cloudflare-zone-dnssec-disabled')] == ['off.com']
+    assert sorted(z['name'] for z in run_policy('leftsize-cloudflare-zone-dnssec-disabled')) == ['off.com', 'stuck.com']
 
 
 def test_legacy_zone_features(cloudflare, tmp_path: Path) -> None:

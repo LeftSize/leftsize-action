@@ -1,9 +1,12 @@
 """cloudflare.worker-script: Workers scripts with their settings and request volume.
 
 Token permissions (read): Workers Scripts; Account Analytics for the `invocations` filter.
+Without Workers Scripts Read the listing is empty rather than an error (verified
+October 2026), so an empty listing is logged as a warning.
 Binding values are never stored: plain-text values are replaced by their length.
 """
 
+import logging
 import re
 from datetime import date, timedelta
 from typing import Any, Dict, Iterable, List
@@ -14,6 +17,8 @@ from c7n.utils import local_session, type_schema
 
 from ..provider import resources
 from ..query import AccountResourceManager, TypeInfo
+
+log = logging.getLogger("custodian.cloudflare")
 
 INVOCATIONS_QUERY = """
 query ($accountTag: string!, $start: Date!, $end: Date!) {
@@ -64,6 +69,10 @@ class WorkerScript(AccountResourceManager):
 
     def list_account(self, session: Any, account_id: str) -> Iterable[Dict[str, Any]]:
         scripts = session.get(self.resource_type.path.format(account_id=account_id)) or []
+        if not scripts:
+            # Without Workers Scripts Read the API returns an empty list, not a 403
+            log.warning("No Workers listed for account %s. If it has Workers, the API token is "
+                        "missing the Workers Scripts Read permission.", account_id)
         for script in scripts:
             settings = session.get(f"/accounts/{account_id}/workers/scripts/{script['id']}/settings") or {}
             script["leftsize"] = _summarize(settings)

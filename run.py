@@ -2329,6 +2329,7 @@ RESOURCE_FIELD_PATHS: Dict[str, Dict[str, List[str]]] = {
                         'hstsEnabled': ['c7n:zone-settings.security_header.strict_transport_security.enabled'],
                         'hstsMaxAge': ['c7n:zone-settings.security_header.strict_transport_security.max_age'],
                         'dnssecStatus': ['c7n:details.dnssec.status'],
+                        'dnssecModifiedOn': ['c7n:details.dnssec.modified_on'],
                         'pageRuleCount': ['c7n:page-rules.count'], 'pageRulesActive': ['c7n:page-rules.active'],
                         'pageRuleSettings': ['c7n:page-rules.settings[]'],
                         'pageRulesUnmigrated': ['c7n:page-rules.unmigrated[]'],
