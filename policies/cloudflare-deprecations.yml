@@ -17,8 +17,9 @@ policies:
       before changing anything, but has published no final date. Some settings
       are not migrated at all (Disable Performance, Disable Security, Disable
       Railgun, Response Buffering, Web Application Firewall), and migrated rules
-      can behave differently: for Page Rules the first match wins, while the new
-      Rules stack and the last match wins.
+      can behave differently: for Page Rules the first match wins, while
+      Configuration, Cache and Origin Rules stack and the last change wins.
+      Redirect Rules still use the first match (a redirect ends evaluation).
 
       Timeline:
       - 2022: replacement announced; new features only land in the new Rules
