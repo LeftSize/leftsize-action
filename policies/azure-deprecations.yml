@@ -116,7 +116,7 @@ policies:
       category: deprecation
       severity: medium
       tier: pro
-      review_by: '2028-09-30'
+      review_by: '2027-04-30'
 
     filters:
       # Linux Consumption hosting plan (Y1 / Dynamic SKU)
@@ -354,7 +354,7 @@ policies:
     metadata:
       category: deprecation
       tier: pro
-      review_by: '2028-09-08'
+      review_by: '2027-04-30'
 
   # ========================================
   # 🗄️ SERVICE DEPRECATIONS (Sep 2025)
@@ -610,7 +610,7 @@ policies:
       category: deprecation
       severity: high
       tier: pro
-      review_by: '2027-04-30'
+      review_by: '2026-11-01'
 
   # ========================================
   # 🖥️ VM SIZE RETIREMENTS (2027-2029)
@@ -698,7 +698,7 @@ policies:
       category: deprecation
       severity: high
       tier: pro
-      review_by: '2027-05-31'
+      review_by: '2027-04-30'
 
   - name: leftsize-vm-series-retirement-2028-05
     description: |
@@ -918,7 +918,7 @@ policies:
       category: deprecation
       severity: medium
       tier: pro
-      review_by: '2027-06-30'
+      review_by: '2027-04-30'
 
   - name: leftsize-aks-windows-unsupported-node-pools
     description: |
@@ -1004,7 +1004,7 @@ policies:
       category: deprecation
       severity: medium
       tier: pro
-      review_by: '2028-03-31'
+      review_by: '2027-04-30'
 
   - name: leftsize-aks-open-service-mesh-retirement
     description: |
@@ -1036,7 +1036,7 @@ policies:
       category: deprecation
       severity: medium
       tier: pro
-      review_by: '2027-09-30'
+      review_by: '2027-04-30'
 
   # ========================================
   # ⚡ AZURE FUNCTIONS - RUNTIME / LANGUAGE END OF SUPPORT
@@ -1236,7 +1236,7 @@ policies:
       category: deprecation
       severity: high
       tier: pro
-      review_by: '2028-03-31'
+      review_by: '2027-04-30'
 
   # ========================================
   # ☁️ CLOUD SERVICES (EXTENDED SUPPORT) RETIREMENT
@@ -1412,7 +1412,7 @@ policies:
       category: deprecation
       severity: medium
       tier: pro
-      review_by: '2027-09-30'
+      review_by: '2027-04-30'
 
   # MEDIUM: NSG flow logs retire September 30, 2027 (flow log resources are deleted)
   - name: leftsize-nsg-flow-logs-retirement
@@ -1447,7 +1447,7 @@ policies:
       category: deprecation
       severity: medium
       tier: pro
-      review_by: '2027-09-30'
+      review_by: '2027-04-30'
 
   # ========================================
   # 🗄️ DATABASE / CACHE / ANALYTICS RETIREMENTS
@@ -1587,7 +1587,7 @@ policies:
       category: deprecation
       severity: medium
       tier: pro
-      review_by: '2028-09-30'
+      review_by: '2027-04-30'
 
   # CRITICAL: HDInsight 4.0 and 5.0 were retired on March 31, 2025
   - name: leftsize-hdinsight-retired-version

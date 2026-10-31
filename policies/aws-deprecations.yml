@@ -136,7 +136,7 @@ policies:
       category: deprecation
       severity: high
       tier: pro
-      review_by: '2028-02-01'
+      review_by: '2027-04-30'
 
   # ========================================
   # 🔍 OPENSEARCH/ELASTICSEARCH DEPRECATIONS
@@ -559,7 +559,7 @@ policies:
       category: deprecation
       severity: high
       tier: pro
-      review_by: '2028-03-31'
+      review_by: '2027-04-30'
 
   # ========================================
   # 🕸️ AMAZON NEPTUNE ENGINE END OF LIFE
@@ -741,7 +741,7 @@ policies:
       category: deprecation
       severity: high
       tier: pro
-      review_by: '2029-06-01'
+      review_by: '2027-04-30'
     filters:
       # Terminated instances do not matter
       - type: value
@@ -861,7 +861,7 @@ policies:
       category: deprecation
       severity: medium
       tier: pro
-      review_by: '2027-06-30'
+      review_by: '2027-04-30'
     filters:
       - type: value
         key: 'State'
@@ -959,7 +959,7 @@ policies:
       category: deprecation
       severity: high
       tier: pro
-      review_by: '2027-09-01'
+      review_by: '2027-04-30'
     filters:
       - or:
         # emr-4.x, emr-5.0 .. emr-5.35, emr-6.0 .. emr-6.5
@@ -991,7 +991,7 @@ policies:
       category: deprecation
       severity: medium
       tier: pro
-      review_by: '2027-06-30'
+      review_by: '2027-04-30'
     filters:
       # emr-5.36.x, emr-6.6.x .. emr-6.15.x
       - type: value
@@ -1134,7 +1134,7 @@ policies:
       category: deprecation
       severity: medium
       tier: pro
-      review_by: '2027-07-24'
+      review_by: '2027-04-30'
     filters:
       # c7n only lists ENABLED directories by default; keep the check explicit
       - type: value
