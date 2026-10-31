@@ -75,10 +75,11 @@ def _build_custodian_env() -> dict[str, str]:
     Only allows cloud provider credentials and essential system env vars.
     Explicitly excludes GitHub Actions, LeftSize, and other action-specific secrets.
     """
+    # Only the two Cloudflare variables the provider reads, by exact name (not e.g. a
+    # global API key or CLOUDFLARE_API_TOKEN_PRODUCTION)
+    allow_exact = ("CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_IDS")
     allow_prefixes = (
         "AZURE_", "AWS_", "GOOGLE_", "GCP_",
-        # Only the two Cloudflare variables the provider reads (not e.g. a global API key)
-        "CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_IDS",
         "PATH", "HOME", "USER", "LANG", "LC_", "TZ",
         "PYTHONPATH",
         "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY",
@@ -93,7 +94,7 @@ def _build_custodian_env() -> dict[str, str]:
         if any(k.startswith(p) for p in exclude_prefixes):
             continue
         # Include if it matches an allow prefix
-        if any(k == p or k.startswith(p) for p in allow_prefixes):
+        if k in allow_exact or any(k == p or k.startswith(p) for p in allow_prefixes):
             filtered[k] = v
     
     # Ensure critical keys exist even if not in allow_prefixes
@@ -2195,7 +2196,8 @@ def convert_resource_to_finding(policy_name: str, resource: Dict[str, Any], conf
         resource_id = extract_resource_id(resource, config)
         resource_name = resource_display_name(resource)
         if config.get('cloud_provider') == 'cloudflare' and not resource_name:
-            resource_name = str(resource.get('id') or '')  # Workers scripts: the ID is the name
+            # Workers scripts: the ID is the name; Registrar domains only have domain_name
+            resource_name = str(resource.get('id') or resource.get('domain_name') or '')
         resource_type = resource.get('type', '') or resource.get('c7n:resource-type', '')
         if config.get('cloud_provider') == 'cloudflare' and policy_resource_type:
             # A zone's `type` is its setup (full, partial, secondary), not a resource type
@@ -2206,17 +2208,16 @@ def convert_resource_to_finding(policy_name: str, resource: Dict[str, Any], conf
         
         # Extract metadata from resource - only include what Cloud Custodian provides
         metadata = extract_resource_metadata(resource, resource_id, policy_resource_type)
-        if config.get('cloud_provider') == 'cloudflare':
-            # Names come from the customer's account and end up in GitHub issues and
-            # script comments: keep them plain text
-            metadata = {k: sanitize_text(v) if isinstance(v, str) else v for k, v in (metadata or {}).items()}
-            resource_name = sanitize_text(resource_name)
-        
         # Environment (production, acceptance, ...) and how it was decided, for issue titles and lists
         environment, environment_source = classify_environment(resource, config)
         metadata = metadata or {}
         metadata['environment'] = environment
         metadata['environmentSource'] = environment_source
+        if config.get('cloud_provider') == 'cloudflare':
+            # Names come from the customer's account and end up in GitHub issues and
+            # script comments: keep them plain text (also the copy in environmentSource)
+            metadata = {k: sanitize_text(v) if isinstance(v, str) else v for k, v in metadata.items()}
+            resource_name = sanitize_text(resource_name)
         
         finding = {
             'ruleId': rule_id,

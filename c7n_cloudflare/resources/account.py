@@ -3,10 +3,14 @@
 Token permission (read): Account Settings.
 """
 
+import logging
 from typing import Any, Dict, List
 
+from ..client import CloudflareError
 from ..provider import resources
 from ..query import QueryResourceManager, TypeInfo
+
+log = logging.getLogger("custodian.cloudflare")
 
 
 def _summarize_members(members: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -32,9 +36,18 @@ class Account(QueryResourceManager):
 
     def list_resources(self, session: Any) -> List[Dict[str, Any]]:
         accounts = []
-        for account_id in session.accounts():
-            account = session.get(f"/accounts/{account_id}") or {"id": account_id}
+        account_ids = session.accounts()
+        for account_id in account_ids:
+            try:
+                account = session.get(f"/accounts/{account_id}") or {"id": account_id}
+                members = list(session.paginate(f"/accounts/{account_id}/members"))
+            except CloudflareError as e:
+                if len(account_ids) == 1:
+                    raise
+                # One account without the permission shouldn't hide the others' findings
+                log.warning("Skipped account %s: %s", account_id, e)
+                continue
             account["account"] = {"id": account_id, "name": account.get("name")}
-            account["leftsize"] = _summarize_members(list(session.paginate(f"/accounts/{account_id}/members")))
+            account["leftsize"] = _summarize_members(members)
             accounts.append(account)
         return accounts

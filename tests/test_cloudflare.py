@@ -691,3 +691,103 @@ def test_auth_accepts_token_without_zones(cloudflare) -> None:
     assert run.validate_cloudflare_auth({}) is True
     cloudflare({'/zones': FakeResponse(403, {'success': False, 'errors': [{'code': 9109}]})})
     assert run.validate_cloudflare_auth({}) is False
+
+
+# ---------- Copilot review fixes ----------
+
+FORBIDDEN = FakeResponse(403, {'success': False, 'errors': [{'code': 9109, 'message': 'Unauthorized'}]})
+
+
+def test_zones_of_one_account_failing_keeps_the_others(cloudflare, monkeypatch: pytest.MonkeyPatch) -> None:
+    other = 'f' * 32
+    monkeypatch.setenv('CLOUDFLARE_ACCOUNT_IDS', f'{ACCOUNT},{other}')
+
+    class PerAccount(FakeHttp):
+        def get(self, url, params=None, timeout=0):  # type: ignore[override]
+            if url.endswith('/zones') and (params or {}).get('account.id') == other:
+                return FORBIDDEN
+            return super().get(url, params, timeout)
+    reset_session_cache()
+    monkeypatch.setattr(cf_client.requests, 'Session', lambda: PerAccount({'/zones': [zone('a.com')]}))
+    assert [z['name'] for z in cf_client.Session().zones()] == ['a.com']
+
+
+def test_accounts_fall_back_to_zones_when_listing_is_forbidden(cloudflare) -> None:
+    cloudflare({'/zones': [zone('a.com')], '/accounts': FORBIDDEN})
+    assert cf_client.Session().accounts() == [ACCOUNT]
+
+
+def test_paginate_detects_repeat_after_caller_annotates(cloudflare) -> None:
+    items = [{'id': f'g{i}'} for i in range(80)]
+    fake = cloudflare({'/things': lambda p: {'result': [dict(i) for i in items], 'result_info': {'count': 80}}})
+    listed = []
+    for item in cf_client.Session().paginate('/things'):
+        item['leftsize'] = {}  # managers annotate what they get
+        listed.append(item)
+    assert len(listed) == 80
+    assert len([c for c in fake.calls if c[0] == '/things']) == 2
+
+
+def test_account_2fa_skips_a_forbidden_account(cloudflare, monkeypatch: pytest.MonkeyPatch) -> None:
+    other = 'f' * 32
+    monkeypatch.setenv('CLOUDFLARE_ACCOUNT_IDS', f'{ACCOUNT},{other}')
+    cloudflare({
+        '/zones': [zone('a.com')],
+        f'/accounts/{ACCOUNT}': FORBIDDEN,
+        f'/accounts/{other}': {'id': other, 'name': 'Other', 'settings': {'enforce_twofactor': False}},
+        f'/accounts/{other}/members': [],
+    })
+    assert [a['id'] for a in run_policy('leftsize-cloudflare-account-2fa-not-enforced')] == [other]
+
+
+def test_empty_workers_list_is_a_note_not_a_problem(cloudflare, caplog) -> None:
+    cloudflare(worker_routes({}, {}))
+    with caplog.at_level('INFO', logger='custodian.cloudflare'):
+        assert run_policy('leftsize-cloudflare-worker-unused') == []
+    notes = [r for r in caplog.records if 'No Workers listed' in r.message]
+    assert notes and all(r.levelname == 'INFO' for r in notes)
+
+
+def test_worker_analytics_failure_skips_only_that_account(cloudflare, monkeypatch: pytest.MonkeyPatch) -> None:
+    other = 'f' * 32
+    monkeypatch.setenv('CLOUDFLARE_ACCOUNT_IDS', f'{ACCOUNT},{other}')
+    routes = worker_routes({'idle': {}}, {})
+    routes[f'/accounts/{other}/workers/scripts'] = [{'id': 'idle2', 'modified_on': '2026-01-01T00:00:00Z'}]
+    routes[f'/accounts/{other}/workers/domains'] = []
+    routes[f'/accounts/{other}/workers/scripts/idle2/settings'] = {}
+    routes[f'/accounts/{other}/workers/scripts/idle2/schedules'] = {'schedules': []}
+    fake = cloudflare(routes)
+
+    def post(url, json=None, timeout=0):
+        if (json or {}).get('variables', {}).get('accountTag') == other:
+            return FakeResponse(200, {'data': None, 'errors': [{'message': 'not authorized'}]})
+        return FakeHttp.post(fake, url, json, timeout)
+    fake.post = post  # type: ignore[method-assign]
+    found = run_policy('leftsize-cloudflare-worker-unused')
+    assert [w['id'] for w in found] == ['idle']
+
+
+def test_cloudflare_env_allow_list_matches_exact_names(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv('CLOUDFLARE_API_TOKEN', 't')
+    monkeypatch.setenv('CLOUDFLARE_API_TOKEN_PRODUCTION', 'other')
+    monkeypatch.setenv('CLOUDFLARE_ACCOUNT_IDS_OLD', 'x')
+    env = run._build_custodian_env()
+    assert 'CLOUDFLARE_API_TOKEN' in env
+    assert 'CLOUDFLARE_API_TOKEN_PRODUCTION' not in env and 'CLOUDFLARE_ACCOUNT_IDS_OLD' not in env
+
+
+def test_registrar_finding_has_domain_name() -> None:
+    resource = {'domain_name': 'example.com', 'account': {'id': ACCOUNT}, 'locked': False,
+                'c7n:cloudflare-id': f'account/{ACCOUNT}/domain/example.com'}
+    f = run.convert_resource_to_finding('leftsize-cloudflare-domain-transfer-unlocked', resource,
+                                        {'cloud_provider': 'cloudflare'}, 'cloudflare.domain')
+    assert f['resourceName'] == 'example.com'
+
+
+def test_environment_source_is_sanitized() -> None:
+    resource = {'id': 'abc', 'name': 'prod [click](https://example.com)', 'status': 'active',
+                'account': {'id': ACCOUNT}, 'c7n:cloudflare-id': f'account/{ACCOUNT}/api-token/abc',
+                'leftsize': {}}
+    f = run.convert_resource_to_finding('leftsize-cloudflare-api-token-unrestricted', resource,
+                                        {'cloud_provider': 'cloudflare'}, 'cloudflare.api-token')
+    assert all('[' not in v for v in f['metadata'].values() if isinstance(v, str))

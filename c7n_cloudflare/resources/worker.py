@@ -15,6 +15,7 @@ from c7n.filters import Filter
 from c7n.filters.core import OPERATORS
 from c7n.utils import local_session, type_schema
 
+from ..client import CloudflareError
 from ..provider import resources
 from ..query import AccountResourceManager, TypeInfo
 
@@ -74,8 +75,9 @@ class WorkerScript(AccountResourceManager):
             for d in session.get(f"/accounts/{account_id}/workers/domains") or []:
                 domains.setdefault(d.get("service"), []).append(d.get("hostname"))
         if not scripts:
-            # Without Workers Scripts Read the API returns an empty list, not a 403
-            log.warning("No Workers listed for account %s. If it has Workers, the API token is "
+            # Without Workers Scripts Read the API returns an empty list, not a 403. An account
+            # without Workers looks the same, so this is a note, not a scan problem.
+            log.info("No Workers listed for account %s. If it has Workers, the API token is "
                         "missing the Workers Scripts Read permission.", account_id)
         for script in scripts:
             settings = session.get(f"/accounts/{account_id}/workers/scripts/{script['id']}/settings") or {}
@@ -127,12 +129,22 @@ class InvocationsFilter(Filter):
         session = local_session(self.manager.session_factory)
         days = self.data.get("days", 7)
         op = OPERATORS[self.data.get("op", "gte")]
-        per_account: Dict[str, Dict[str, int]] = {}
+        per_account: Dict[str, Any] = {}
+        accounts = {r["account"]["id"] for r in resources}
         matched = []
         for r in resources:
             account_id = r["account"]["id"]
             if account_id not in per_account:
-                per_account[account_id] = self.requests_by_script(session, account_id, days)
+                try:
+                    per_account[account_id] = self.requests_by_script(session, account_id, days)
+                except CloudflareError as e:
+                    if len(accounts) == 1:
+                        raise
+                    # Skip the account: unavailable analytics aren't zero requests
+                    log.warning("Skipped Workers analytics of account %s: %s", account_id, e)
+                    per_account[account_id] = None
+            if per_account[account_id] is None:
+                continue
             summary = r.setdefault("leftsize", {})
             summary["requests"] = per_account[account_id].get(r["id"], 0)
             summary["requestDays"] = days

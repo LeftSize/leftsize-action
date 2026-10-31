@@ -5,6 +5,7 @@ Authenticates with an API token (CLOUDFLARE_API_TOKEN). CLOUDFLARE_ACCOUNT_IDS
 token can read is listed.
 """
 
+import copy
 import logging
 import os
 import time
@@ -16,6 +17,7 @@ import requests
 API_BASE = "https://api.cloudflare.com/client/v4"
 TIMEOUT_SECONDS = 30
 RETRIES = 4
+MAX_RETRY_WAIT_SECONDS = 300
 PER_PAGE = 50
 MAX_PAGES = 1000
 
@@ -87,7 +89,8 @@ class Session:
                 if attempt < RETRIES:
                     wait = _retry_wait(response, attempt)
                     log.debug("Cloudflare %s on %s, retrying in %ss", response.status_code, path, wait)
-                    time.sleep(min(wait, 60))
+                    # Cloudflare's rate limit window is five minutes; the scan's own timeout bounds the total
+                    time.sleep(min(wait, MAX_RETRY_WAIT_SECONDS))
                     continue
             try:
                 body = response.json()
@@ -119,7 +122,13 @@ class Session:
             if self.account_ids:
                 zones: List[Dict[str, Any]] = []
                 for account_id in self.account_ids:
-                    zones.extend(self.paginate("/zones", **{"account.id": account_id}))
+                    try:
+                        zones.extend(self.paginate("/zones", **{"account.id": account_id}))
+                    except CloudflareError as e:
+                        if len(self.account_ids) == 1:
+                            raise
+                        # One account without Zone Read shouldn't hide the others' zones
+                        log.warning("Skipped the zones of account %s: %s", account_id, e)
             else:
                 zones = list(self.paginate("/zones"))
             self._memo["zones"] = zones
@@ -145,7 +154,12 @@ class Session:
         if self._accounts is None:
             ids = list(self.account_ids)
             if not ids:
-                ids = [a["id"] for a in self.paginate("/accounts") if a.get("id")]
+                try:
+                    ids = [a["id"] for a in self.paginate("/accounts") if a.get("id")]
+                except CloudflareError as e:
+                    if e.status != 403:
+                        raise
+                    log.info("Can't list accounts (%s); using the accounts of the zones the token can read", e)
             if not ids:
                 ids = sorted({(z.get("account") or {}).get("id") for z in self.zones()} - {None})
             self._accounts = ids
@@ -177,7 +191,8 @@ class Session:
             first = items[0] if items else None
             if page > 1 and first is not None and first == previous_first:
                 return
-            previous_first = first
+            # A copy: callers annotate the yielded items (account, leftsize)
+            previous_first = copy.deepcopy(first)
             yield from items
             info = body.get("result_info") or {}
             if "total_pages" in info:
