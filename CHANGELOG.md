@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Cloudflare:** `leftsize-cloudflare-workers-ai-deprecated-model` finds Workers AI models an account called in the last 14 days that Cloudflare removes on November 20, 2026 (24 models; requests then fail with HTTP 410). It uses the new `cloudflare.ai-model` resource, which reads usage per model from GraphQL Analytics (Account Analytics Read, already part of the token setup). Usage is per account: Cloudflare doesn't say which Worker made the calls.
+
 ## [1.0.31] - 2026-10-31
 
 ### Added

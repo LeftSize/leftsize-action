@@ -2196,8 +2196,9 @@ def convert_resource_to_finding(policy_name: str, resource: Dict[str, Any], conf
         resource_id = extract_resource_id(resource, config)
         resource_name = resource_display_name(resource)
         if config.get('cloud_provider') == 'cloudflare' and not resource_name:
-            # Workers scripts: the ID is the name; Registrar domains only have domain_name
-            resource_name = str(resource.get('id') or resource.get('domain_name') or '')
+            # Workers scripts: the ID is the name; Registrar domains only have domain_name;
+            # Workers AI models only have modelId
+            resource_name = str(resource.get('id') or resource.get('domain_name') or resource.get('modelId') or '')
         resource_type = resource.get('type', '') or resource.get('c7n:resource-type', '')
         if config.get('cloud_provider') == 'cloudflare' and policy_resource_type:
             # A zone's `type` is its setup (full, partial, secondary), not a resource type
@@ -2414,6 +2415,8 @@ RESOURCE_FIELD_PATHS: Dict[str, Dict[str, List[str]]] = {
                            'enabled': ['enabled'], 'originCount': ['leftsize.originCount'],
                            'referrers': ['leftsize.referrers[]'],
                            'origins': ['origins[].address'], 'monitorId': ['monitor']},
+    'cloudflare.ai-model': {'modelId': ['modelId'], 'accountId': ['account.id'], 'requests': ['requests'],
+                            'requestSources': ['requestSources[]'], 'usageDays': ['days']},
     'cloudflare.certificate': {'certificateId': ['id'], 'certificateKind': ['kind'],
                                'hostnames': ['hostnames[]'], 'expiresOn': ['expires_on'],
                                'issuer': ['issuer'], 'status': ['status'],

@@ -31,6 +31,7 @@ class Cloudflare(Provider):
         "cloudflare.access-service-token": "c7n_cloudflare.resources.zerotrust.AccessServiceToken",
         "cloudflare.tunnel": "c7n_cloudflare.resources.zerotrust.Tunnel",
         "cloudflare.lb-pool": "c7n_cloudflare.resources.loadbalancer.LoadBalancerPool",
+        "cloudflare.ai-model": "c7n_cloudflare.resources.ai.AiModel",
     }
 
     def initialize(self, options: Any) -> Any:
