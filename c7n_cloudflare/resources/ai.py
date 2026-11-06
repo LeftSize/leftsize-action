@@ -47,8 +47,9 @@ class AiModel(AccountResourceManager):
 
     def list_account(self, session: Any, account_id: str) -> Iterable[Dict[str, Any]]:
         end = date.today()
+        # date_geq and date_leq both include their dates: USAGE_DAYS calendar days, today included
         data = session.graphql(USAGE_QUERY, {
-            "accountTag": account_id, "start": (end - timedelta(days=USAGE_DAYS)).isoformat(),
+            "accountTag": account_id, "start": (end - timedelta(days=USAGE_DAYS - 1)).isoformat(),
             "end": end.isoformat()})
         models: Dict[str, Dict[str, Any]] = {}
         for account in (data.get("viewer") or {}).get("accounts") or []:

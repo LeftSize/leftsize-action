@@ -7,7 +7,7 @@ HTTP layer is replaced by FakeHttp, which answers Cloudflare API paths with cann
 """
 
 import json
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -617,6 +617,8 @@ def test_lb_pool_unused(cloudflare) -> None:
 def test_workers_ai_deprecated_model(cloudflare, tmp_path: Path) -> None:
     def usage(variables: Dict[str, Any]) -> Dict[str, Any]:
         assert variables['accountTag'] == ACCOUNT
+        # Both bounds are inclusive: 14 calendar days
+        assert (date.fromisoformat(variables['end']) - date.fromisoformat(variables['start'])).days == 13
         row = lambda model, source, n: {'count': n, 'dimensions': {'modelId': model, 'requestSource': source}}  # noqa: E731
         return {'viewer': {'accounts': [{'aiInferenceAdaptiveGroups': [
             row('@cf/meta/llama-3.2-3b-instruct', 'worker binding', 900),
