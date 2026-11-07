@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - **Cloudflare:** `leftsize-cloudflare-workers-ai-deprecated-model` finds Workers AI models an account called in the last 14 days that Cloudflare removes on November 20, 2026 (24 models; requests then fail with HTTP 410). It uses the new `cloudflare.ai-model` resource, which reads usage per model from GraphQL Analytics (Account Analytics Read, already part of the token setup). Usage is per account: Cloudflare doesn't say which Worker made the calls.
 
+### Fixed
+- **Cloudflare:** the Workers analytics windows (Worker request counts and Workers AI usage) use UTC dates, as Cloudflare's analytics do. A scan run outside UTC near midnight could ask for a day that hadn't started in UTC yet. Each window is N full days plus today so far.
+
 ## [1.0.31] - 2026-10-31
 
 ### Added

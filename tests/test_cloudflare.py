@@ -7,7 +7,7 @@ HTTP layer is replaced by FakeHttp, which answers Cloudflare API paths with cann
 """
 
 import json
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -354,6 +354,7 @@ def test_worker_full_log_sampling(cloudflare) -> None:
     # Accounts come from the zones when /accounts lists nothing; one GraphQL query per account
     graphql = [v for p, v in fake.calls if p == '/graphql']
     assert len(graphql) == 1 and graphql[0]['accountTag'] == ACCOUNT
+    assert_window(graphql[0], 7)
 
 
 def test_worker_plaintext_secrets_never_stores_values(cloudflare, tmp_path: Path) -> None:
@@ -500,12 +501,14 @@ def test_certificate_expiring(cloudflare, tmp_path: Path) -> None:
 
 
 def test_worker_unused(cloudflare) -> None:
-    cloudflare(worker_routes(
+    fake = cloudflare(worker_routes(
         {'idle': {}, 'busy': {}, 'assets-only': {}, 'new': {}},
         {'busy': 500},
         {'assets-only': {'has_assets': True}, 'new': {'modified_on': datetime.now(timezone.utc).isoformat()}},
     ))
     assert [w['id'] for w in run_policy('leftsize-cloudflare-worker-unused')] == ['idle']
+    # 30 full days plus today: a Worker whose only call was exactly 30 days ago still counts as used
+    assert_window(next(v for path, v in fake.calls if path == '/graphql'), 30)
 
 
 def test_worker_outdated_compatibility_date(cloudflare) -> None:
@@ -519,6 +522,13 @@ def test_worker_outdated_compatibility_date(cloudflare) -> None:
 def ago(days: int) -> str:
     from datetime import timedelta
     return (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+
+
+def assert_window(variables: Dict[str, Any], days: int) -> None:
+    """Analytics window: `days` full UTC days plus today so far (both bounds inclusive)."""
+    end = date.fromisoformat(variables['end'])
+    assert end == datetime.now(timezone.utc).date() or end == (datetime.now(timezone.utc) - timedelta(minutes=1)).date()
+    assert (end - date.fromisoformat(variables['start'])).days == days
 
 
 def base_routes(**extra: Any) -> Dict[str, Any]:
@@ -617,8 +627,7 @@ def test_lb_pool_unused(cloudflare) -> None:
 def test_workers_ai_deprecated_model(cloudflare, tmp_path: Path) -> None:
     def usage(variables: Dict[str, Any]) -> Dict[str, Any]:
         assert variables['accountTag'] == ACCOUNT
-        # Both bounds are inclusive: 14 calendar days
-        assert (date.fromisoformat(variables['end']) - date.fromisoformat(variables['start'])).days == 13
+        assert_window(variables, 14)
         row = lambda model, source, n: {'count': n, 'dimensions': {'modelId': model, 'requestSource': source}}  # noqa: E731
         return {'viewer': {'accounts': [{'aiInferenceAdaptiveGroups': [
             row('@cf/meta/llama-3.2-3b-instruct', 'worker binding', 900),
