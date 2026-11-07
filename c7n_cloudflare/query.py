@@ -74,6 +74,9 @@ class QueryResourceManager(ResourceManager):
 class AccountResourceManager(QueryResourceManager):
     """A resource listed per account (`/accounts/{account_id}/...`)."""
 
+    # Set when an empty listing is normal and a missing permission raises an error instead
+    quiet_when_empty = False
+
     def list_account(self, session: Any, account_id: str) -> Iterable[Dict[str, Any]]:
         return session.paginate(self.resource_type.path.format(account_id=account_id))
 
@@ -93,7 +96,7 @@ class AccountResourceManager(QueryResourceManager):
                 # One account without the permission shouldn't hide the others' findings
                 log.warning("Skipped %s of account %s: %s", self.resource_type.kind, account_id, e)
                 continue
-            if not found:
+            if not found and not self.quiet_when_empty:
                 # Several Cloudflare list APIs return an empty list, not a 403, without permission
                 log.info("No %s found in account %s (if there should be, check the API token's permissions)",
                          self.resource_type.kind, account_id)

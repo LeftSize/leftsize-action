@@ -7,7 +7,7 @@ HTTP layer is replaced by FakeHttp, which answers Cloudflare API paths with cann
 """
 
 import json
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -612,6 +612,31 @@ def test_lb_pool_unused(cloudflare) -> None:
     })
     found = run_policy('leftsize-cloudflare-lb-pool-unused')
     assert [(p['name'], p['leftsize']['originCount'], p['leftsize']['referrers']) for p in found] == [('orphan', 2, [])]
+
+
+def test_workers_ai_deprecated_model(cloudflare, tmp_path: Path) -> None:
+    def usage(variables: Dict[str, Any]) -> Dict[str, Any]:
+        assert variables['accountTag'] == ACCOUNT
+        # Both bounds are inclusive: 14 calendar days
+        assert (date.fromisoformat(variables['end']) - date.fromisoformat(variables['start'])).days == 13
+        row = lambda model, source, n: {'count': n, 'dimensions': {'modelId': model, 'requestSource': source}}  # noqa: E731
+        return {'viewer': {'accounts': [{'aiInferenceAdaptiveGroups': [
+            row('@cf/meta/llama-3.2-3b-instruct', 'worker binding', 900),
+            row('@cf/meta/llama-3.2-3b-instruct', 'rest api', 100),
+            row('@cf/myshell-ai/melotts', 'pages binding', 5),
+            row('@cf/google/gemma-4-26b-a4b-it', 'worker binding', 50),  # still supported
+        ]}]}}
+    cloudflare({'/zones': [zone('a.com')], '/accounts': [], '/graphql': usage})
+    run_policy('leftsize-cloudflare-workers-ai-deprecated-model', output_dir=str(tmp_path))
+    findings = run.parse_custodian_output(str(tmp_path), {'cloud_provider': 'cloudflare'})
+    got = {f['resourceId']: (f['resourceName'], f['metadata']['requests'], f['metadata']['requestSources'])
+           for f in findings}
+    assert got == {
+        f'cloudflare:account/{ACCOUNT}/ai-model/@cf/meta/llama-3.2-3b-instruct':
+            ('@cf/meta/llama-3.2-3b-instruct', 1000, 'rest api, worker binding'),
+        f'cloudflare:account/{ACCOUNT}/ai-model/@cf/myshell-ai/melotts': ('@cf/myshell-ai/melotts', 5, 'pages binding'),
+    }
+    assert findings[0]['scope'] == f'cloudflare:account/{ACCOUNT}'
 
 
 def test_paginate_stops_when_endpoint_ignores_paging(cloudflare) -> None:

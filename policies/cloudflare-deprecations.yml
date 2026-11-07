@@ -90,3 +90,71 @@ policies:
       severity: low
       tier: pro
       review_by: '2027-04-30'
+
+  - name: leftsize-cloudflare-workers-ai-deprecated-model
+    description: |
+      Find Workers AI models called in the last 14 days that Cloudflare is
+      removing from the Workers AI catalog.
+
+      Cloudflare deprecates 24 older models on November 20, 2026. After that
+      date requests to them fail with HTTP 410 Gone (error code 5028), so the
+      Workers, Pages projects or REST clients that call them break.
+
+      Timeline:
+      - 2026-11-05: deprecation announced (first date November 15, moved to
+        November 20, 2026)
+      - 2026-11-20: the models stop returning responses
+
+      Suggested replacements (Cloudflare): melotts -> @cf/deepgram/aura-2-en;
+      stable-diffusion-xl-base-1.0, stable-diffusion-v1-5-inpainting,
+      stable-diffusion-xl-lightning and dreamshaper-8-lcm ->
+      @cf/black-forest-labs/flux-2-klein-9b; whisper-tiny-en ->
+      @cf/deepgram/nova-3; llava-1.5-7b-hf -> @cf/moondream/moondream3.1-9B-A2B;
+      embeddinggemma-300m -> @cf/google/embeddinggemma-2 (available soon).
+      LLMs: @cf/deepseek-ai/deepseek-v4.1-flash-1017 or @cf/zai-org/glm-5.3 for
+      frontier needs, @cf/google/gemma-4-26b-a4b-it or @cf/qwen/qwen3.8-27b for
+      smaller needs.
+
+      Detection uses GraphQL Analytics (aiInferenceAdaptiveGroups) per account;
+      it shows the request source (Worker binding, Pages binding, REST API) but
+      not which Worker made the calls.
+
+      References:
+      - https://developers.cloudflare.com/changelog/post/2026-11-05-planned-model-deprecations/
+    resource: cloudflare.ai-model
+    filters:
+      - type: value
+        key: modelId
+        op: in
+        value_type: normalize
+        value:
+          - '@cf/myshell-ai/melotts'
+          - '@cf/stabilityai/stable-diffusion-xl-base-1.0'
+          - '@cf/runwayml/stable-diffusion-v1-5-inpainting'
+          - '@cf/bytedance/stable-diffusion-xl-lightning'
+          - '@cf/openai/whisper-tiny-en'
+          - '@cf/llava-hf/llava-1.5-7b-hf'
+          - '@cf/lykon/dreamshaper-8-lcm'
+          - '@cf/google/embeddinggemma-300m'
+          - '@cf/deepseek-ai/deepseek-r1-distill-qwen-32b'
+          - '@cf/nvidia/nemotron-3-120b-a12b'
+          - '@cf/deepseek-ai/deepseek-v4-pro-0813'
+          - '@cf/deepseek-ai/deepseek-v4-flash-0731'
+          - '@cf/qwen/qwq-32b'
+          - '@cf/qwen/qwen3-30b-a3b-fp8'
+          - '@cf/moonshotai/kimi-k2.6'
+          - '@cf/moonshotai/kimi-k2.7-code'
+          - '@cf/zai-org/glm-5.2'
+          - '@cf/zai-org/glm-5.3-flash'
+          - '@cf/meta-llama/llama-2-7b-chat-hf-lora'
+          - '@cf/google/gemma-2b-it-lora'
+          - '@cf/google/gemma-7b-it-lora'
+          - '@cf/meta/llama-3.1-8b-instruct-fp8'
+          - '@cf/meta/llama-3.2-1b-instruct'
+          - '@cf/meta/llama-3.2-3b-instruct'
+    metadata:
+      category: deprecation
+      severity: high
+      tier: pro
+      review_by: '2026-12-31'
+      review_note: 'Models removed on 2026-11-20; add the next deprecation round or remove this rule'

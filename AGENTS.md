@@ -90,6 +90,7 @@ Cloud Custodian has no Cloudflare provider, so this repository ships one (read-o
   - `cloudflare.worker-script` (settings summarised under `leftsize`; binding values are never stored). Filters: `invocations` (GraphQL request count), `plaintext-secrets`.
   - `cloudflare.api-token` (account-owned tokens; `leftsize.writePermissions`, `leftsize.ipRestricted`).
   - `cloudflare.r2-bucket` (default jurisdiction). Filters: `bucket-detail` (e.g. `domains/managed`, `cors`), `multipart-abort-rule`.
+  - `cloudflare.ai-model`: Workers AI models called in the last 14 days, one per account and model (GraphQL `aiInferenceAdaptiveGroups`; no list API exists). Per account only: it doesn't say which Worker called. Model IDs contain slashes (`@cf/meta/...`), so the resource ID's name part does too.
   - Account-level resources scan `CLOUDFLARE_ACCOUNT_IDS`, else `/accounts`, else the accounts of the zones the token can read.
   - Every resource gets `c7n:cloudflare-id` (`account/{id}/{kind}/{name}`), which `extract_resource_id()` turns into the LeftSize resource ID. Plain `value` filters work on the API fields.
 - New resource type: add a class in `c7n_cloudflare/resources/`, register it in `Cloudflare.resource_map` (`provider.py`), add `RESOURCE_FIELD_PATHS['cloudflare.<type>']` and a resource ID branch in `extract_resource_id()`.
