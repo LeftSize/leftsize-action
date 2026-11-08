@@ -131,11 +131,13 @@ CASES: Dict[str, List[Tuple[str, Dict[str, Any], bool]]] = {
    ('Flex Consumption FC1', {'kind': 'functionapp,linux', 'sku': {'name': 'FC1'}, 'properties': {'reserved': True, 'numberOfSites': 1}}, False),
  ],
  'leftsize-aks-outdated-version': [
+   ('control plane 1.35.2', aks('1.35.2'), True),
    ('control plane 1.34.2', aks('1.34.2'), True),
    ('control plane 1.29', aks('1.29'), True),
-   ('control plane 1.35, node pool lagging on 1.33.1', aks('1.35.1', orchestratorVersion='1.33.1'), True),
-   ('everything on 1.35', aks('1.35.0'), False),
-   ('1.36 is not matched by the 1.3x prefix', aks('1.36.0'), False),
+   ('control plane 1.36, node pool lagging on 1.35.1', aks('1.36.1', orchestratorVersion='1.35.1'), True),
+   ('everything on 1.36', aks('1.36.0'), False),
+   ('1.37 not flagged', aks('1.37.0'), False),
+   ('1.350 is not 1.35', aks('1.350.0'), False),
    ('cluster being deleted', aks('1.30.0', state='Deleting'), False),
  ],
  'leftsize-appgateway-v1-deprecated': [

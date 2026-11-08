@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- AKS version rule: Kubernetes 1.35 (end of life March 2027) is now flagged too; 1.34 reached end of life on November 30, 2026. The window runs to March 31, 2027.
+
 ## [1.0.32] - 2026-11-08
 
 ### Added
