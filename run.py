@@ -1293,12 +1293,16 @@ def execute_single_policy_file(policies_file: str, config: Dict[str, Any]) -> Op
             else:
                 logger.info("Custodian execution completed")
             # The Cloudflare provider's own notes (e.g. an empty list that may mean a missing
-            # token permission) are always shown; they explain a scan without findings.
-            for level, line in sorted(set(re.findall(r'custodian\.cloudflare:(INFO|WARNING) (.+)', result.stderr or ''))):
-                logger.info("Cloudflare", note=line.strip())
+            # token permission) and LeftSize's Azure filter warnings (e.g. one Application
+            # Insights component whose API keys couldn't be read) are always shown; they
+            # explain a scan without findings or an incomplete one.
+            for source, level, line in sorted(set(re.findall(
+                    r'custodian\.(cloudflare|leftsize\.azure):(INFO|WARNING) (.+)', result.stderr or ''))):
+                label = 'Cloudflare' if source == 'cloudflare' else 'Azure'
+                logger.info(label, note=line.strip())
                 if level == 'WARNING':
-                    # e.g. one account skipped for a missing permission: the scan is incomplete
-                    record_problem(config, f"Cloudflare: {line.strip()}")
+                    # e.g. one account or component skipped: the scan is incomplete
+                    record_problem(config, f"{label}: {line.strip()}")
             # Only log Custodian's output when LEFTSIZE_DEBUG is enabled. Its log (per-policy
             # counts, "unable to invoke method" access warnings) goes to stderr.
             if _debug_enabled():

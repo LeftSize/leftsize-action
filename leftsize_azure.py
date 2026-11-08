@@ -4,6 +4,7 @@ Registered on import; `leftsize_custodian.py` imports this module, so Azure scan
 run through that wrapper (see `custodian_command` in run.py).
 """
 
+import logging
 from typing import Any, Dict, List, Optional
 
 from azure.core.exceptions import HttpResponseError
@@ -13,6 +14,9 @@ from c7n_azure.resources.appinsights import AzureAppInsights
 from c7n_azure.utils import ResourceIdParser
 
 QUERY_API_KEYS = 'c7n:query-api-keys'
+
+# run.py forwards this logger's warnings to the job log and the scan problems
+log = logging.getLogger('custodian.leftsize.azure')
 
 
 def is_query_key(linked_read_properties: Optional[List[str]]) -> bool:
@@ -59,8 +63,8 @@ class QueryApiKeysFilter(Filter):
                 keys = [k for k in client.api_keys.list(group, resource['name'])
                         if is_query_key(k.linked_read_properties)]
             except HttpResponseError as error:
-                self.log.warning('Could not list the API keys of %s (HTTP %s): %s',
-                                 resource['id'], error.status_code, error.reason)
+                log.warning('Could not list the API keys of %s (HTTP %s): %s',
+                            resource['id'], error.status_code, error.reason)
                 errors.append(error)
                 continue
             if keys:

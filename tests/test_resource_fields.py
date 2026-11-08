@@ -143,6 +143,23 @@ class TestPartialCustodianFailure:
             run.execute_single_policy_file(str(policy_file), config)
         assert config["scan_problems"][0].startswith("leftsize-broken:")
 
+    def test_azure_filter_warning_is_a_scan_problem(self, tmp_path):
+        """A component whose API keys couldn't be read (leftsize_azure.py) makes the scan
+        incomplete: it's shown and recorded, and the other findings are kept."""
+        policy_file = tmp_path / "p.yml"
+        policy_file.write_text("policies: []\n")
+        config = {"cloud_provider": "azure"}
+        stderr = ("2026-11-08 01:16:18,589: custodian.leftsize.azure:WARNING Could not list the API keys of "
+                  "/subscriptions/s/resourceGroups/rg/providers/microsoft.insights/components/c (HTTP 403): Forbidden\n")
+        completed = subprocess.CompletedProcess([], 0, stdout="", stderr=stderr)
+        with mock.patch.object(run.subprocess, "run", return_value=completed), \
+             mock.patch.object(run, "parse_custodian_output", return_value=[{"ruleId": "leftsize-ok"}]):
+            findings = run.execute_single_policy_file(str(policy_file), config)
+        assert findings == [{"ruleId": "leftsize-ok"}]
+        assert config["scan_problems"] == [
+            "Azure: Could not list the API keys of /subscriptions/s/resourceGroups/rg/providers/"
+            "microsoft.insights/components/c (HTTP 403): Forbidden"]
+
     def test_timeout_is_a_failure(self, tmp_path):
         policy_file = tmp_path / "p.yml"
         policy_file.write_text("policies: []\n")
