@@ -273,6 +273,8 @@ def amvu_db(engine: str, auto: Any, status: str = 'available') -> Dict[str, Any]
     ('neptune, off', amvu_db('neptune', False), True),
     ('mysql, on', amvu_db('mysql', True), False),
     ('docdb ignores the setting', amvu_db('docdb', False), False),
+    ('RDS Custom for Oracle', amvu_db('custom-oracle-ee', False), False),
+    ('RDS Custom for SQL Server', amvu_db('custom-sqlserver-se', False), False),
     ('being deleted', amvu_db('mysql', False, status='deleting'), False),
     ('field missing', amvu_db('mysql', None), False),
 ])
