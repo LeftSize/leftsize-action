@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.32] - 2026-11-08
+
 ### Added
 - **Cloudflare:** `leftsize-cloudflare-workers-ai-deprecated-model` finds Workers AI models an account called in the last 14 days that Cloudflare removes on November 20, 2026 (24 models; requests then fail with HTTP 410). It uses the new `cloudflare.ai-model` resource, which reads usage per model from GraphQL Analytics (Account Analytics Read, already part of the token setup). Usage is per account: Cloudflare doesn't say which Worker made the calls.
 - **Azure:** `leftsize-appinsights-query-api-keys-retirement` finds Application Insights components with API keys that can query data; Microsoft retires those keys on March 31, 2027 (Entra ID instead). Keys that only serve Live Metrics or write annotations aren't flagged. It uses LeftSize's own `query-api-keys` filter (`leftsize_azure.py`), which reads key names and permissions, never the keys (part of Reader).
