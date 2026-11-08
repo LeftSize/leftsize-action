@@ -257,6 +257,8 @@ def test_custodian_command_and_env(monkeypatch: pytest.MonkeyPatch) -> None:
     cmd = run.custodian_command({'cloud_provider': 'cloudflare'})
     assert cmd[-1].endswith('leftsize_custodian.py')
     assert run.custodian_command({'cloud_provider': 'aws'})[0].endswith('custodian')
+    # Azure needs the wrapper too: it registers LeftSize's Azure filters (query-api-keys)
+    assert run.custodian_command({'cloud_provider': 'azure'})[-1].endswith('leftsize_custodian.py')
     monkeypatch.setenv('CLOUDFLARE_API_TOKEN', 'secret')
     monkeypatch.setenv('LEFTSIZE_CLOUDFLARE_API_TOKEN', 'secret')
     env = run._build_custodian_env()

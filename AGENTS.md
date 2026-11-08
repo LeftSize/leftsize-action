@@ -84,7 +84,8 @@ Also update the `resourceName` fallback chain in `convert_resource_to_finding()`
 
 Cloud Custodian has no Cloudflare provider, so this repository ships one (read-only, API token in `CLOUDFLARE_API_TOKEN`; optional `CLOUDFLARE_ACCOUNT_IDS`).
 
-- c7n 0.9.48 has no plugin loading: the stock `custodian` CLI never imports an out-of-tree provider. `run.py` runs `leftsize_custodian.py` (imports `c7n_cloudflare`, then calls `c7n.cli.main`) for `cloud-provider: cloudflare`; AWS and Azure still use `custodian`.
+- c7n 0.9.48 has no plugin loading: the stock `custodian` CLI never imports an out-of-tree provider or filter. `run.py` runs `leftsize_custodian.py` (imports `c7n_cloudflare` and `leftsize_azure`, then calls `c7n.cli.main`) for `cloud-provider: cloudflare` and `azure`; AWS still uses `custodian`.
+- `leftsize_azure.py`: LeftSize's filters on c7n-azure resource types, registered on import. `query-api-keys` (on `azure.app-insights`) lists a component's API keys (names and permissions only) and matches keys with query access (`.../components/<name>/api` in `linkedReadProperties`). Take the resource group from the resource id: the raw listing has no `resourceGroup`. Policies that use these filters fail `custodian validate` with the stock CLI; validate with `python leftsize_custodian.py validate`.
 - Resources:
   - `cloudflare.zone` (`GET /zones`). Filters: `zone-setting` (any `/zones/{id}/settings/{setting}`), `zone-detail` (any `GET /zones/{id}/{path}`, e.g. `dnssec`), `page-rules`.
   - `cloudflare.worker-script` (settings summarised under `leftsize`; binding values are never stored). Filters: `invocations` (GraphQL request count), `plaintext-secrets`.
@@ -364,15 +365,15 @@ docker run --rm \
 1. Create YAML file in appropriate directory
 2. Follow Cloud Custodian policy format
 3. Add metadata (category, severity, savings estimate)
-4. Test with `custodian validate`
+4. Test with `python leftsize_custodian.py validate` (the stock `custodian` CLI doesn't know LeftSize's Cloudflare provider or Azure filters)
 5. Document in README
 
 ```bash
 # Validate policy syntax
-custodian validate policies/azure/cost-optimization/new-policy.yml
+python leftsize_custodian.py validate policies/azure-deprecations.yml
 
 # Dry-run policy
-custodian run --dryrun policies/azure/cost-optimization/new-policy.yml
+python leftsize_custodian.py run --dryrun -s out policies/azure-deprecations.yml
 ```
 
 ## Dockerfile

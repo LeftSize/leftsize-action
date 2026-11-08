@@ -239,6 +239,48 @@ policies:
       tier: pro
 
   # ========================================
+  # 🔧 RDS AUTOMATIC MINOR VERSION UPGRADES
+  # ========================================
+
+  # RDS instances with automatic minor version upgrades turned off
+  - name: leftsize-rds-auto-minor-version-upgrade-disabled
+    description: |
+      Find RDS DB instances (including Aurora and Neptune instances) with
+      automatic minor version upgrades turned off.
+
+      Minor versions get security and bug fixes and reach end of standard
+      support every few months. With automatic upgrades off, an instance
+      stays on its minor version until someone upgrades it, or until RDS
+      upgrades it anyway when that version is retired, in a maintenance
+      window you didn't plan for. With automatic upgrades on, RDS moves the
+      instance to the preferred minor version in its maintenance window.
+
+      Turning it off can be deliberate (a pinned version that an application
+      was tested against); dismiss the finding with a reason in that case.
+
+      Amazon DocumentDB instances are skipped: DocumentDB doesn't apply
+      automatic minor version upgrades, whatever the setting.
+
+      Reference: https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_UpgradeDBInstance.Upgrading.html#USER_UpgradeDBInstance.Upgrading.AutoMinorVersionUpgrades
+    resource: aws.rds
+    filters:
+      - type: value
+        key: DBInstanceStatus
+        op: not-in
+        value: ['deleting', 'failed']
+      - type: value
+        key: AutoMinorVersionUpgrade
+        value: false
+      - type: value
+        key: Engine
+        op: ne
+        value: docdb
+    metadata:
+      category: governance
+      severity: low
+      tier: pro
+
+  # ========================================
   # 📜 CERTIFICATE MANAGEMENT
   # ========================================
 

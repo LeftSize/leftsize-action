@@ -260,6 +260,26 @@ def test_aws_value_rules(rule: str, resource: Dict[str, Any], expected: bool) ->
     assert run(AWS_SEC[rule], resource) is expected
 
 
+def amvu_db(engine: str, auto: Any, status: str = 'available') -> Dict[str, Any]:
+    db = {'DBInstanceIdentifier': f'{engine}-1', 'Engine': engine, 'DBInstanceStatus': status}
+    if auto is not None:
+        db['AutoMinorVersionUpgrade'] = auto
+    return db
+
+
+@pytest.mark.parametrize('label,db,expected', [
+    ('mysql, off', amvu_db('mysql', False), True),
+    ('aurora-postgresql, off', amvu_db('aurora-postgresql', False), True),
+    ('neptune, off', amvu_db('neptune', False), True),
+    ('mysql, on', amvu_db('mysql', True), False),
+    ('docdb ignores the setting', amvu_db('docdb', False), False),
+    ('being deleted', amvu_db('mysql', False, status='deleting'), False),
+    ('field missing', amvu_db('mysql', None), False),
+])
+def test_rds_auto_minor_version_upgrade_disabled(label: str, db: Dict[str, Any], expected: bool) -> None:
+    assert run(AWS_GOV['leftsize-rds-auto-minor-version-upgrade-disabled'], db) is expected
+
+
 # ---------------------------------------------------------------------------
 # Public snapshots (attribute calls stubbed)
 # ---------------------------------------------------------------------------

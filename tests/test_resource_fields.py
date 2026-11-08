@@ -32,6 +32,12 @@ class TestExtractResourceFields:
             "osDiskName": "vm1-os", "osDiskId": "/subscriptions/s/disks/vm1-os", "osDiskSize": 128,
             "osDiskSku": "Standard_LRS"}
 
+    def test_azure_app_insights_query_api_keys(self):
+        r = {"properties": {"Application_Type": "web"},
+             "c7n:query-api-keys": [{"name": "dashboard", "createdDate": "x"}, {"name": "grafana", "createdDate": "y"}]}
+        assert extract_resource_fields(r, "azure.app-insights") == {
+            "queryApiKeys": "dashboard, grafana", "applicationType": "web"}
+
     def test_nested_and_list_paths(self):
         r = {"WorkspaceProperties": {"OperatingSystemName": "WINDOWS_SERVER_2019", "Protocols": ["PCOIP", "WSP"]}}
         fields = extract_resource_fields(r, "aws.workspaces")

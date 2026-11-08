@@ -151,20 +151,26 @@ policies:
       version that is out of AKS community support, or whose support ends by
       November 30, 2026.
 
-      AKS release calendar (verified 2026-10-04, page updated 2026-09-15):
+      AKS release calendar (verified 2026-11-08, page updated 2026-10-21):
       - 1.32 and older: end of life (1.32 ended Mar 2026)
       - 1.33: end of life Jul 2026; platform support only until 1.37 GA (Oct 2026)
       - 1.34: end of life Nov 2026 (Nov 30, 2026)
       - 1.35 (EOL Mar 2027), 1.36 (EOL Jun 2027), 1.37 (EOL Oct 2027): supported
 
       Clusters with the paid Long Term Support plan (Premium tier) get one
-      extra year (1.31 LTS ends Nov 2026, 1.32 Mar 2027, 1.33 Jul 2027). The
-      API version Cloud Custodian uses does not expose supportPlan, so LTS
-      clusters are also flagged; the issue explains how to check.
+      extra year (LTS ends: 1.31 Nov 2026, 1.32 Mar 2027, 1.33 Jul 2027,
+      1.34 Nov 2027). The API version Cloud Custodian uses does not expose
+      supportPlan, so LTS clusters are also flagged; the issue explains how
+      to check.
 
-      From June 1, 2027 AKS automatically upgrades clusters still out of support
-      after a 60-day grace period (ignores maintenance windows and PDBs). An
-      out-of-support cluster can upgrade directly to the lowest supported minor.
+      AKS automatically upgrades clusters still on an unsupported version after
+      a 60-day grace period (ignores maintenance windows, deprecated-API checks
+      and PDBs), one minor version at a time. Planned rollout months:
+      - Standard support: Jun 2027 for 1.35 and older, Sep 2027 for 1.36,
+        Jan 2028 for 1.37
+      - LTS: Jun 2027 for 1.32 and older, Oct 2027 for 1.33, Feb 2028 for 1.34
+      The months are planning estimates; AKS rate-limits the rollout by region,
+      subscription and version.
 
       MAINTENANCE: update the regex when the next minor version approaches
       end of life (1.35 ends Mar 2027).
@@ -1265,6 +1271,70 @@ policies:
       - type: resource-type
         values:
           - 'Microsoft.Compute/cloudServices'
+
+  # ========================================
+  # 🔁 AZURE FLUID RELAY RETIREMENT
+  # ========================================
+
+  - name: leftsize-fluid-relay-retirement
+    description: |
+      Detect Azure Fluid Relay servers (Microsoft.FluidRelay/fluidRelayServers).
+      Azure Fluid Relay retires on June 2, 2027 and can be used until June 1, 2027;
+      after that, applications that still depend on it may be disrupted. There is
+      no managed replacement: the Fluid Framework stays open source, and the
+      replacement is a self-hosted Fluid service that you run yourself.
+
+      Detection uses the generic ARM resource list (no dedicated c7n resource type exists).
+
+      Reference: https://azure.microsoft.com/updates?id=570498
+      Reference: https://learn.microsoft.com/en-us/azure/azure-fluid-relay/
+
+    resource: azure.armresource
+
+    metadata:
+      category: deprecation
+      severity: high
+      tier: pro
+      review_by: '2027-05-01'
+
+    filters:
+      - type: resource-type
+        values:
+          - 'Microsoft.FluidRelay/fluidRelayServers'
+
+  # ========================================
+  # 🔑 APPLICATION INSIGHTS QUERY API KEYS RETIREMENT
+  # ========================================
+
+  - name: leftsize-appinsights-query-api-keys-retirement
+    description: |
+      Find Application Insights components with API keys that can query data.
+      On March 31, 2027 (extended from 2026) API keys for querying Application
+      Insights data are retired: scripts, dashboards and integrations that read
+      telemetry with an API key stop working. Switch them to Microsoft Entra ID
+      authentication, then delete the keys.
+
+      Only keys with query (read telemetry) access count. Keys that only
+      authenticate the Live Metrics control channel or write annotations are
+      not flagged. The key list holds names, dates and permissions, never the
+      key itself (needs Microsoft.Insights/components/ApiKeys/read, part of Reader).
+
+      Detection uses LeftSize's query-api-keys filter (leftsize_azure.py), so it
+      only runs through leftsize_custodian.py.
+
+      Reference: https://azure.microsoft.com/updates?id=transition-to-azure-ad-to-query-data-from-azure-monitor-application-insights-by-31-march-2026
+      Reference: https://learn.microsoft.com/en-us/azure/azure-monitor/app/azure-ad-authentication
+
+    resource: azure.app-insights
+
+    metadata:
+      category: deprecation
+      severity: high
+      tier: pro
+      review_by: '2027-03-31'
+
+    filters:
+      - type: query-api-keys
 
   # ========================================
   # 🌐 NETWORKING RETIREMENTS (public IP, WAF config, Front Door / CDN classic, NSG flow logs)
