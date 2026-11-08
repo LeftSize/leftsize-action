@@ -18,6 +18,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Neptune engine rule: 1.4.6.2 - 1.4.7.1 (end of life 2027-06-03) and 1.4.8.0 (2027-10-27) are now flagged too.
 - AKS version rule: the description follows the AKS calendar of 2026-10-21 (1.34 LTS until Nov 2027; platform-initiated upgrade months per version). Which versions are flagged is unchanged.
 
+### Fixed
+- **Cloudflare:** the Workers analytics windows (Worker request counts and Workers AI usage) use UTC dates, as Cloudflare's analytics do. A scan run outside UTC near midnight could ask for a day that hadn't started in UTC yet. Each window is N full days plus today so far.
+
 ## [1.0.31] - 2026-10-31
 
 ### Added

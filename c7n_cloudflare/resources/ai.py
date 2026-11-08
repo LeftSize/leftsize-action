@@ -6,7 +6,7 @@ account uses, so this resource comes from GraphQL Analytics
 dataset is per account: it doesn't say which Worker or Pages project made the calls.
 """
 
-from datetime import date, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Iterable, List
 
 from ..provider import resources
@@ -46,10 +46,11 @@ class AiModel(AccountResourceManager):
     quiet_when_empty = True
 
     def list_account(self, session: Any, account_id: str) -> Iterable[Dict[str, Any]]:
-        end = date.today()
-        # date_geq and date_leq both include their dates: USAGE_DAYS calendar days, today included
+        # Analytics dates are UTC. Both bounds are inclusive and today is still running, so
+        # this is USAGE_DAYS full days plus today so far (like the Workers `invocations` filter).
+        end = datetime.now(timezone.utc).date()
         data = session.graphql(USAGE_QUERY, {
-            "accountTag": account_id, "start": (end - timedelta(days=USAGE_DAYS - 1)).isoformat(),
+            "accountTag": account_id, "start": (end - timedelta(days=USAGE_DAYS)).isoformat(),
             "end": end.isoformat()})
         models: Dict[str, Dict[str, Any]] = {}
         for account in (data.get("viewer") or {}).get("accounts") or []:

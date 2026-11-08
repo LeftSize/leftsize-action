@@ -8,7 +8,7 @@ Binding values are never stored: plain-text values are replaced by their length.
 
 import logging
 import re
-from datetime import date, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Iterable, List
 
 from c7n.filters import Filter
@@ -114,7 +114,9 @@ class InvocationsFilter(Filter):
     permissions = ("Account Analytics Read",)
 
     def requests_by_script(self, session: Any, account_id: str, days: int) -> Dict[str, int]:
-        end = date.today()
+        # Analytics dates are UTC. Both bounds are inclusive and today is still running, so
+        # this is `days` full days plus today so far: nothing from the last `days` days is missed.
+        end = datetime.now(timezone.utc).date()
         data = session.graphql(INVOCATIONS_QUERY, {
             "accountTag": account_id, "start": (end - timedelta(days=days)).isoformat(), "end": end.isoformat()})
         totals: Dict[str, int] = {}
