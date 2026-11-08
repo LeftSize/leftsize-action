@@ -271,8 +271,13 @@ def test_rds_outdated(db: Dict[str, Any], expected: bool) -> None:
     ('leftsize-docdb-36-extended-support', rds('docdb', '5.0.0'), False),
     ('leftsize-neptune-engine-end-of-life', rds('neptune', '1.2.1.2'), True),
     ('leftsize-neptune-engine-end-of-life', rds('neptune', '1.4.6.1'), True),
-    ('leftsize-neptune-engine-end-of-life', rds('neptune', '1.4.6.2'), False),
-    ('leftsize-neptune-engine-end-of-life', rds('neptune', '1.4.7.0'), False),
+    ('leftsize-neptune-engine-end-of-life', rds('neptune', '1.4.6.2'), True),
+    ('leftsize-neptune-engine-end-of-life', rds('neptune', '1.4.6.3'), True),
+    ('leftsize-neptune-engine-end-of-life', rds('neptune', '1.4.7.1'), True),
+    ('leftsize-neptune-engine-end-of-life', rds('neptune', '1.4.8.0'), True),
+    ('leftsize-neptune-engine-end-of-life', rds('neptune', '1.4.8.1'), False),   # no end of life yet
+    ('leftsize-neptune-engine-end-of-life', rds('neptune', '1.5.0.0'), False),
+    ('leftsize-neptune-engine-end-of-life', rds('neptune', '1.4.10.0'), False),
 ])
 def test_rds_family(rule: str, db: Dict[str, Any], expected: bool) -> None:
     assert matches(rule, db) is expected

@@ -6,6 +6,8 @@ Only the Azure API calls are stubbed:
   instance view for the VM, as `virtual_machines.get(..., expand='instanceview')`.
 - `configuration` (web app site config): a fake web client returns the
   site config, as `web_apps.get_configuration(...)`.
+- `query-api-keys` (LeftSize's filter, leftsize_azure.py): a fake Application
+  Insights client returns the component's API keys, as `api_keys.list(...)`.
 Resource dicts use the shape c7n produces (SDK model `serialize(True)`).
 """
 
@@ -21,6 +23,7 @@ from c7n.policy import Policy
 from c7n.resources import load_resources
 
 load_resources(('azure.*',))
+import leftsize_azure  # noqa: E402,F401  registers query-api-keys
 
 POLICY_FILE = Path(__file__).parent.parent / 'policies' / 'azure-deprecations.yml'
 DOCS = {p['name']: p for p in yaml.safe_load(POLICY_FILE.read_text())['policies']}
@@ -54,7 +57,16 @@ class FakeClient:
             self.calls.append('configuration')
             return _Serializable({'properties': site_config})
 
+        def api_keys_list(rg: str, name: str) -> List[Any]:
+            assert (rg, name) == ('rg', resource['name'])
+            self.calls.append('api-keys')
+            if resource.get('_api_keys_error'):
+                raise resource['_api_keys_error']
+            return [SimpleNamespace(name=k['name'], created_date='2026-01-01', linked_read_properties=k['read'])
+                    for k in resource.get('_api_keys', [])]
+
         self.virtual_machines = SimpleNamespace(get=vm_get)
+        self.api_keys = SimpleNamespace(list=api_keys_list)
         self.web_apps = SimpleNamespace(get_configuration=get_configuration)
 
 
@@ -100,6 +112,8 @@ def aks(version: str = '1.35.1', state: str = 'Succeeded', **pool: Any) -> Dict[
 def funcapp(fx: str, kind: str = 'functionapp,linux') -> Dict[str, Any]:
     return {'kind': kind, 'properties': {}, '_site_config': {'linuxFxVersion': fx}}
 
+
+AI = '/subscriptions/s/resourceGroups/rg/providers/Microsoft.Insights/components/r1'
 
 CASES: Dict[str, List[Tuple[str, Dict[str, Any], bool]]] = {
  'leftsize-nvv4-series-retirement': [
@@ -270,6 +284,20 @@ CASES: Dict[str, List[Tuple[str, Dict[str, Any], bool]]] = {
  'leftsize-spring-apps-retirement': [
    ('any Spring Apps instance', {'sku': {'name': 'S0', 'tier': 'Standard'}}, True),
  ],
+ 'leftsize-appinsights-query-api-keys-retirement': [
+   ('query key', {'_api_keys': [{'name': 'dashboard', 'read': [AI + '/api', AI + '/draft', AI + '/search']}]}, True),
+   ('query key next to a Live Metrics key',
+    {'_api_keys': [{'name': 'live', 'read': [AI + '/agentconfig']}, {'name': 'q', 'read': [AI + '/api']}]}, True),
+   ('Live Metrics control channel only', {'_api_keys': [{'name': 'live', 'read': [AI + '/agentconfig']}]}, False),
+   ('write annotations only', {'_api_keys': [{'name': 'deploy', 'read': []}]}, False),
+   ('no API keys', {'_api_keys': []}, False),
+ ],
+ 'leftsize-fluid-relay-retirement': [
+   ('Fluid Relay server', {'type': 'Microsoft.FluidRelay/fluidRelayServers'}, True),
+   ('lower-case type from the API', {'type': 'microsoft.fluidrelay/fluidrelayservers'}, True),
+   ('Fluid Relay container (child resource)', {'type': 'Microsoft.FluidRelay/fluidRelayServers/fluidRelayContainers'}, False),
+   ('other resource', {'type': 'Microsoft.Web/sites'}, False),
+ ],
  'leftsize-cloud-services-extended-support-retirement': [
    ('Microsoft.Compute/cloudServices', {'type': 'Microsoft.Compute/cloudServices'}, True),
    ('other ARM resource', {'type': 'Microsoft.Compute/virtualMachines'}, False),
@@ -380,3 +408,57 @@ def test_instance_view_only_called_for_size_matches() -> None:
     manager.get_client = get_client
     assert [r['name'] for r in manager.filter_resources(resources)] == ['vm1']
     assert calls == ['instance-view']
+
+
+def test_query_api_keys_annotates_matching_keys_only() -> None:
+    resource = {'id': AI, 'name': 'r1', '_api_keys': [{'name': 'live', 'read': [AI + '/agentconfig']},
+                                                      {'name': 'dashboard', 'read': [AI + '/api']}]}
+    manager = Policy(DOCS['leftsize-appinsights-query-api-keys-retirement'], Config.empty(region='westeurope')).resource_manager
+    manager.get_client = lambda *a, **k: FakeClient(resource)
+    for f in manager.filters:
+        f.manager.get_client = manager.get_client
+    [found] = manager.filter_resources([resource])
+    assert found['c7n:query-api-keys'] == [{'name': 'dashboard', 'createdDate': '2026-01-01'}]
+
+
+def test_query_api_keys_takes_resource_group_from_id() -> None:
+    """The raw app-insights listing has no resourceGroup field (seen on a live subscription)."""
+    resource = {'id': AI, 'name': 'r1', '_api_keys': [{'name': 'q', 'read': [AI + '/api']}]}
+    manager = Policy(DOCS['leftsize-appinsights-query-api-keys-retirement'], Config.empty(region='westeurope')).resource_manager
+    manager.get_client = lambda *a, **k: FakeClient(resource)
+    for f in manager.filters:
+        f.manager.get_client = manager.get_client
+    assert manager.filter_resources([resource])
+
+
+def _query_keys_manager(by_name: Dict[str, Dict[str, Any]]) -> Any:
+    """A manager whose client answers per component, for filters over several resources."""
+    manager = Policy(DOCS['leftsize-appinsights-query-api-keys-retirement'], Config.empty(region='westeurope')).resource_manager
+
+    class PerResource:
+        api_keys = SimpleNamespace(list=lambda rg, name: FakeClient(by_name[name]).api_keys.list(rg, name))
+
+    manager.get_client = lambda *a, **k: PerResource()
+    for f in manager.filters:
+        f.manager.get_client = manager.get_client
+    return manager
+
+
+def _component(name: str, **extra: Any) -> Dict[str, Any]:
+    return dict({'id': AI.replace('/r1', '/' + name), 'name': name}, **extra)
+
+
+def test_query_api_keys_skips_a_component_that_fails() -> None:
+    from azure.core.exceptions import HttpResponseError
+    ok = _component('ok', _api_keys=[{'name': 'q', 'read': [AI + '/api']}])
+    denied = _component('denied', _api_keys_error=HttpResponseError(message='Forbidden'))
+    manager = _query_keys_manager({'ok': ok, 'denied': denied})
+    assert [r['name'] for r in manager.filter_resources([denied, ok])] == ['ok']
+
+
+def test_query_api_keys_raises_when_no_component_can_be_read() -> None:
+    from azure.core.exceptions import HttpResponseError
+    denied = _component('denied', _api_keys_error=HttpResponseError(message='Forbidden'))
+    manager = _query_keys_manager({'denied': denied})
+    with pytest.raises(HttpResponseError):
+        manager.filter_resources([denied])

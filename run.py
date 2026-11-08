@@ -1215,10 +1215,10 @@ def sanitize_text(value: str, limit: int = 200) -> str:
 
 
 def custodian_command(config: Dict[str, Any]) -> List[str]:
-    """The Custodian CLI to run. Cloudflare needs the wrapper that registers the
-    c7n_cloudflare provider (Custodian has no plugin loading); AWS and Azure use the
-    stock `custodian` from the same Python environment."""
-    if config.get('cloud_provider') == 'cloudflare':
+    """The Custodian CLI to run. Cloudflare and Azure need the wrapper that registers
+    the c7n_cloudflare provider and LeftSize's Azure filters (Custodian has no plugin
+    loading); AWS uses the stock `custodian` from the same Python environment."""
+    if config.get('cloud_provider') in ('cloudflare', 'azure'):
         return [sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'leftsize_custodian.py')]
     custodian_bin = os.path.join(os.path.dirname(sys.executable), 'custodian')
     if not os.path.isfile(custodian_bin):
@@ -1293,12 +1293,16 @@ def execute_single_policy_file(policies_file: str, config: Dict[str, Any]) -> Op
             else:
                 logger.info("Custodian execution completed")
             # The Cloudflare provider's own notes (e.g. an empty list that may mean a missing
-            # token permission) are always shown; they explain a scan without findings.
-            for level, line in sorted(set(re.findall(r'custodian\.cloudflare:(INFO|WARNING) (.+)', result.stderr or ''))):
-                logger.info("Cloudflare", note=line.strip())
+            # token permission) and LeftSize's Azure filter warnings (e.g. one Application
+            # Insights component whose API keys couldn't be read) are always shown; they
+            # explain a scan without findings or an incomplete one.
+            for source, level, line in sorted(set(re.findall(
+                    r'custodian\.(cloudflare|leftsize\.azure):(INFO|WARNING) (.+)', result.stderr or ''))):
+                label = 'Cloudflare' if source == 'cloudflare' else 'Azure'
+                logger.info(label, note=line.strip())
                 if level == 'WARNING':
-                    # e.g. one account skipped for a missing permission: the scan is incomplete
-                    record_problem(config, f"Cloudflare: {line.strip()}")
+                    # e.g. one account or component skipped: the scan is incomplete
+                    record_problem(config, f"{label}: {line.strip()}")
             # Only log Custodian's output when LEFTSIZE_DEBUG is enabled. Its log (per-policy
             # counts, "unable to invoke method" access warnings) goes to stderr.
             if _debug_enabled():
@@ -2358,6 +2362,8 @@ RESOURCE_FIELD_PATHS: Dict[str, Dict[str, List[str]]] = {
     'azure.redis': {'skuName': ['properties.sku.name'], 'skuCapacity': ['properties.sku.capacity'],
                     'skuFamily': ['properties.sku.family'], 'redisVersion': ['properties.redisVersion']},
     'azure.armresource': {'skuName': ['sku.name'], 'skuCapacity': ['sku.capacity']},
+    'azure.app-insights': {'queryApiKeys': ['c7n:query-api-keys[].name'],
+                           'applicationType': ['properties.Application_Type']},
     'azure.bastion-host': {'skuName': ['sku.name'], 'scaleUnits': ['properties.scaleUnits']},
     'azure.hdinsight': {'clusterVersion': ['properties.clusterVersion'],
                         'clusterState': ['properties.clusterState'],

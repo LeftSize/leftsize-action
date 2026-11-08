@@ -12,7 +12,8 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy action files
-COPY run.py stats.py ./
+COPY run.py stats.py leftsize_custodian.py leftsize_azure.py ./
+COPY c7n_cloudflare/ ./c7n_cloudflare/
 COPY entrypoint.sh .
 COPY policies/ ./policies/
 

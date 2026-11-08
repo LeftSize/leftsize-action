@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **Cloudflare:** `leftsize-cloudflare-workers-ai-deprecated-model` finds Workers AI models an account called in the last 14 days that Cloudflare removes on November 20, 2026 (24 models; requests then fail with HTTP 410). It uses the new `cloudflare.ai-model` resource, which reads usage per model from GraphQL Analytics (Account Analytics Read, already part of the token setup). Usage is per account: Cloudflare doesn't say which Worker made the calls.
+- **Azure:** `leftsize-appinsights-query-api-keys-retirement` finds Application Insights components with API keys that can query data; Microsoft retires those keys on March 31, 2027 (Entra ID instead). Keys that only serve Live Metrics or write annotations aren't flagged. It uses LeftSize's own `query-api-keys` filter (`leftsize_azure.py`), which reads key names and permissions, never the keys (part of Reader).
+- **Azure:** `leftsize-fluid-relay-retirement` finds Azure Fluid Relay servers; the service retires on June 2, 2027.
+- **AWS:** `leftsize-rds-auto-minor-version-upgrade-disabled` (governance) finds RDS, Aurora and Neptune instances with automatic minor version upgrades off. RDS still upgrades them when their minor version reaches end of support, then in a maintenance window nobody planned for. DocumentDB is skipped (it ignores the setting).
+
+### Changed
+- Azure scans run through `leftsize_custodian.py`, like Cloudflare scans, so LeftSize's Azure filters are registered. The Docker image now includes the wrapper, `leftsize_azure.py` and `c7n_cloudflare/`.
+- Neptune engine rule: 1.4.6.2 - 1.4.7.1 (end of life 2027-06-03) and 1.4.8.0 (2027-10-27) are now flagged too.
+- AKS version rule: the description follows the AKS calendar of 2026-10-21 (1.34 LTS until Nov 2027; platform-initiated upgrade months per version). Which versions are flagged is unchanged.
 
 ## [1.0.31] - 2026-10-31
 
