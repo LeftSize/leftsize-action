@@ -2450,6 +2450,11 @@ RESOURCE_FIELD_PATHS: Dict[str, Dict[str, List[str]]] = {
     'azure.redis': {'skuName': ['properties.sku.name'], 'skuCapacity': ['properties.sku.capacity'],
                     'skuFamily': ['properties.sku.family'], 'redisVersion': ['properties.redisVersion']},
     'azure.armresource': {'skuName': ['sku.name'], 'skuCapacity': ['sku.capacity']},
+    'azure.cognitiveservice': {'accountKind': ['kind'], 'accountSku': ['sku.name']},
+    'aws.bedrock-model-usage': {'modelId': ['modelId'], 'invocations': ['invocations'], 'usageDays': ['days'],
+                                'invokedAs': ['invokedAs[]'], 'endOfLifeDate': ['c7n:end-of-life.date'],
+                                'legacyDate': ['c7n:end-of-life.legacyDate'],
+                                'extendedAccessDate': ['c7n:end-of-life.extendedAccess']},
     'azure.app-insights': {'queryApiKeys': ['c7n:query-api-keys[].name'],
                            'applicationType': ['properties.Application_Type']},
     'azure.bastion-host': {'skuName': ['sku.name'], 'scaleUnits': ['properties.scaleUnits']},
@@ -2672,7 +2677,29 @@ def _cloudflare_minify_on(resource: Dict[str, Any]) -> Optional[str]:
     return ', '.join(k for k in ('css', 'html', 'js') if minify.get(k) == 'on') or None
 
 
+def _openai_retiring_deployments(resource: Dict[str, Any]) -> Optional[str]:
+    """One line per deployment that stops working, e.g. "chat: gpt-4o 2024-08-06
+    (ProvisionedManaged) retires 2027-04-14"."""
+    lines = []
+    for d in resource.get('c7n:retiring-deployments') or []:
+        model = (f"fine-tuned {d.get('baseModel')} {d.get('baseVersion')}" if d.get('fineTuned')
+                 else f"{d.get('model')} {d.get('version')}")
+        why = d.get('sku') or '-'
+        if d.get('versionUpgradeOption') == 'NoAutoUpgrade' and not d.get('fineTuned'):
+            why += ', auto-upgrade off'
+        lines.append(f"{d.get('deployment') or '-'}: {model} ({why}) retires {d.get('retires')}")
+    return '; '.join(lines) or None
+
+
+def _openai_retirement_date(resource: Dict[str, Any]) -> Optional[str]:
+    dates = [d.get('retires') for d in resource.get('c7n:retiring-deployments') or [] if d.get('retires')]
+    return min(dates) if dates else None
+
+
 RESOURCE_FIELD_BUILDERS: Dict[str, Dict[str, Any]] = {
+    'azure.cognitiveservice': {'retiringDeployments': _openai_retiring_deployments,
+                               'retirementDate': _openai_retirement_date,
+                               'retiringDeploymentCount': lambda r: len(r.get('c7n:retiring-deployments') or []) or None},
     'cloudflare.zone': {'minifyOn': _cloudflare_minify_on},
     'azure.aks': {'nodePools': _aks_node_pools, 'nodeCount': _aks_node_count, 'vmSizes': _aks_vm_sizes,
                   'retiringNodePools': _aks_retiring_pools, 'retirementDate': _aks_retirement_date,

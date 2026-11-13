@@ -1336,6 +1336,60 @@ policies:
     filters:
       - type: query-api-keys
 
+  # HIGH: Azure OpenAI model versions retire; deployments Microsoft doesn't upgrade stop working
+  - name: leftsize-azure-openai-model-retirement
+    description: |
+      Find Azure OpenAI and Foundry (AI Services) accounts with deployments that stop
+      working when their model version retires.
+
+      Retiring model versions (all base-model offers, Azure public cloud):
+      - gpt-4o 2024-05-13: January 14, 2027 (replacement gpt-5.1 2025-11-13)
+      - gpt-4o 2024-08-06 and 2024-11-20, gpt-4o-mini 2024-07-18 and gpt-4.1-mini
+        2025-04-14: April 14, 2027
+      After retirement, requests return 410 Gone.
+
+      Global Standard, Data Zone Standard and Standard deployments are upgraded to the
+      replacement model by Microsoft, so they're only flagged when their
+      versionUpgradeOption is NoAutoUpgrade. Provisioned (regional, Global, Data Zone)
+      and Batch deployments are never upgraded: they're always flagged. Fine-tuned
+      deployments of gpt-4o 2024-08-06 and gpt-4o-mini (October 1, 2027), the
+      gpt-4.1 family (October 14, 2027) and o4-mini (October 16, 2027) retire later
+      and are flagged with their own date.
+
+      Reads each account's deployments
+      (Microsoft.CognitiveServices/accounts/deployments/read, part of Reader).
+      Detection uses LeftSize's retiring-model-deployments filter (leftsize_azure.py),
+      so it only runs through leftsize_custodian.py.
+
+      Reference: https://learn.microsoft.com/en-us/azure/foundry/openai/concepts/model-retirements
+      Reference: https://learn.microsoft.com/en-us/azure/foundry/openai/concepts/model-retirement-schedule
+
+    resource: azure.cognitiveservice
+
+    metadata:
+      category: deprecation
+      severity: high
+      tier: pro
+      review_by: '2027-01-14'
+      review_note: 'gpt-4o 2024-05-13 retires on this date; check the retirement schedule for new dates and replacements.'
+
+    filters:
+      - type: value
+        key: kind
+        op: in
+        value_type: normalize
+        value: ['openai', 'aiservices']
+      - type: retiring-model-deployments
+        retirements:
+          - {model: gpt-4o, version: '2024-05-13', date: '2027-01-14'}
+          - {model: gpt-4o, version: '2024-08-06', date: '2027-04-14', fine_tuned_date: '2027-10-01'}
+          - {model: gpt-4o, version: '2024-11-20', date: '2027-04-14'}
+          - {model: gpt-4o-mini, version: '2024-07-18', date: '2027-04-14', fine_tuned_date: '2027-10-01'}
+          - {model: gpt-4.1-mini, version: '2025-04-14', date: '2027-04-14', fine_tuned_date: '2027-10-14'}
+          - {model: gpt-4.1, version: '2025-04-14', fine_tuned_date: '2027-10-14'}
+          - {model: gpt-4.1-nano, version: '2025-04-14', fine_tuned_date: '2027-10-14'}
+          - {model: o4-mini, version: '2025-04-16', fine_tuned_date: '2027-10-16'}
+
   # ========================================
   # 🌐 NETWORKING RETIREMENTS (public IP, WAF config, Front Door / CDN classic, NSG flow logs)
   # ========================================

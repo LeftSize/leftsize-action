@@ -14,6 +14,7 @@ from c7n.config import Config
 from c7n.policy import Policy
 from c7n.resources import load_resources
 
+import leftsize_aws  # noqa: E402,F401  registers bedrock-model-usage
 load_resources(('aws.*',))
 from c7n.resources.ec2 import InstanceImageBase  # noqa: E402
 
@@ -27,7 +28,7 @@ def matches(rule: str, resource: Dict[str, Any]) -> bool:
 
 
 def test_rule_count() -> None:
-    assert len(DOCS) == 32
+    assert len(DOCS) == 33
 
 
 # --- Lambda -------------------------------------------------------------------
@@ -342,3 +343,98 @@ def test_mwaa(version: str, expected: bool) -> None:
 ])
 def test_service_level_rules(rule: str, resource: Dict[str, Any], expected: bool) -> None:
     assert matches(rule, resource) is expected
+
+
+# --- Bedrock models reaching end of life (leftsize_aws.py) ----------------------
+
+def bedrock(model_id: str, region: str = 'eu-west-1') -> Dict[str, Any]:
+    return {'modelId': model_id, 'Region': region, 'invocations': 12, 'days': 14,
+            'Arn': f'arn:aws:bedrock:{region}::foundation-model/{model_id}'}
+
+
+@pytest.mark.parametrize('model_id, region, expected', [
+    ('anthropic.claude-sonnet-4-5-20250929-v1:0', 'eu-west-1', '2027-04-08'),
+    ('anthropic.claude-sonnet-4-5-20250929-v1:0', 'us-gov-west-1', '2027-04-27'),
+    ('anthropic.claude-opus-4-1-20250805-v1:0', 'us-east-1', '2027-01-08'),
+    ('anthropic.claude-opus-4-1-20250805-v1:0', 'eu-west-1', None),     # no EOL announced there
+    ('meta.llama3-70b-instruct-v1:0', 'us-gov-west-1', '2027-05-09'),
+    ('anthropic.claude-3-haiku-20240307-v1:0', 'ca-central-1', '2026-11-27'),
+    ('anthropic.claude-opus-4-5-20251101-v1:0', 'us-east-1', None),     # Active
+])
+def test_bedrock_end_of_life(model_id: str, region: str, expected: Any) -> None:
+    manager = Policy(DOCS['leftsize-bedrock-model-end-of-life'], Config.empty(region=region)).resource_manager
+    found = manager.filter_resources([bedrock(model_id, region)])
+    assert (found[0]['c7n:end-of-life']['date'] if found else None) == expected
+
+
+def test_bedrock_table_is_well_formed() -> None:
+    import datetime
+    [f] = DOCS['leftsize-bedrock-model-end-of-life']['filters']
+    seen = set()
+    for entry in f['models']:
+        datetime.date.fromisoformat(entry['eol'])
+        for region in entry['regions']:
+            assert (entry['id'], region) not in seen, (entry['id'], region)
+            seen.add((entry['id'], region))
+
+
+@pytest.mark.parametrize('model_id, base', [
+    ('anthropic.claude-sonnet-4-5-20250929-v1:0', 'anthropic.claude-sonnet-4-5-20250929-v1:0'),
+    ('us.anthropic.claude-sonnet-4-5-20250929-v1:0', 'anthropic.claude-sonnet-4-5-20250929-v1:0'),
+    ('global.anthropic.claude-sonnet-4-5-20250929-v1:0', 'anthropic.claude-sonnet-4-5-20250929-v1:0'),
+    ('apac.meta.llama3-1-70b-instruct-v1:0', 'meta.llama3-1-70b-instruct-v1:0'),
+    ('us-gov.anthropic.claude-sonnet-4-5-20250929-v1:0', 'anthropic.claude-sonnet-4-5-20250929-v1:0'),
+    ('arn:aws:bedrock:us-east-1:123456789012:provisioned-model/abc', None),
+    ('', None),
+])
+def test_bedrock_base_model_id(model_id: str, base: Any) -> None:
+    assert leftsize_aws.base_model_id(model_id) == base
+
+
+class FakeCloudWatch:
+    def __init__(self, series: Dict[str, List[float]], extra_dims: bool = True) -> None:
+        self.series = series
+        self.extra_dims = extra_dims
+        self.queries: List[int] = []
+
+    def get_paginator(self, name: str) -> Any:
+        assert name == 'list_metrics'
+        metrics = [{'Dimensions': [{'Name': 'ModelId', 'Value': m}]} for m in self.series]
+        if self.extra_dims:
+            metrics.append({'Dimensions': [{'Name': 'ModelId', 'Value': 'x'}, {'Name': 'Operation', 'Value': 'y'}]})
+
+        class Paginator:
+            def paginate(self, **kwargs: Any) -> Any:
+                assert kwargs == {'Namespace': 'AWS/Bedrock', 'MetricName': 'Invocations'}
+                return [{'Metrics': metrics}]
+        return Paginator()
+
+    def get_metric_data(self, MetricDataQueries: List[Dict[str, Any]], **kwargs: Any) -> Dict[str, Any]:
+        self.queries.append(len(MetricDataQueries))
+        return {'MetricDataResults': [{
+            'Id': q['Id'],
+            'Values': self.series[q['MetricStat']['Metric']['Dimensions'][0]['Value']],
+        } for q in MetricDataQueries]}
+
+
+def test_bedrock_usage_merges_inference_profiles_and_skips_unused() -> None:
+    client = FakeCloudWatch({
+        'anthropic.claude-sonnet-4-5-20250929-v1:0': [3.0],
+        'eu.anthropic.claude-sonnet-4-5-20250929-v1:0': [5.0, 2.0],
+        'meta.llama3-70b-instruct-v1:0': [],                       # no calls in the window
+        'arn:aws:bedrock:eu-west-1:1:provisioned-model/p': [9.0],  # not a foundation model id
+    })
+    usage = leftsize_aws.model_usage(client, 'eu-west-1')
+    assert usage == [{
+        'modelId': 'anthropic.claude-sonnet-4-5-20250929-v1:0', 'invocations': 10,
+        'invokedAs': ['anthropic.claude-sonnet-4-5-20250929-v1:0', 'eu.anthropic.claude-sonnet-4-5-20250929-v1:0'],
+        'Region': 'eu-west-1', 'Name': 'anthropic.claude-sonnet-4-5-20250929-v1:0', 'days': 14,
+        'Arn': 'arn:aws:bedrock:eu-west-1::foundation-model/anthropic.claude-sonnet-4-5-20250929-v1:0',
+    }]
+    assert client.queries == [4]   # the extra-dimension series isn't queried
+
+
+def test_bedrock_usage_queries_in_chunks_of_500() -> None:
+    client = FakeCloudWatch({f'm{i}.model-v1': [1.0] for i in range(1001)}, extra_dims=False)
+    assert len(leftsize_aws.model_usage(client, 'us-east-1')) == 1001
+    assert client.queries == [500, 500, 1]
