@@ -206,6 +206,18 @@ def test_session_requires_token(monkeypatch: pytest.MonkeyPatch) -> None:
 
 # ---------- action integration (run.py) ----------
 
+def test_wrapper_records_how_many_resources_a_policy_examined(cloudflare, tmp_path: Path) -> None:
+    """A real policy run through LeftSize's Custodian wrapper writes the unfiltered count
+    next to resources.json (scan coverage: "looked at 3 zones, flagged 1")."""
+    import leftsize_custodian  # noqa: F401  installs the hook
+    cloudflare({'/zones': [zone('pending-pro.com', plan='pro', status='pending', price=25),
+                           zone('active.com'), zone('other.com')]})
+    run_policy('leftsize-cloudflare-paid-zone-not-serving', output_dir=str(tmp_path))
+    policy_dir = tmp_path / 'leftsize-cloudflare-paid-zone-not-serving'
+    assert len(json.loads((policy_dir / 'resources.json').read_text())) == 1
+    assert json.loads((policy_dir / 'leftsize-examined.json').read_text()) == {'examined': 3}
+
+
 def test_findings_from_custodian_output(cloudflare, tmp_path: Path) -> None:
     """Custodian output -> LeftSize findings and the submitted finding groups."""
     cloudflare({'/zones': [zone('pending-pro.com', plan='pro', status='pending', price=25)]})
@@ -256,7 +268,7 @@ def test_policy_discovery_is_per_provider() -> None:
 def test_custodian_command_and_env(monkeypatch: pytest.MonkeyPatch) -> None:
     cmd = run.custodian_command({'cloud_provider': 'cloudflare'})
     assert cmd[-1].endswith('leftsize_custodian.py')
-    assert run.custodian_command({'cloud_provider': 'aws'})[0].endswith('custodian')
+    assert run.custodian_command({'cloud_provider': 'aws'})[-1].endswith('leftsize_custodian.py')
     # Azure needs the wrapper too: it registers LeftSize's Azure filters (query-api-keys)
     assert run.custodian_command({'cloud_provider': 'azure'})[-1].endswith('leftsize_custodian.py')
     monkeypatch.setenv('CLOUDFLARE_API_TOKEN', 'secret')
