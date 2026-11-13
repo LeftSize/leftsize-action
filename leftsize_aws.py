@@ -41,6 +41,15 @@ def base_model_id(model_id: str) -> Optional[str]:
     return PROFILE_PREFIX.sub('', model_id)
 
 
+def partition(region: str) -> str:
+    """The ARN partition of a Region (GovCloud and China have their own)."""
+    if region.startswith('us-gov-'):
+        return 'aws-us-gov'
+    if region.startswith('cn-'):
+        return 'aws-cn'
+    return 'aws'
+
+
 def model_usage(client: Any, region: str, days: int = USAGE_DAYS,
                 now: Optional[datetime.datetime] = None) -> List[Dict[str, Any]]:
     """Invocations per foundation model in this Region over the last `days` days."""
@@ -72,6 +81,11 @@ def model_usage(client: Any, region: str, days: int = USAGE_DAYS,
                 kwargs['NextToken'] = token
             response = client.get_metric_data(**kwargs)
             for result in response.get('MetricDataResults', []):
+                # A query that failed would read as "not used": fail the policy instead, so
+                # its coverage isn't reported either
+                if result.get('StatusCode') in ('InternalError', 'Forbidden'):
+                    raise RuntimeError(f"CloudWatch GetMetricData {result.get('StatusCode')} for "
+                                       f"{chunk[int(result['Id'][1:])]}: {result.get('Messages')}")
                 model_id = chunk[int(result['Id'][1:])]
                 count = sum(result.get('Values') or [])
                 base = base_model_id(model_id)
@@ -89,7 +103,7 @@ def model_usage(client: Any, region: str, days: int = USAGE_DAYS,
         entry['Name'] = entry['modelId']
         entry['days'] = days
         # The foundation model's ARN (no account): one finding per model and Region
-        entry['Arn'] = f"arn:aws:bedrock:{region}::foundation-model/{entry['modelId']}"
+        entry['Arn'] = f"arn:{partition(region)}:bedrock:{region}::foundation-model/{entry['modelId']}"
     return sorted(totals.values(), key=lambda e: e['modelId'])
 
 

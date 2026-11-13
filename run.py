@@ -1460,7 +1460,7 @@ def build_scope_from_resource_id(resource_id: str, config: Dict[str, Any]) -> st
             account_id = None
             region = None
             
-            if resource_id.startswith('arn:aws:'):
+            if re.match(r'^arn:aws(?:-[a-z]+)*:', resource_id):
                 parts = resource_id.split(':')
                 # parts[3] is region, parts[4] is account ID
                 if len(parts) >= 5:
@@ -2774,7 +2774,7 @@ def extract_resource_metadata(resource: Dict[str, Any], resource_id: str,
                 metadata['resourceGroup'] = parts[4]
             if len(parts) >= 9:
                 metadata['resourceName'] = parts[8]
-        elif resource_id.startswith('arn:aws:'):
+        elif re.match(r'^arn:aws(?:-[a-z]+)*:', resource_id):
             # AWS ARN - extract account and region
             arn_parts = resource_id.split(':')
             if len(arn_parts) >= 5:

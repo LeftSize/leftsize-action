@@ -393,7 +393,7 @@ def test_bedrock_base_model_id(model_id: str, base: Any) -> None:
 
 
 class FakeCloudWatch:
-    def __init__(self, series: Dict[str, List[float]], extra_dims: bool = True) -> None:
+    def __init__(self, series: Dict[str, Any], extra_dims: bool = True) -> None:
         self.series = series
         self.extra_dims = extra_dims
         self.queries: List[int] = []
@@ -412,10 +412,14 @@ class FakeCloudWatch:
 
     def get_metric_data(self, MetricDataQueries: List[Dict[str, Any]], **kwargs: Any) -> Dict[str, Any]:
         self.queries.append(len(MetricDataQueries))
-        return {'MetricDataResults': [{
-            'Id': q['Id'],
-            'Values': self.series[q['MetricStat']['Metric']['Dimensions'][0]['Value']],
-        } for q in MetricDataQueries]}
+        results = []
+        for q in MetricDataQueries:
+            values = self.series[q['MetricStat']['Metric']['Dimensions'][0]['Value']]
+            if values == 'Forbidden':
+                results.append({'Id': q['Id'], 'Values': [], 'StatusCode': 'Forbidden', 'Messages': []})
+            else:
+                results.append({'Id': q['Id'], 'Values': values, 'StatusCode': 'Complete'})
+        return {'MetricDataResults': results}
 
 
 def test_bedrock_usage_merges_inference_profiles_and_skips_unused() -> None:
@@ -439,3 +443,18 @@ def test_bedrock_usage_queries_in_chunks_of_500() -> None:
     client = FakeCloudWatch({f'm{i}.model-v1': [1.0] for i in range(1001)}, extra_dims=False)
     assert len(leftsize_aws.model_usage(client, 'us-east-1')) == 1001
     assert client.queries == [500, 500, 1]
+
+
+def test_bedrock_usage_fails_when_a_query_fails() -> None:
+    client = FakeCloudWatch({'anthropic.claude-sonnet-4-5-20250929-v1:0': [3.0], 'meta.llama3-70b-instruct-v1:0': 'Forbidden'})
+    with pytest.raises(RuntimeError, match='Forbidden'):
+        leftsize_aws.model_usage(client, 'eu-west-1')
+
+
+def test_bedrock_arn_partition() -> None:
+    client = FakeCloudWatch({'anthropic.claude-sonnet-4-5-20250929-v1:0': [1.0]}, extra_dims=False)
+    [usage] = leftsize_aws.model_usage(client, 'us-gov-west-1')
+    assert usage['Arn'].startswith('arn:aws-us-gov:bedrock:us-gov-west-1::foundation-model/')
+    import run
+    config = {'cloud_provider': 'aws', 'targets': {'aws': {'account_id': '123456789012', 'regions': ['eu-west-1']}}}
+    assert run.build_scope_from_resource_id(usage['Arn'], config) == 'aws:account/123456789012/region/us-gov-west-1'
