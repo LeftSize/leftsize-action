@@ -26,7 +26,8 @@ AZURE_CONFIG = {
 }
 
 
-def policy_output(root: Path, name: str, resources=None, examined=None, region: str = '', subscription=None) -> None:
+def policy_output(root: Path, name: str, resources=None, examined=None, region: str = '', subscription=None,
+                  aws=('123456789012', None)) -> None:
     """A policy's Custodian output dir: resources.json when it ran to the end, and the
     wrapper's leftsize-examined.json."""
     d = root / region / name if region else root / name
@@ -38,6 +39,8 @@ def policy_output(root: Path, name: str, resources=None, examined=None, region: 
         info = {'examined': examined}
         if subscription:
             info['subscription'] = subscription
+        elif aws:
+            info['account'], info['region'] = aws[0], aws[1] or region or 'eu-west-1'
         (d / 'leftsize-examined.json').write_text(json.dumps(info))
 
 
@@ -85,11 +88,11 @@ class TestRecordCoverage:
         run.record_coverage(str(tmp_path), config, failed=set(), degraded=False)
         assert config['scan_coverage'] == []
 
-    def test_examined_is_null_without_the_wrappers_count(self, tmp_path):
+    def test_no_coverage_without_the_wrappers_record(self, tmp_path):
         policy_output(tmp_path, 'leftsize-unattached-ebs-volume', resources=[])
         config = dict(AWS_CONFIG)
         run.record_coverage(str(tmp_path), config, failed=set(), degraded=False)
-        assert config['scan_coverage'][0]['Examined'] is None
+        assert config['scan_coverage'] == []
 
     def test_marks_a_run_with_access_warnings_as_degraded(self, tmp_path):
         policy_output(tmp_path, 'leftsize-unencrypted-ebs', resources=[], examined=4)
@@ -185,4 +188,29 @@ class TestScannedWhere:
         def boom(factory):
             raise RuntimeError('no credentials')
         monkeypatch.setattr(c7n.utils, 'local_session', boom)
+        assert leftsize_custodian._scanned_where(manager) == {}
+
+
+class TestAwsScope:
+
+    def test_uses_the_region_custodian_ran_in_not_the_assumed_default(self, tmp_path):
+        # No aws-regions input: LeftSize assumes eu-west-1, boto's default was us-west-2
+        policy_output(tmp_path, 'leftsize-unattached-ebs-volume', resources=[], examined=3, aws=('123456789012', 'us-west-2'))
+        config = dict(AWS_CONFIG)
+        run.record_coverage(str(tmp_path), config, failed=set(), degraded=False)
+        assert config['scan_coverage'][0]['Scope'] == 'aws:account/123456789012/region/us-west-2'
+
+    def test_no_coverage_when_the_account_differs_or_is_unknown(self, tmp_path):
+        policy_output(tmp_path, 'leftsize-a', resources=[], examined=3, aws=('999999999999', 'eu-west-1'))
+        policy_output(tmp_path, 'leftsize-b', resources=[], examined=3, aws=None)
+        config = dict(AWS_CONFIG)
+        run.record_coverage(str(tmp_path), config, failed=set(), degraded=False)
+        assert config['scan_coverage'] == []
+
+    def test_wrapper_records_an_aws_managers_account_and_region(self):
+        AwsManager = type('AwsManager', (), {'__module__': 'c7n.resources.ebs'})
+        manager = AwsManager()
+        manager.config = SimpleNamespace(region='us-west-2', account_id='123456789012')
+        assert leftsize_custodian._scanned_where(manager) == {'region': 'us-west-2', 'account': '123456789012'}
+        manager.config = SimpleNamespace(region='', account_id='123456789012')
         assert leftsize_custodian._scanned_where(manager) == {}

@@ -544,6 +544,12 @@ def github_action_main():
                 print_github_summary(findings, submitted=False, problems=problems, rate_limited=e)
                 return 0
             except Exception as e:
+                if not findings:
+                    # Only coverage to send; the next scan sends it again
+                    logger.warning(f"Could not tell LeftSize about this scan without findings: {e}")
+                    set_scan_outputs(findings, submitted=False, problems=problems)
+                    print_github_summary(findings, submitted=False, problems=problems)
+                    return 0
                 logger.error(f"Failed to submit findings to backend: {e}")
                 set_scan_outputs(findings, submitted=False, problems=problems)
                 print_github_summary(findings, submitted=False, problems=problems)
@@ -1316,8 +1322,10 @@ def execute_single_policy_file(policies_file: str, config: Dict[str, Any]) -> Op
             findings = parse_custodian_output(output_dir, config)
             # Couldn't read some details (e.g. a bucket's encryption): a resource may look
             # fine only because that detail is missing, so this file's coverage is degraded
-            degraded = bool(DEGRADED_SCAN_PATTERN.search(result.stderr or ''))
-            record_coverage(output_dir, config, failed_policies, degraded)
+            # Sticky for the rest of the scan: later files reuse the cached (incomplete) resources
+            if DEGRADED_SCAN_PATTERN.search(result.stderr or ''):
+                config['_scan_degraded'] = True
+            record_coverage(output_dir, config, failed_policies, bool(config.get('_scan_degraded')))
             
         except subprocess.TimeoutExpired:
             logger.error("Custodian execution timed out", file=os.path.basename(policies_file))
@@ -1334,7 +1342,7 @@ def execute_single_policy_file(policies_file: str, config: Dict[str, Any]) -> Op
 # child lookups): the policy still runs, on incomplete data.
 DEGRADED_SCAN_PATTERN = re.compile(
     r'unable to invoke method|AccessDenied|UnauthorizedOperation|AuthorizationFailed|'
-    r'AuthorizationError|Forbidden|Throttl', re.I)
+    r'AuthorizationError|Forbidden|Throttl|TooManyRequests|Child enumeration failed|timed? ?out', re.I)
 
 COVERAGE_EXAMINED_FILE = 'leftsize-examined.json'
 
@@ -1346,8 +1354,12 @@ def coverage_scope(config: Dict[str, Any], examined: Dict[str, Any]) -> Optional
     others). None for Cloudflare (one token may reach several accounts) or when unknown."""
     provider = config.get('cloud_provider', 'azure')
     if provider == 'aws':
-        account_id = config.get('targets', {}).get('aws', {}).get('account_id')
-        return f"aws:account/{account_id}/region/{default_aws_region(config)}" if account_id else None
+        # The account and region Custodian ran in (recorded by the wrapper), and only when
+        # the account is the one the findings are attributed to
+        account_id, region = examined.get('account'), examined.get('region')
+        if not account_id or not region or str(account_id) != str(config.get('targets', {}).get('aws', {}).get('account_id')):
+            return None
+        return f"aws:account/{account_id}/region/{region}"
     if provider == 'azure':
         subscription_id = examined.get('subscription')
         if not isinstance(subscription_id, str) or not validate_azure_subscription_id(subscription_id):

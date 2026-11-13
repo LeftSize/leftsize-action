@@ -49,10 +49,18 @@ def _record_examined(self, resources, event=None):
 
 
 def _scanned_where(manager) -> dict:
-    """The Azure subscription Custodian's session actually used (from AZURE_SUBSCRIPTION_ID
-    or the Azure CLI default, which needn't be the first one configured), so coverage
-    never names a subscription that wasn't scanned. Empty when unknown."""
-    if not type(manager).__module__.startswith("c7n_azure"):
+    """Where Custodian actually looked, so coverage never names a place that wasn't
+    scanned: the AWS account and region of the run (boto's default region needn't be the
+    one LeftSize assumes), or the Azure subscription of the session (AZURE_SUBSCRIPTION_ID
+    or the Azure CLI default, which needn't be the first one configured). Empty when
+    unknown."""
+    module = type(manager).__module__
+    if module.startswith("c7n.resources") or module.startswith("c7n.query"):
+        config = getattr(manager, "config", None)
+        region = getattr(config, "region", None)
+        account_id = getattr(config, "account_id", None)
+        return {"region": region, "account": account_id} if region and account_id else {}
+    if not module.startswith("c7n_azure"):
         return {}
     try:
         from c7n.utils import local_session
