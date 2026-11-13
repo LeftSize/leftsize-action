@@ -1339,17 +1339,20 @@ DEGRADED_SCAN_PATTERN = re.compile(
 COVERAGE_EXAMINED_FILE = 'leftsize-examined.json'
 
 
-def coverage_scope(config: Dict[str, Any]) -> Optional[str]:
+def coverage_scope(config: Dict[str, Any], examined: Dict[str, Any]) -> Optional[str]:
     """The scope a policy run covers, as the prefix of its findings' scopes (see
-    build_scope_from_resource_id): the AWS account and region, or the Azure subscription.
-    None for Cloudflare (one token may reach several accounts) or an unknown account."""
+    build_scope_from_resource_id): the AWS account and region, or the Azure subscription
+    Custodian's session used (recorded by the wrapper; the configured list may name
+    others). None for Cloudflare (one token may reach several accounts) or when unknown."""
     provider = config.get('cloud_provider', 'azure')
     if provider == 'aws':
         account_id = config.get('targets', {}).get('aws', {}).get('account_id')
         return f"aws:account/{account_id}/region/{default_aws_region(config)}" if account_id else None
     if provider == 'azure':
-        subscription_id = get_subscription_id(config)
-        return f"azure:subscription/{subscription_id.lower()}" if subscription_id != 'unknown' else None
+        subscription_id = examined.get('subscription')
+        if not isinstance(subscription_id, str) or not validate_azure_subscription_id(subscription_id):
+            return None
+        return f"azure:subscription/{subscription_id.lower()}"
     return None
 
 
@@ -1362,16 +1365,18 @@ def record_coverage(output_dir: str, config: Dict[str, Any], failed: set, degrad
         # Custodian writes resources.json only when the policy ran to the end
         if policy_dir.name in failed or not (policy_dir / 'resources.json').exists():
             continue
-        scope = coverage_scope(policy_config)
-        if scope is None:
-            continue
-        examined = None
+        info: Dict[str, Any] = {}
         try:
             with open(policy_dir / COVERAGE_EXAMINED_FILE) as f:
-                value = json.load(f).get('examined')
-            examined = value if isinstance(value, int) and value >= 0 else None
-        except (OSError, ValueError, AttributeError):
+                loaded = json.load(f)
+            info = loaded if isinstance(loaded, dict) else {}
+        except (OSError, ValueError):
             pass
+        scope = coverage_scope(policy_config, info)
+        if scope is None:
+            continue
+        value = info.get('examined')
+        examined = value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else None
         entry: Dict[str, Any] = {'Policy': policy_dir.name, 'Scope': scope, 'Examined': examined}
         if degraded:
             entry['Degraded'] = True

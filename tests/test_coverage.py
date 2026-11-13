@@ -26,7 +26,7 @@ AZURE_CONFIG = {
 }
 
 
-def policy_output(root: Path, name: str, resources=None, examined=None, region: str = '') -> None:
+def policy_output(root: Path, name: str, resources=None, examined=None, region: str = '', subscription=None) -> None:
     """A policy's Custodian output dir: resources.json when it ran to the end, and the
     wrapper's leftsize-examined.json."""
     d = root / region / name if region else root / name
@@ -34,8 +34,11 @@ def policy_output(root: Path, name: str, resources=None, examined=None, region: 
     (d / 'metadata.json').write_text('{}')
     if resources is not None:
         (d / 'resources.json').write_text(json.dumps(resources))
-    if examined is not None:
-        (d / 'leftsize-examined.json').write_text(json.dumps({'examined': examined}))
+    if examined is not None or subscription is not None:
+        info = {'examined': examined}
+        if subscription:
+            info['subscription'] = subscription
+        (d / 'leftsize-examined.json').write_text(json.dumps(info))
 
 
 class TestRecordCoverage:
@@ -68,15 +71,23 @@ class TestRecordCoverage:
             ('aws:account/123456789012/region/us-east-1', 0),
         ]
 
-    def test_azure_covers_the_subscription_lowercased(self, tmp_path):
+    def test_azure_covers_the_subscription_custodian_used_lowercased(self, tmp_path):
+        # Configured A first, but Custodian's session used B (AZURE_SUBSCRIPTION_ID)
+        policy_output(tmp_path, 'leftsize-unattached-disk', resources=[], examined=7,
+                      subscription='BBBBBBBB-0000-0000-0000-000000000000')
+        config = dict(AZURE_CONFIG)
+        run.record_coverage(str(tmp_path), config, failed=set(), degraded=False)
+        assert config['scan_coverage'][0]['Scope'] == 'azure:subscription/bbbbbbbb-0000-0000-0000-000000000000'
+
+    def test_no_azure_coverage_without_the_subscription_custodian_used(self, tmp_path):
         policy_output(tmp_path, 'leftsize-unattached-disk', resources=[], examined=7)
         config = dict(AZURE_CONFIG)
         run.record_coverage(str(tmp_path), config, failed=set(), degraded=False)
-        assert config['scan_coverage'][0]['Scope'] == 'azure:subscription/abcdef00-0000-0000-0000-000000000000'
+        assert config['scan_coverage'] == []
 
     def test_examined_is_null_without_the_wrappers_count(self, tmp_path):
-        policy_output(tmp_path, 'leftsize-unattached-disk', resources=[])
-        config = dict(AZURE_CONFIG)
+        policy_output(tmp_path, 'leftsize-unattached-ebs-volume', resources=[])
+        config = dict(AWS_CONFIG)
         run.record_coverage(str(tmp_path), config, failed=set(), degraded=False)
         assert config['scan_coverage'][0]['Examined'] is None
 
@@ -151,3 +162,27 @@ class TestPayload:
         assert payload['FindingGroups'] == []
         assert payload['ScanStartedAt'] == 1_900_000_000
         assert payload['Coverage'] == coverage
+
+
+class TestScannedWhere:
+
+    def test_records_the_subscription_of_an_azure_managers_session(self, monkeypatch):
+        import c7n.utils
+        AzureManager = type('AzureManager', (), {'__module__': 'c7n_azure.resources.disk'})
+        manager = AzureManager()
+        manager.session_factory = object()
+        monkeypatch.setattr(c7n.utils, 'local_session',
+                            lambda factory: SimpleNamespace(get_subscription_id=lambda: 'sub-b'))
+        assert leftsize_custodian._scanned_where(manager) == {'subscription': 'sub-b'}
+
+    def test_nothing_for_other_providers_or_when_the_lookup_fails(self, monkeypatch):
+        import c7n.utils
+        assert leftsize_custodian._scanned_where(SimpleNamespace()) == {}
+        AzureManager = type('AzureManager', (), {'__module__': 'c7n_azure.resources.disk'})
+        manager = AzureManager()
+        manager.session_factory = object()
+
+        def boom(factory):
+            raise RuntimeError('no credentials')
+        monkeypatch.setattr(c7n.utils, 'local_session', boom)
+        assert leftsize_custodian._scanned_where(manager) == {}

@@ -42,10 +42,24 @@ def _record_examined(self, resources, event=None):
             and not getattr(self, "_leftsize_examined", False):
         self._leftsize_examined = True
         try:
-            ctx.output.write_file(EXAMINED_FILE, json.dumps({"examined": len(resources)}))
+            ctx.output.write_file(EXAMINED_FILE, json.dumps({"examined": len(resources), **_scanned_where(self)}))
         except Exception:  # noqa: BLE001  a missing count only makes LeftSize more careful
             pass
     return _filter_resources(self, resources, event)
+
+
+def _scanned_where(manager) -> dict:
+    """The Azure subscription Custodian's session actually used (from AZURE_SUBSCRIPTION_ID
+    or the Azure CLI default, which needn't be the first one configured), so coverage
+    never names a subscription that wasn't scanned. Empty when unknown."""
+    if not type(manager).__module__.startswith("c7n_azure"):
+        return {}
+    try:
+        from c7n.utils import local_session
+        subscription_id = local_session(manager.session_factory).get_subscription_id()
+    except Exception:  # noqa: BLE001
+        return {}
+    return {"subscription": subscription_id} if subscription_id else {}
 
 
 ResourceManager.filter_resources = _record_examined
