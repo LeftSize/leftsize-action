@@ -2886,6 +2886,9 @@ def submit_findings(findings: List[Dict[str, Any]], config: Dict[str, Any]) -> D
         if config.get('scan_started_at'):
             payload["ScanStartedAt"] = config['scan_started_at']
         payload["Coverage"] = config.get('scan_coverage', [])
+        # The auto-close input; LeftSize closes issues whose problem is gone unless it's false
+        if os.getenv('LEFTSIZE_AUTO_CLOSE', 'true').strip().lower() == 'false':
+            payload["AutoClose"] = False
         response = post_with_retry(url, payload, headers)
         
         if response.status_code == 429:

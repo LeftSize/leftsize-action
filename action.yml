@@ -87,6 +87,11 @@ inputs:
     description: 'Comma-separated rule names to skip, with or without the leftsize- prefix (e.g., leftsize-idle-vm,unused-public-ip)'
     required: false
   
+  auto-close:
+    description: 'Let LeftSize close an issue once its problem is gone (after a warning comment and a week''s grace). Set to false to close issues yourself; findings that are gone still stop counting.'
+    required: false
+    default: 'true'
+
   # Execution options
   verbose:
     description: 'Enable verbose logging'
@@ -190,6 +195,7 @@ runs:
         LEFTSIZE_INCLUDE_POLICIES: ${{ inputs.include-policies }}
         LEFTSIZE_EXCLUDE_POLICIES: ${{ inputs.exclude-policies }}
         LEFTSIZE_VERBOSE: ${{ inputs.verbose }}
+        LEFTSIZE_AUTO_CLOSE: ${{ inputs.auto-close }}
       run: |
         MODE="${LEFTSIZE_MODE:-scan}"
         

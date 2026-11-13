@@ -214,3 +214,19 @@ class TestAwsScope:
         assert leftsize_custodian._scanned_where(manager) == {'region': 'us-west-2', 'account': '123456789012'}
         manager.config = SimpleNamespace(region='', account_id='123456789012')
         assert leftsize_custodian._scanned_where(manager) == {}
+
+
+class TestAutoCloseInput:
+
+    @pytest.mark.parametrize('value,expected', [(None, None), ('true', None), ('false', False), (' FALSE ', False)])
+    @patch('run.requests.post')
+    def test_sends_auto_close_false_only_when_turned_off(self, mock_post, monkeypatch, value, expected):
+        if value is None:
+            monkeypatch.delenv('LEFTSIZE_AUTO_CLOSE', raising=False)
+        else:
+            monkeypatch.setenv('LEFTSIZE_AUTO_CLOSE', value)
+        mock_post.return_value = Mock(status_code=202, json=Mock(return_value={}))
+        config = {'output': {'backend_url': 'https://api.leftsize.com', 'installation_id': '1',
+                             'repository_token': '12345678-1234-1234-1234-123456789012'}}
+        run.submit_findings([], config)
+        assert mock_post.call_args.kwargs['json'].get('AutoClose') is expected
