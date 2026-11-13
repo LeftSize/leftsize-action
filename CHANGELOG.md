@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.34] - 2026-11-13
+
 ### Fixed
 - **Scan coverage:** a rule that failed outright (e.g. a service that isn't available in the account) no longer marks the coverage of every later rule as degraded; only Custodian's warnings about data it couldn't read do. A rule whose resources had reads denied (S3 records those on the bucket instead of logging them) is marked degraded itself.
 
