@@ -112,6 +112,7 @@ class TestRecordCoverage:
         ("custodian.resources.s3:WARNING Bucket:x unable to invoke method:GetBucketEncryption error:AccessDenied", True),
         ("An error occurred (UnauthorizedOperation) when calling the DescribeVolumes operation", True),
         ("(AuthorizationFailed) The client does not have authorization", True),
+        ("custodian.leftsize.azure:WARNING Could not list the API keys of ai-1 (HTTP 500): Internal error", True),
         ("custodian.policy:INFO policy:leftsize-x resource:ebs region:eu-west-1 count:0 time:0.10", False),
     ])
     def test_degraded_pattern(self, stderr, degraded):

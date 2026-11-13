@@ -1293,6 +1293,8 @@ def execute_single_policy_file(policies_file: str, config: Dict[str, Any]) -> Op
                 if not failed:
                     record_problem(config, f"{os.path.basename(policies_file)}: some policies failed (set LEFTSIZE_DEBUG for details)")
             elif result.returncode != 0:
+                # Later files may reuse whatever this run cached before it failed
+                config['_scan_degraded'] = True
                 logger.error("Custodian execution failed", returncode=result.returncode,
                              error=_last_error_line(result.stderr))
                 if _debug_enabled():
@@ -1328,6 +1330,7 @@ def execute_single_policy_file(policies_file: str, config: Dict[str, Any]) -> Op
             record_coverage(output_dir, config, failed_policies, bool(config.get('_scan_degraded')))
             
         except subprocess.TimeoutExpired:
+            config['_scan_degraded'] = True
             logger.error("Custodian execution timed out", file=os.path.basename(policies_file))
             return None
         except Exception as e:
@@ -1342,7 +1345,10 @@ def execute_single_policy_file(policies_file: str, config: Dict[str, Any]) -> Op
 # child lookups): the policy still runs, on incomplete data.
 DEGRADED_SCAN_PATTERN = re.compile(
     r'unable to invoke method|AccessDenied|UnauthorizedOperation|AuthorizationFailed|'
-    r'AuthorizationError|Forbidden|Throttl|TooManyRequests|Child enumeration failed|timed? ?out', re.I)
+    r'AuthorizationError|Forbidden|Throttl|TooManyRequests|Child enumeration failed|timed? ?out|'
+    # LeftSize's own filters and provider warn when they skip something (e.g. one Application
+    # Insights component whose API keys couldn't be listed)
+    r'custodian\.(?:leftsize\.azure|cloudflare):WARNING', re.I)
 
 COVERAGE_EXAMINED_FILE = 'leftsize-examined.json'
 
