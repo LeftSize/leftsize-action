@@ -94,6 +94,14 @@ class TestRecordCoverage:
         run.record_coverage(str(tmp_path), config, failed=set(), degraded=False)
         assert config['scan_coverage'] == []
 
+    def test_marks_a_policy_whose_resources_had_denied_reads_as_degraded(self, tmp_path):
+        policy_output(tmp_path, 'leftsize-unencrypted-s3', resources=[], examined=4)
+        info_file = tmp_path / 'leftsize-unencrypted-s3' / 'leftsize-examined.json'
+        info_file.write_text(json.dumps({**json.loads(info_file.read_text()), 'denied': 1}))
+        config = dict(AWS_CONFIG)
+        run.record_coverage(str(tmp_path), config, failed=set(), degraded=False)
+        assert config['scan_coverage'][0]['Degraded'] is True
+
     def test_marks_a_run_with_access_warnings_as_degraded(self, tmp_path):
         policy_output(tmp_path, 'leftsize-unencrypted-ebs', resources=[], examined=4)
         config = dict(AWS_CONFIG)
@@ -109,14 +117,18 @@ class TestRecordCoverage:
         assert cloudflare['scan_coverage'] == [] and no_account['scan_coverage'] == []
 
     @pytest.mark.parametrize('stderr,degraded', [
-        ("custodian.resources.s3:WARNING Bucket:x unable to invoke method:GetBucketEncryption error:AccessDenied", True),
-        ("An error occurred (UnauthorizedOperation) when calling the DescribeVolumes operation", True),
-        ("(AuthorizationFailed) The client does not have authorization", True),
-        ("custodian.leftsize.azure:WARNING Could not list the API keys of ai-1 (HTTP 500): Internal error", True),
-        ("custodian.policy:INFO policy:leftsize-x resource:ebs region:eu-west-1 count:0 time:0.10", False),
+        ("2026-11-13 21:49:35,1: custodian.resources.s3:WARNING Bucket:x unable to invoke method:GetBucketPolicy error:Throttling", True),
+        ("2026-11-13 21:49:35,1: custodian.azure.query:WARNING Child enumeration failed for vault-1. (TooManyRequests)", True),
+        ("2026-11-13 21:49:35,1: custodian.leftsize.azure:WARNING Could not list the API keys of ai-1 (HTTP 500): Internal error", True),
+        ("2026-11-13 21:49:35,1: custodian.cloudflare:WARNING account 123 skipped", True),
+        # A policy that raised: excluded from coverage, doesn't degrade the others
+        ("2026-11-13 21:49:35,1: custodian.commands:ERROR Error while executing policy leftsize-cloudsearch-maintenance, continuing\n"
+         "botocore.exceptions.ClientError: An error occurred (AccessDeniedException) when calling the ListDomainNames operation", False),
+        ("2026-11-13 21:49:35,1: custodian.policy:INFO policy:leftsize-x resource:ebs region:eu-west-1 count:0 time:0.10", False),
+        ("2026-11-13 21:49:35,1: custodian.cloudflare:INFO 0 zones: the token may lack Zone Read", False),
     ])
-    def test_degraded_pattern(self, stderr, degraded):
-        assert bool(run.DEGRADED_SCAN_PATTERN.search(stderr)) is degraded
+    def test_degraded_warning(self, stderr, degraded):
+        assert run.degraded_warning(stderr) is degraded
 
 
 class TestExaminedCount:
@@ -132,9 +144,9 @@ class TestExaminedCount:
         written = []
         manager = self._manager(written)
         monkeypatch.setattr(leftsize_custodian, '_filter_resources', lambda self, resources, event=None: resources[:1])
-        assert leftsize_custodian._record_examined(manager, [{}, {}, {}]) == [{}]
+        assert leftsize_custodian._record_examined(manager, [{}, {'c7n:DeniedMethods': ['GetBucketEncryption']}, {}]) == [{}]
         leftsize_custodian._record_examined(manager, [{}])
-        assert written == [('leftsize-examined.json', {'examined': 3})]
+        assert written == [('leftsize-examined.json', {'examined': 3, 'denied': 1})]
 
     def test_ignores_managers_of_related_resources(self, monkeypatch):
         written = []

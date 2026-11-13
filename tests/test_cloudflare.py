@@ -215,7 +215,7 @@ def test_wrapper_records_how_many_resources_a_policy_examined(cloudflare, tmp_pa
     run_policy('leftsize-cloudflare-paid-zone-not-serving', output_dir=str(tmp_path))
     policy_dir = tmp_path / 'leftsize-cloudflare-paid-zone-not-serving'
     assert len(json.loads((policy_dir / 'resources.json').read_text())) == 1
-    assert json.loads((policy_dir / 'leftsize-examined.json').read_text()) == {'examined': 3}
+    assert json.loads((policy_dir / 'leftsize-examined.json').read_text()) == {'examined': 3, 'denied': 0}
 
 
 def test_findings_from_custodian_output(cloudflare, tmp_path: Path) -> None:

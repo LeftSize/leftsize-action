@@ -42,7 +42,10 @@ def _record_examined(self, resources, event=None):
             and not getattr(self, "_leftsize_examined", False):
         self._leftsize_examined = True
         try:
-            ctx.output.write_file(EXAMINED_FILE, json.dumps({"examined": len(resources), **_scanned_where(self)}))
+            # Custodian records some read failures on the resource instead of logging them
+            # (S3: c7n:DeniedMethods), so the policy judged incomplete data
+            denied = sum(1 for r in resources if isinstance(r, dict) and r.get("c7n:DeniedMethods"))
+            ctx.output.write_file(EXAMINED_FILE, json.dumps({"examined": len(resources), "denied": denied, **_scanned_where(self)}))
         except Exception:  # noqa: BLE001  a missing count only makes LeftSize more careful
             pass
     return _filter_resources(self, resources, event)
