@@ -8,7 +8,7 @@ import logging
 import re
 from typing import Any, Dict, List, Optional
 
-from azure.core.exceptions import HttpResponseError
+from azure.core.exceptions import AzureError, HttpResponseError
 from azure.core.rest import HttpRequest
 from c7n.filters import Filter
 from c7n.utils import type_schema
@@ -81,10 +81,10 @@ class QueryApiKeysFilter(Filter):
 # --- Azure OpenAI model retirements ---------------------------------------------------
 
 RETIRING_DEPLOYMENTS = 'c7n:retiring-deployments'
-# Deployment types Microsoft upgrades to the replacement model at retirement, unless the
-# deployment's versionUpgradeOption is NoAutoUpgrade. Provisioned and Batch deployments
-# never are.
-AUTO_UPGRADED_SKUS = {'standard', 'globalstandard', 'datazonestandard'}
+# Deployment types Microsoft never upgrades to the replacement model at retirement:
+# Provisioned (regional, Global, Data Zone) and Batch. Other types are upgraded unless the
+# deployment's versionUpgradeOption is NoAutoUpgrade, so an unknown type isn't flagged.
+NOT_UPGRADED_SKU = re.compile(r'provisioned|batch', re.I)
 # Fine-tuned deployments name their base model and version: "gpt-4o-mini-2024-07-18.ft-<id>"
 FINE_TUNED = re.compile(r'^(?P<model>.+)-(?P<version>\d{4}-\d{2}-\d{2})\.ft-', re.I)
 DEPLOYMENTS_API_VERSION = '2024-10-01'
@@ -111,7 +111,7 @@ def retiring_deployment(deployment: Dict[str, Any], table: Dict[tuple, Dict[str,
     retirement = table.get((name.lower(), version))
     if not retirement or not retirement.get('date'):
         return None
-    if sku.lower() in AUTO_UPGRADED_SKUS and upgrade != 'NoAutoUpgrade':
+    if not NOT_UPGRADED_SKU.search(sku) and upgrade != 'NoAutoUpgrade':
         return None  # Microsoft upgrades it to the replacement model
     return {**entry, 'retires': retirement['date'], 'fineTuned': False}
 
@@ -122,10 +122,9 @@ class RetiringModelDeploymentsFilter(Filter):
     version retires.
 
     Lists each account's deployments (`Microsoft.CognitiveServices/accounts/deployments/read`,
-    part of Reader) and matches them against the policy's `retirements` table. Standard,
-    Global Standard and Data Zone Standard deployments are upgraded by Microsoft, so they only
-    count with `versionUpgradeOption: NoAutoUpgrade`; Provisioned and Batch deployments
-    always count, and so do fine-tuned deployments of a listed base model (their own date).
+    part of Reader) and matches them against the policy's `retirements` table. Provisioned
+    and Batch deployments always count; other types (Standard, Global and Data Zone Standard)
+    are upgraded by Microsoft, so they only count with `versionUpgradeOption: NoAutoUpgrade`; and so do fine-tuned deployments of a listed base model (their own date).
     Matches are stored as `c7n:retiring-deployments`, earliest first.
 
     An account whose deployments can't be read is skipped with a warning; if none can be
@@ -162,13 +161,13 @@ class RetiringModelDeploymentsFilter(Filter):
         table = {(r['model'].lower(), str(r['version'])): r for r in self.data['retirements']}
         client = self.manager.get_client()
         matched = []
-        errors: List[HttpResponseError] = []
+        errors: List[AzureError] = []
         for resource in resources:
             try:
                 deployments = list_deployments(client, resource['id'])
-            except HttpResponseError as error:
+            except AzureError as error:
                 log.warning('Could not list the deployments of %s (HTTP %s): %s',
-                            resource['id'], error.status_code, error.reason)
+                            resource['id'], getattr(error, 'status_code', None), getattr(error, 'reason', None) or error)
                 errors.append(error)
                 continue
             hits = [h for h in (retiring_deployment(d, table) for d in deployments) if h]

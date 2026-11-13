@@ -358,7 +358,8 @@ def bedrock(model_id: str, region: str = 'eu-west-1') -> Dict[str, Any]:
     ('anthropic.claude-opus-4-1-20250805-v1:0', 'us-east-1', '2027-01-08'),
     ('anthropic.claude-opus-4-1-20250805-v1:0', 'eu-west-1', None),     # no EOL announced there
     ('meta.llama3-70b-instruct-v1:0', 'us-gov-west-1', '2027-05-09'),
-    ('anthropic.claude-3-haiku-20240307-v1:0', 'ca-central-1', '2026-11-27'),
+    ('anthropic.claude-3-haiku-20240307-v1:0', 'ca-central-1', None),  # EOL before the rule shipped
+    ('moonshotai.kimi-k2-thinking', 'us-east-1', '2027-03-30'),         # bedrock-mantle id
     ('anthropic.claude-opus-4-5-20251101-v1:0', 'us-east-1', None),     # Active
 ])
 def test_bedrock_end_of_life(model_id: str, region: str, expected: Any) -> None:

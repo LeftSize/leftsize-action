@@ -138,8 +138,8 @@ class BedrockEndOfLifeFilter(Filter):
     """Models in use that reach end of life in the scanned Region.
 
     Each entry names a model id, the Regions its end-of-life date covers and the date.
-    The earliest matching date (one still ahead, else the latest past one) is stored as
-    `c7n:end-of-life` ({date, legacyDate, extendedAccess}) for the issue.
+    The earliest matching date is stored as `c7n:end-of-life` ({date, legacyDate,
+    extendedAccess}) for the issue.
 
     :example:
 

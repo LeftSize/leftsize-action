@@ -327,6 +327,8 @@ CASES: Dict[str, List[Tuple[str, Dict[str, Any], bool]]] = {
    ('global standard, auto-upgraded by Microsoft', openai(dep('gpt-4o', '2024-08-06', 'GlobalStandard')), False),
    ('standard upgraded at expiry', openai(dep('gpt-4o', '2024-11-20', 'Standard', 'OnceCurrentVersionExpired')), False),
    ('model version not retiring', openai(dep('gpt-4o', '2025-01-01', 'ProvisionedManaged')), False),
+   ('unknown deployment type, auto-upgrade on', openai(dep('gpt-4o', '2024-08-06', 'PriorityProcessing')), False),
+   ('data zone batch', openai(dep('gpt-4o', '2024-11-20', 'DataZoneBatch')), True),
    ('provisioned gpt-4.1 base (only fine-tuned dated)', openai(dep('gpt-4.1', '2025-04-14', 'ProvisionedManaged')), False),
    ('fine-tuned model of a base not listed', openai(dep('gpt-35-turbo-0125.ft-abc', '1', 'Standard')), False),
    ('speech account', openai(dep('gpt-4o', '2024-08-06', 'ProvisionedManaged'), kind='SpeechServices'), False),
@@ -556,3 +558,10 @@ def test_openai_skips_an_account_that_fails_and_raises_when_none_can_be_read() -
     assert [r['name'] for r in _openai_manager({'ok': ok, 'denied': denied}).filter_resources([denied, ok])] == ['ok']
     with pytest.raises(HttpResponseError):
         _openai_manager({'denied': denied}).filter_resources([denied])
+
+
+def test_openai_skips_an_account_on_a_connection_error() -> None:
+    from azure.core.exceptions import ServiceRequestError
+    ok = _account('ok', dep('gpt-4o', '2024-08-06', 'ProvisionedManaged'))
+    down = _account('down', _deployments_error=ServiceRequestError('connection reset'))
+    assert [r['name'] for r in _openai_manager({'ok': ok, 'down': down}).filter_resources([down, ok])] == ['ok']
