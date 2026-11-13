@@ -153,6 +153,7 @@ See [Cloudflare Setup](#cloudflare-setup-api-token) for the token permissions.
 | `cloudflare-account-ids` | No | Every account the token can read | Comma-separated Cloudflare account IDs to scan (32 hex characters each) |
 | `include-policies` | No | All | Rule categories: `cost-optimization`, `deprecation`, `governance`, `security` |
 | `exclude-policies` | No | None | Rule names to skip (comma-separated, with or without the `leftsize-` prefix) |
+| `auto-close` | No | `true` | Let LeftSize close an issue once its problem is gone (after a warning comment and a week's grace); `false` to close issues yourself |
 | `environment-name` | No | Detected per resource | Environment of the scanned resources: one value for the whole scan (`Production`), or `name=environment` pairs for a subscription with several environments (`Freelance-NG-A=acceptance, Freelance-NG-P=production`). Values that aren't an environment (such as a matrix label `MAIN`) are ignored. See [Production vs non-production](#production-vs-non-production). |
 | `verbose` | No | `false` | Debug logging for LeftSize itself (library logs such as botocore stay at warning level) |
 

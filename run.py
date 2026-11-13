@@ -522,7 +522,9 @@ def github_action_main():
         submitted = False
         plan_info = None
         
-        if findings and backend_url and installation_id and repository_token:
+        # A scan without findings is submitted too when it covered something: it tells
+        # LeftSize that the problems it reported earlier are no longer found
+        if (findings or config_data.get('scan_coverage')) and backend_url and installation_id and repository_token:
             try:
                 result = submit_findings(findings, config_data)
                 submitted = result.get('submitted', False)
@@ -542,6 +544,12 @@ def github_action_main():
                 print_github_summary(findings, submitted=False, problems=problems, rate_limited=e)
                 return 0
             except Exception as e:
+                if not findings:
+                    # Only coverage to send; the next scan sends it again
+                    logger.warning(f"Could not tell LeftSize about this scan without findings: {e}")
+                    set_scan_outputs(findings, submitted=False, problems=problems)
+                    print_github_summary(findings, submitted=False, problems=problems)
+                    return 0
                 logger.error(f"Failed to submit findings to backend: {e}")
                 set_scan_outputs(findings, submitted=False, problems=problems)
                 print_github_summary(findings, submitted=False, problems=problems)
@@ -1122,6 +1130,9 @@ def execute_custodian_policies(policies_dir: str, config: Dict[str, Any]) -> Opt
     logger.info("Executing Cloud Custodian policies", policies_dir=policies_dir)
     # Real scan: environment classification may read Azure resource group tags
     LOOKUP_RESOURCE_GROUP_TAGS = True
+    # Sent with the findings: LeftSize treats a problem it reported earlier as gone only when
+    # it was last seen before this scan started
+    config.setdefault('scan_started_at', int(time.time()))
     
     # Get cloud provider to filter policies
     cloud_provider = config.get('cloud_provider', 'azure')
@@ -1215,15 +1226,10 @@ def sanitize_text(value: str, limit: int = 200) -> str:
 
 
 def custodian_command(config: Dict[str, Any]) -> List[str]:
-    """The Custodian CLI to run. Cloudflare and Azure need the wrapper that registers
-    the c7n_cloudflare provider and LeftSize's Azure filters (Custodian has no plugin
-    loading); AWS uses the stock `custodian` from the same Python environment."""
-    if config.get('cloud_provider') in ('cloudflare', 'azure'):
-        return [sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'leftsize_custodian.py')]
-    custodian_bin = os.path.join(os.path.dirname(sys.executable), 'custodian')
-    if not os.path.isfile(custodian_bin):
-        custodian_bin = 'custodian'  # Fall back to PATH
-    return [custodian_bin]
+    """The Custodian CLI to run: LeftSize's wrapper around it, for every provider. It
+    registers the c7n_cloudflare provider and LeftSize's Azure filters (Custodian has no
+    plugin loading) and records how many resources each policy examined (coverage)."""
+    return [sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'leftsize_custodian.py')]
 
 
 def _debug_enabled() -> bool:
@@ -1261,6 +1267,8 @@ def execute_single_policy_file(policies_file: str, config: Dict[str, Any]) -> Op
         # Subscription is configured via environment variables
         
         logger.info("Executing custodian command", cmd=" ".join(cmd))
+        # Policies of this file that raised (exit code 2); they cover nothing this scan
+        failed_policies: set = set()
         
         try:
             # Execute Cloud Custodian
@@ -1277,6 +1285,7 @@ def execute_single_policy_file(policies_file: str, config: Dict[str, Any]) -> Op
             # resources.json. Keep those results instead of dropping the whole file.
             if result.returncode == 2:
                 failed = sorted(set(re.findall(r'^\s*-\s*(leftsize-[\w-]+)', result.stderr or '', re.M)))
+                failed_policies.update(failed)
                 logger.warning("Some policies failed; keeping results of the others",
                                failed_policies=failed or 'see custodian log')
                 for name in failed:
@@ -1284,6 +1293,8 @@ def execute_single_policy_file(policies_file: str, config: Dict[str, Any]) -> Op
                 if not failed:
                     record_problem(config, f"{os.path.basename(policies_file)}: some policies failed (set LEFTSIZE_DEBUG for details)")
             elif result.returncode != 0:
+                # Later files may reuse whatever this run cached before it failed
+                config['_scan_degraded'] = True
                 logger.error("Custodian execution failed", returncode=result.returncode,
                              error=_last_error_line(result.stderr))
                 if _debug_enabled():
@@ -1311,8 +1322,15 @@ def execute_single_policy_file(policies_file: str, config: Dict[str, Any]) -> Op
             
             # Parse Custodian output
             findings = parse_custodian_output(output_dir, config)
+            # Couldn't read some details (e.g. a bucket's encryption): a resource may look
+            # fine only because that detail is missing, so this file's coverage is degraded
+            # Sticky for the rest of the scan: later files reuse the cached (incomplete) resources
+            if DEGRADED_SCAN_PATTERN.search(result.stderr or ''):
+                config['_scan_degraded'] = True
+            record_coverage(output_dir, config, failed_policies, bool(config.get('_scan_degraded')))
             
         except subprocess.TimeoutExpired:
+            config['_scan_degraded'] = True
             logger.error("Custodian execution timed out", file=os.path.basename(policies_file))
             return None
         except Exception as e:
@@ -1321,6 +1339,66 @@ def execute_single_policy_file(policies_file: str, config: Dict[str, Any]) -> Op
     
     logger.info("Policy execution completed", findings_count=len(findings))
     return findings
+
+
+# Custodian's warnings when it couldn't read part of a resource (AWS augment calls, Azure
+# child lookups): the policy still runs, on incomplete data.
+DEGRADED_SCAN_PATTERN = re.compile(
+    r'unable to invoke method|AccessDenied|UnauthorizedOperation|AuthorizationFailed|'
+    r'AuthorizationError|Forbidden|Throttl|TooManyRequests|Child enumeration failed|timed? ?out|'
+    # LeftSize's own filters and provider warn when they skip something (e.g. one Application
+    # Insights component whose API keys couldn't be listed)
+    r'custodian\.(?:leftsize\.azure|cloudflare):WARNING', re.I)
+
+COVERAGE_EXAMINED_FILE = 'leftsize-examined.json'
+
+
+def coverage_scope(config: Dict[str, Any], examined: Dict[str, Any]) -> Optional[str]:
+    """The scope a policy run covers, as the prefix of its findings' scopes (see
+    build_scope_from_resource_id): the AWS account and region, or the Azure subscription
+    Custodian's session used (recorded by the wrapper; the configured list may name
+    others). None for Cloudflare (one token may reach several accounts) or when unknown."""
+    provider = config.get('cloud_provider', 'azure')
+    if provider == 'aws':
+        # The account and region Custodian ran in (recorded by the wrapper), and only when
+        # the account is the one the findings are attributed to
+        account_id, region = examined.get('account'), examined.get('region')
+        if not account_id or not region or str(account_id) != str(config.get('targets', {}).get('aws', {}).get('account_id')):
+            return None
+        return f"aws:account/{account_id}/region/{region}"
+    if provider == 'azure':
+        subscription_id = examined.get('subscription')
+        if not isinstance(subscription_id, str) or not validate_azure_subscription_id(subscription_id):
+            return None
+        return f"azure:subscription/{subscription_id.lower()}"
+    return None
+
+
+def record_coverage(output_dir: str, config: Dict[str, Any], failed: set, degraded: bool) -> None:
+    """Adds the policies of one Custodian run that ran without an error to the scan's
+    coverage: which rules looked where, and how many resources they examined. LeftSize
+    uses it to tell "no longer found" from "not looked at"."""
+    coverage = config.setdefault('scan_coverage', [])
+    for policy_dir, policy_config in _policy_output_dirs(Path(output_dir), config):
+        # Custodian writes resources.json only when the policy ran to the end
+        if policy_dir.name in failed or not (policy_dir / 'resources.json').exists():
+            continue
+        info: Dict[str, Any] = {}
+        try:
+            with open(policy_dir / COVERAGE_EXAMINED_FILE) as f:
+                loaded = json.load(f)
+            info = loaded if isinstance(loaded, dict) else {}
+        except (OSError, ValueError):
+            pass
+        scope = coverage_scope(policy_config, info)
+        if scope is None:
+            continue
+        value = info.get('examined')
+        examined = value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else None
+        entry: Dict[str, Any] = {'Policy': policy_dir.name, 'Scope': scope, 'Examined': examined}
+        if degraded:
+            entry['Degraded'] = True
+        coverage.append(entry)
 
 
 def _last_error_line(stderr: Optional[str]) -> str:
@@ -2810,6 +2888,13 @@ def submit_findings(findings: List[Dict[str, Any]], config: Dict[str, Any]) -> D
         
         # One ScanId for all attempts: a retried scan overwrites the same stored payload
         payload = {"FindingGroups": finding_groups, "Currency": currency, "ScanId": str(uuid.uuid4())}
+        # When the scan started and which rules ran where (see record_coverage)
+        if config.get('scan_started_at'):
+            payload["ScanStartedAt"] = config['scan_started_at']
+        payload["Coverage"] = config.get('scan_coverage', [])
+        # The auto-close input; LeftSize closes issues whose problem is gone unless it's false
+        if os.getenv('LEFTSIZE_AUTO_CLOSE', 'true').strip().lower() == 'false':
+            payload["AutoClose"] = False
         response = post_with_retry(url, payload, headers)
         
         if response.status_code == 429:

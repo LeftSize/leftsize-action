@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Scan coverage:** each submission says when the scan started and which rules ran where (the AWS account and region, or the Azure subscription), with how many resources each rule examined. LeftSize uses it to tell a problem that's gone from one that wasn't looked at, so it can mark findings resolved (and later close issues) without guessing. Rules that raised an error, and Cloudflare scans, aren't listed; runs with access warnings are marked as degraded.
+- `auto-close` input (default `true`): LeftSize may close an issue once its problem is gone, after a warning comment and a week's grace. Set it to `false` to close issues yourself.
+- A scan without findings is now submitted too, so LeftSize learns that what it reported earlier is no longer found. It never counts towards the plan's repository limit.
+
+### Changed
+- AWS scans run through `leftsize_custodian.py` too (as Azure and Cloudflare already did). The wrapper records each policy's unfiltered resource count in `leftsize-examined.json`.
+
 ## [1.0.32] - 2026-11-08
 
 ### Added
