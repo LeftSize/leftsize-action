@@ -1325,7 +1325,7 @@ def execute_single_policy_file(policies_file: str, config: Dict[str, Any]) -> Op
             # Couldn't read some details (e.g. a bucket's encryption): a resource may look
             # fine only because that detail is missing, so this file's coverage is degraded
             # Sticky for the rest of the scan: later files reuse the cached (incomplete) resources
-            if DEGRADED_SCAN_PATTERN.search(result.stderr or ''):
+            if degraded_warning(result.stderr):
                 config['_scan_degraded'] = True
             record_coverage(output_dir, config, failed_policies, bool(config.get('_scan_degraded')))
             
@@ -1342,13 +1342,23 @@ def execute_single_policy_file(policies_file: str, config: Dict[str, Any]) -> Op
 
 
 # Custodian's warnings when it couldn't read part of a resource (AWS augment calls, Azure
-# child lookups): the policy still runs, on incomplete data.
-DEGRADED_SCAN_PATTERN = re.compile(
-    r'unable to invoke method|AccessDenied|UnauthorizedOperation|AuthorizationFailed|'
-    r'AuthorizationError|Forbidden|Throttl|TooManyRequests|Child enumeration failed|timed? ?out|'
-    # LeftSize's own filters and provider warn when they skip something (e.g. one Application
-    # Insights component whose API keys couldn't be listed)
-    r'custodian\.(?:leftsize\.azure|cloudflare):WARNING', re.I)
+# child lookups): the policy still runs, on incomplete data. Only WARNING lines count: a
+# policy that raised (its ERROR and traceback) is left out of the coverage anyway.
+DEGRADED_WARNING = re.compile(
+    r'unable to invoke method|AccessDenied|UnauthorizedOperation|AuthorizationFailed|AuthorizationError|'
+    r'Forbidden|Throttl|TooManyRequests|Child enumeration failed|timed? ?out', re.I)
+# LeftSize's own filters and provider warn whenever they skip something (e.g. one Application
+# Insights component whose API keys couldn't be listed)
+OWN_WARNING = re.compile(r'custodian\.(?:leftsize\.azure|cloudflare):WARNING ')
+
+
+def degraded_warning(stderr: Optional[str]) -> bool:
+    """Whether a Custodian run logged a warning about data it couldn't read."""
+    for line in (stderr or '').splitlines():
+        if OWN_WARNING.search(line) or (':WARNING ' in line and DEGRADED_WARNING.search(line)):
+            return True
+    return False
+
 
 COVERAGE_EXAMINED_FILE = 'leftsize-examined.json'
 
@@ -1396,7 +1406,7 @@ def record_coverage(output_dir: str, config: Dict[str, Any], failed: set, degrad
         value = info.get('examined')
         examined = value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else None
         entry: Dict[str, Any] = {'Policy': policy_dir.name, 'Scope': scope, 'Examined': examined}
-        if degraded:
+        if degraded or info.get('denied'):
             entry['Degraded'] = True
         coverage.append(entry)
 
