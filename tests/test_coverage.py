@@ -148,6 +148,17 @@ class TestExaminedCount:
         leftsize_custodian._record_examined(manager, [{}])
         assert written == [('leftsize-examined.json', {'examined': 3, 'denied': 1})]
 
+    def test_counts_denied_reads_that_filters_add(self, monkeypatch):
+        written = []
+        manager = self._manager(written)
+
+        def check_public_block(self, resources, event=None):
+            resources[0]['c7n:DeniedMethods'] = ['GetPublicAccessBlock']
+            return []
+        monkeypatch.setattr(leftsize_custodian, '_filter_resources', check_public_block)
+        leftsize_custodian._record_examined(manager, [{}, {}])
+        assert written == [('leftsize-examined.json', {'examined': 2, 'denied': 1})]
+
     def test_ignores_managers_of_related_resources(self, monkeypatch):
         written = []
         policy_manager = self._manager(written)

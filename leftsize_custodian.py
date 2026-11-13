@@ -6,7 +6,8 @@ imported before the CLI runs. Usage is the same as `custodian`:
     python leftsize_custodian.py run --output-dir out --dry-run policies/cloudflare-security.yml
 
 It also writes `leftsize-examined.json` next to each policy's `resources.json`: how many
-resources the policy's query returned before its filters. "Looked at 40 disks, flagged
+resources the policy's query returned before its filters, and how many of them had reads
+denied. "Looked at 40 disks, flagged
 none" means the rule found nothing to report; "looked at none" may just as well mean the
 credentials can't see that resource type, so LeftSize doesn't treat the problems it
 reported earlier as gone.
@@ -31,24 +32,29 @@ _filter_resources = ResourceManager.filter_resources
 
 
 def _record_examined(self, resources, event=None):
-    """Writes the policy's unfiltered resource count once, then filters as usual.
+    """Filters as usual, then writes the policy's unfiltered resource count once.
 
     Filters of related resources (a VPC, a security group) get managers of their own
     that share the policy's context; only the policy's own manager counts.
     """
     ctx = getattr(self, "ctx", None)
     policy = getattr(ctx, "policy", None)
-    if policy is not None and getattr(policy, "resource_manager", None) is self \
-            and not getattr(self, "_leftsize_examined", False):
-        self._leftsize_examined = True
-        try:
-            # Custodian records some read failures on the resource instead of logging them
-            # (S3: c7n:DeniedMethods), so the policy judged incomplete data
-            denied = sum(1 for r in resources if isinstance(r, dict) and r.get("c7n:DeniedMethods"))
-            ctx.output.write_file(EXAMINED_FILE, json.dumps({"examined": len(resources), "denied": denied, **_scanned_where(self)}))
-        except Exception:  # noqa: BLE001  a missing count only makes LeftSize more careful
-            pass
-    return _filter_resources(self, resources, event)
+    own = policy is not None and getattr(policy, "resource_manager", None) is self \
+        and not getattr(self, "_leftsize_examined", False)
+    if not own:
+        return _filter_resources(self, resources, event)
+    self._leftsize_examined = True
+    examined = list(resources or [])
+    filtered = _filter_resources(self, resources, event)
+    try:
+        # Custodian records some read failures on the resource instead of logging them
+        # (S3: c7n:DeniedMethods, also added by filters such as check-public-block), so
+        # they're counted after the filters ran, on the same resource objects
+        denied = sum(1 for r in examined if isinstance(r, dict) and r.get("c7n:DeniedMethods"))
+        ctx.output.write_file(EXAMINED_FILE, json.dumps({"examined": len(examined), "denied": denied, **_scanned_where(self)}))
+    except Exception:  # noqa: BLE001  a missing count only makes LeftSize more careful
+        pass
+    return filtered
 
 
 def _scanned_where(manager) -> dict:
