@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.35] - 2026-11-14
+
 ### Added
 - **Azure:** `leftsize-azure-openai-model-retirement` finds Azure OpenAI and Foundry (AI Services) deployments that stop working when their model version retires: gpt-4o 2024-05-13 (January 14, 2027), gpt-4o 2024-08-06 and 2024-11-20, gpt-4o-mini 2024-07-18 and gpt-4.1-mini 2025-04-14 (April 14, 2027), and fine-tuned deployments of retiring bases (October 2027). Provisioned and Batch deployments are flagged, other types only with auto-upgrade off (Microsoft upgrades them itself). Uses LeftSize's `retiring-model-deployments` filter (`leftsize_azure.py`; deployments/read is part of Reader).
 - **AWS:** `leftsize-bedrock-model-end-of-life` finds Bedrock models a Region served in the last 14 days that AWS takes out of service there, e.g. Claude Opus 4.1 (January 8, 2027), about 30 open-weight and partner models (March 2027) and Claude Sonnet 4.5 (April 8, 2027); end-of-life dates before December 2026 aren't listed. Usage comes from CloudWatch (AWS/Bedrock Invocations by ModelId; calls through cross-Region inference profiles count towards their model) through LeftSize's new `aws.bedrock-model-usage` resource (`leftsize_aws.py`).
