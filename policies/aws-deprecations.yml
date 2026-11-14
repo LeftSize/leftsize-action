@@ -1322,3 +1322,87 @@ policies:
       severity: high
       tier: pro
       review_by: '2026-12-01'
+
+  # HIGH: Bedrock models in use that reach end of life (requests then fail)
+  - name: leftsize-bedrock-model-end-of-life
+    description: |
+      Find Amazon Bedrock models this Region served in the last 14 days that AWS
+      takes out of service (end of life) in this Region.
+
+      After the end-of-life date, requests to the model fail; there's no automatic
+      migration. Before it, a model is Legacy: new customers can't use it, existing
+      customers can lose access after 15 days without calls, no new Provisioned
+      Throughput can be created, and during public extended access the provider may
+      charge more.
+
+      Usage comes from CloudWatch (namespace AWS/Bedrock, metric Invocations by
+      ModelId; cloudwatch:ListMetrics and GetMetricData, part of ReadOnlyAccess).
+      Calls through cross-Region inference profiles (us., eu., global., ...) count
+      towards the model they route to. CloudWatch doesn't say which application made
+      the calls. Models called by ARN (Provisioned Throughput, custom or imported
+      models) aren't matched.
+
+      The table follows AWS's model lifecycle page (Legacy and EOL models with an
+      announced EOL date from December 2026 on, checked 2026-11-13; ids of both the
+      bedrock-runtime and bedrock-mantle endpoints). Dates differ per Region; a model
+      can stay Active in Regions that aren't listed. Calls through an inference
+      profile are counted in the Region that made them, while AWS may serve them
+      from other Regions of the profile.
+
+      Detection uses LeftSize's bedrock-model-usage resource (leftsize_aws.py), so
+      it only runs through leftsize_custodian.py.
+
+      Reference: https://docs.aws.amazon.com/bedrock/latest/userguide/model-lifecycle-legacy.html
+      Reference: https://docs.aws.amazon.com/bedrock/latest/userguide/model-lifecycle.html
+
+    resource: aws.bedrock-model-usage
+
+    metadata:
+      category: deprecation
+      severity: high
+      tier: pro
+      review_by: '2027-01-08'
+      review_note: 'Refresh the table from the model lifecycle pages; Opus 4.1 reaches EOL on this date.'
+
+    filters:
+      - type: bedrock-end-of-life
+        models:
+          - {id: anthropic.claude-sonnet-4-5-20250929-v1:0, regions: [af-south-1, ap-east-2, ap-northeast-1, ap-northeast-2, ap-northeast-3, ap-south-1, ap-south-2, ap-southeast-1, ap-southeast-2, ap-southeast-3, ap-southeast-4, ap-southeast-5, ap-southeast-6, ap-southeast-7, ca-central-1, ca-west-1, eu-central-1, eu-central-2, eu-north-1, eu-south-1, eu-south-2, eu-west-1, eu-west-2, eu-west-3, il-central-1, mx-central-1, sa-east-1, us-east-1, us-east-2, us-west-1, us-west-2], eol: '2027-04-08', legacy: '2026-10-08', extended_access: '2027-01-08'}
+          - {id: anthropic.claude-sonnet-4-5-20250929-v1:0, regions: [us-gov-east-1, us-gov-west-1], eol: '2027-04-27', legacy: '2026-10-27', extended_access: '2027-01-27'}
+          - {id: anthropic.claude-opus-4-1-20250805-v1:0, regions: [us-east-1, us-east-2, us-west-2], eol: '2027-01-08', legacy: '2026-07-08', extended_access: '2026-10-08'}
+          - {id: deepseek.r1-v1:0, regions: [us-east-1, us-east-2, us-west-2], eol: '2027-03-30', legacy: '2026-09-30'}
+          - {id: deepseek.v3-v1:0, regions: [ap-northeast-1, ap-south-1, ap-southeast-2, ap-southeast-3, eu-north-1, eu-west-2, us-east-2, us-west-2], eol: '2027-03-30', legacy: '2026-09-30'}
+          - {id: deepseek.v3.1, regions: [ap-northeast-1, ap-south-1, ap-southeast-2, ap-southeast-3, eu-north-1, eu-west-2, us-east-2, us-west-2], eol: '2027-03-30', legacy: '2026-09-30'}
+          - {id: google.gemma-3-12b-it, regions: [ap-northeast-1, ap-south-1, ap-southeast-2, eu-south-1, eu-west-1, eu-west-2, sa-east-1, us-east-1, us-east-2, us-west-2], eol: '2027-03-30', legacy: '2026-09-30'}
+          - {id: google.gemma-3-27b-it, regions: [ap-northeast-1, ap-south-1, ap-southeast-2, eu-south-1, eu-west-1, eu-west-2, sa-east-1, us-east-1, us-east-2, us-west-2], eol: '2027-03-30', legacy: '2026-09-30'}
+          - {id: google.gemma-3-4b-it, regions: [ap-northeast-1, ap-south-1, ap-southeast-2, eu-south-1, eu-west-1, eu-west-2, sa-east-1, us-east-1, us-east-2, us-west-2], eol: '2027-03-30', legacy: '2026-09-30'}
+          - {id: meta.llama3-70b-instruct-v1:0, regions: [ap-south-1, ca-central-1, eu-west-2, us-east-1, us-west-2], eol: '2027-03-30', legacy: '2026-09-30'}
+          - {id: meta.llama3-70b-instruct-v1:0, regions: [us-gov-west-1], eol: '2027-05-09', legacy: '2026-11-09'}
+          - {id: meta.llama3-8b-instruct-v1:0, regions: [ap-south-1, ca-central-1, eu-west-2, us-east-1, us-west-2], eol: '2027-03-30', legacy: '2026-09-30'}
+          - {id: meta.llama3-8b-instruct-v1:0, regions: [us-gov-west-1], eol: '2027-05-09', legacy: '2026-11-09'}
+          - {id: meta.llama3-1-70b-instruct-v1:0, regions: [us-east-1, us-east-2, us-west-2], eol: '2027-03-30', legacy: '2026-09-30'}
+          - {id: meta.llama3-1-8b-instruct-v1:0, regions: [us-east-1, us-east-2, us-west-2], eol: '2027-03-30', legacy: '2026-09-30'}
+          - {id: meta.llama3-3-70b-instruct-v1:0, regions: [us-east-1, us-east-2, us-west-2], eol: '2027-03-30', legacy: '2026-09-30'}
+          - {id: meta.llama4-maverick-17b-instruct-v1:0, regions: [us-east-1, us-east-2, us-west-1, us-west-2], eol: '2027-03-30', legacy: '2026-09-30'}
+          - {id: meta.llama4-scout-17b-instruct-v1:0, regions: [us-east-1, us-east-2, us-west-1, us-west-2], eol: '2027-03-30', legacy: '2026-09-30'}
+          - {id: minimax.minimax-m2, regions: [ap-northeast-1, ap-south-1, ap-southeast-2, eu-south-1, eu-west-1, eu-west-2, sa-east-1, us-east-1, us-east-2, us-west-2], eol: '2027-03-30', legacy: '2026-09-30'}
+          - {id: minimax.minimax-m2.1, regions: [ap-northeast-1, ap-south-1, ap-southeast-2, ap-southeast-3, eu-central-1, eu-north-1, eu-south-1, eu-west-1, eu-west-2, sa-east-1, us-east-1, us-east-2, us-west-2], eol: '2027-03-30', legacy: '2026-09-30'}
+          - {id: mistral.devstral-2-123b, regions: [ap-northeast-1, ap-south-1, ap-southeast-2, ap-southeast-3, eu-central-1, eu-north-1, eu-south-1, eu-west-1, eu-west-2, sa-east-1, us-east-1, us-east-2, us-west-2], eol: '2027-03-30', legacy: '2026-09-30'}
+          - {id: mistral.mistral-7b-instruct-v0:2, regions: [ap-south-1, ap-southeast-2, ca-central-1, eu-west-1, eu-west-2, eu-west-3, sa-east-1, us-east-1, us-west-2], eol: '2027-03-30', legacy: '2026-09-30'}
+          - {id: mistral.mixtral-8x7b-instruct-v0:1, regions: [ap-south-1, ap-southeast-2, ca-central-1, eu-west-1, eu-west-2, eu-west-3, sa-east-1, us-east-1, us-west-2], eol: '2027-03-30', legacy: '2026-09-30'}
+          - {id: mistral.voxtral-mini-3b-2507, regions: [ap-northeast-1, ap-south-1, ap-southeast-2, eu-south-1, eu-west-1, eu-west-2, sa-east-1, us-east-1, us-east-2, us-west-2], eol: '2027-03-30', legacy: '2026-09-30'}
+          - {id: mistral.voxtral-small-24b-2507, regions: [ap-northeast-1, ap-south-1, ap-southeast-2, eu-south-1, eu-west-1, eu-west-2, sa-east-1, us-east-1, us-east-2, us-west-2], eol: '2027-03-30', legacy: '2026-09-30'}
+          - {id: moonshot.kimi-k2-thinking, regions: [ap-northeast-1, ap-south-1, ap-southeast-2, sa-east-1, us-east-1, us-east-2, us-west-2], eol: '2027-03-30', legacy: '2026-09-30'}
+          - {id: moonshotai.kimi-k2-thinking, regions: [ap-northeast-1, ap-south-1, ap-southeast-2, sa-east-1, us-east-1, us-east-2, us-west-2], eol: '2027-03-30', legacy: '2026-09-30'}
+          - {id: nvidia.nemotron-nano-12b-v2, regions: [ap-northeast-1, ap-south-1, ap-southeast-2, eu-south-1, eu-west-1, eu-west-2, sa-east-1, us-east-1, us-east-2, us-west-2], eol: '2027-03-30', legacy: '2026-09-30'}
+          - {id: nvidia.nemotron-nano-9b-v2, regions: [ap-northeast-1, ap-south-1, ap-southeast-2, eu-south-1, eu-west-1, eu-west-2, sa-east-1, us-east-1, us-east-2, us-west-2], eol: '2027-03-30', legacy: '2026-09-30'}
+          - {id: qwen.qwen3-coder-30b-a3b-v1:0, regions: [ap-northeast-1, ap-south-1, ap-southeast-2, ap-southeast-3, eu-central-1, eu-north-1, eu-south-1, eu-west-1, eu-west-2, sa-east-1, us-east-1, us-east-2, us-west-2], eol: '2027-03-30', legacy: '2026-09-30'}
+          - {id: qwen.qwen3-coder-30b-a3b-instruct, regions: [ap-northeast-1, ap-south-1, ap-southeast-2, ap-southeast-3, eu-central-1, eu-north-1, eu-south-1, eu-west-1, eu-west-2, sa-east-1, us-east-1, us-east-2, us-west-2], eol: '2027-03-30', legacy: '2026-09-30'}
+          - {id: qwen.qwen3-coder-480b-a35b-v1:0, regions: [ap-northeast-1, ap-south-1, ap-southeast-2, ap-southeast-3, eu-north-1, eu-west-2, us-east-2, us-west-2], eol: '2027-03-30', legacy: '2026-09-30'}
+          - {id: qwen.qwen3-coder-480b-a35b-instruct, regions: [ap-northeast-1, ap-south-1, ap-southeast-2, ap-southeast-3, eu-north-1, eu-west-2, us-east-2, us-west-2], eol: '2027-03-30', legacy: '2026-09-30'}
+          - {id: twelvelabs.marengo-embed-3-0-v1:0, regions: [ap-northeast-2], eol: '2027-03-22', legacy: '2026-09-22'}
+          - {id: twelvelabs.pegasus-1-2-v1:0, regions: [af-south-1, ap-east-2, ap-northeast-1, ap-northeast-2, ap-northeast-3, ap-south-1, ap-south-2, ap-southeast-1, ap-southeast-2, ap-southeast-3, ap-southeast-4, ap-southeast-5, ap-southeast-7, ca-central-1, ca-west-1, eu-central-1, eu-central-2, eu-north-1, eu-south-1, eu-south-2, eu-west-1, eu-west-2, eu-west-3, il-central-1, mx-central-1, sa-east-1, us-east-1, us-east-2, us-west-1, us-west-2], eol: '2027-03-22', legacy: '2026-09-22'}
+          - {id: writer.palmyra-x4-v1:0, regions: [us-east-1, us-east-2, us-west-1, us-west-2], eol: '2027-03-09', legacy: '2026-09-09'}
+          - {id: writer.palmyra-x5-v1:0, regions: [us-east-1, us-east-2, us-west-1, us-west-2], eol: '2027-03-21', legacy: '2026-09-21'}
+          - {id: zai.glm-4.7, regions: [ap-northeast-1, ap-south-1, ap-southeast-2, ap-southeast-3, eu-north-1, eu-west-2, sa-east-1, us-east-1, us-east-2, us-west-2], eol: '2027-03-30', legacy: '2026-09-30'}
+          - {id: zai.glm-4.7-flash, regions: [ap-northeast-1, ap-south-1, ap-southeast-2, ap-southeast-3, eu-central-1, eu-north-1, eu-south-1, eu-west-1, eu-west-2, sa-east-1, us-east-1, us-east-2, us-west-2], eol: '2027-03-30', legacy: '2026-09-30'}

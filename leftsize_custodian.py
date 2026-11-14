@@ -21,6 +21,7 @@ from c7n.manager import ResourceManager
 
 import c7n_cloudflare  # noqa: F401  registers the cloudflare provider
 import leftsize_azure  # noqa: F401  registers LeftSize's Azure filters (query-api-keys)
+import leftsize_aws  # noqa: F401  registers LeftSize's AWS resources (bedrock-model-usage)
 
 # `custodian schema cloudflare...` only accepts names in this tuple
 if "cloudflare" not in c7n.resources.PROVIDER_NAMES:
@@ -64,7 +65,7 @@ def _scanned_where(manager) -> dict:
     or the Azure CLI default, which needn't be the first one configured). Empty when
     unknown."""
     module = type(manager).__module__
-    if module.startswith("c7n.resources") or module.startswith("c7n.query"):
+    if module.startswith(("c7n.resources", "c7n.query", "leftsize_aws")):
         config = getattr(manager, "config", None)
         region = getattr(config, "region", None)
         account_id = getattr(config, "account_id", None)

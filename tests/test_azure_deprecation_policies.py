@@ -65,6 +65,19 @@ class FakeClient:
             return [SimpleNamespace(name=k['name'], created_date='2026-01-01', linked_read_properties=k['read'])
                     for k in resource.get('_api_keys', [])]
 
+        def send_request(request: Any) -> Any:
+            # Deployments of an Azure OpenAI / AI Services account (leftsize_azure.list_deployments)
+            self.calls.append(request.url)
+            if resource.get('_deployments_error'):
+                raise resource['_deployments_error']
+            pages = resource.get('_deployment_pages') or [resource.get('_deployments', [])]
+            index = int(request.url.split('page=')[1]) if 'page=' in request.url else 0
+            body: Dict[str, Any] = {'value': pages[index]}
+            if index + 1 < len(pages):
+                body['nextLink'] = f'https://management.azure.com{resource["id"]}/deployments?page={index + 1}'
+            return SimpleNamespace(raise_for_status=lambda: None, json=lambda: body)
+
+        self._client = SimpleNamespace(_base_url='https://management.azure.com', send_request=send_request)
         self.virtual_machines = SimpleNamespace(get=vm_get)
         self.api_keys = SimpleNamespace(list=api_keys_list)
         self.web_apps = SimpleNamespace(get_configuration=get_configuration)
@@ -107,6 +120,18 @@ def aks(version: str = '1.35.1', state: str = 'Succeeded', **pool: Any) -> Dict[
     return {'properties': {'provisioningState': state, 'kubernetesVersion': version,
                            'agentPoolProfiles': [p],
                            'networkProfile': {'networkPlugin': 'azure'}, 'addonProfiles': {}}}
+
+
+def dep(model: str, version: str, sku: str, upgrade: Optional[str] = None, name: str = 'chat') -> Dict[str, Any]:
+    props: Dict[str, Any] = {'model': {'format': 'OpenAI', 'name': model, 'version': version}}
+    if upgrade:
+        props['versionUpgradeOption'] = upgrade
+    return {'name': name, 'sku': {'name': sku, 'capacity': 10}, 'properties': props}
+
+
+def openai(*deployments: Dict[str, Any], kind: str = 'OpenAI') -> Dict[str, Any]:
+    return {'kind': kind, 'id': '/subscriptions/s/resourceGroups/rg/providers/Microsoft.CognitiveServices/accounts/r1',
+            '_deployments': list(deployments)}
 
 
 def funcapp(fx: str, kind: str = 'functionapp,linux') -> Dict[str, Any]:
@@ -292,6 +317,23 @@ CASES: Dict[str, List[Tuple[str, Dict[str, Any], bool]]] = {
    ('write annotations only', {'_api_keys': [{'name': 'deploy', 'read': []}]}, False),
    ('no API keys', {'_api_keys': []}, False),
  ],
+ 'leftsize-azure-openai-model-retirement': [
+   ('provisioned gpt-4o 2024-08-06', openai(dep('gpt-4o', '2024-08-06', 'ProvisionedManaged')), True),
+   ('global provisioned gpt-4o 2024-05-13', openai(dep('gpt-4o', '2024-05-13', 'GlobalProvisionedManaged')), True),
+   ('global batch gpt-4o-mini', openai(dep('gpt-4o-mini', '2024-07-18', 'GlobalBatch')), True),
+   ('global standard with auto-upgrade off', openai(dep('gpt-4.1-mini', '2025-04-14', 'GlobalStandard', 'NoAutoUpgrade')), True),
+   ('fine-tuned gpt-4o-mini', openai(dep('gpt-4o-mini-2024-07-18.ft-0123456789abcdef', '1', 'Standard')), True),
+   ('AI Services (Foundry) account', openai(dep('gpt-4o', '2024-11-20', 'DataZoneProvisionedManaged'), kind='AIServices'), True),
+   ('global standard, auto-upgraded by Microsoft', openai(dep('gpt-4o', '2024-08-06', 'GlobalStandard')), False),
+   ('standard upgraded at expiry', openai(dep('gpt-4o', '2024-11-20', 'Standard', 'OnceCurrentVersionExpired')), False),
+   ('model version not retiring', openai(dep('gpt-4o', '2025-01-01', 'ProvisionedManaged')), False),
+   ('unknown deployment type, auto-upgrade on', openai(dep('gpt-4o', '2024-08-06', 'PriorityProcessing')), False),
+   ('data zone batch', openai(dep('gpt-4o', '2024-11-20', 'DataZoneBatch')), True),
+   ('provisioned gpt-4.1 base (only fine-tuned dated)', openai(dep('gpt-4.1', '2025-04-14', 'ProvisionedManaged')), False),
+   ('fine-tuned model of a base not listed', openai(dep('gpt-35-turbo-0125.ft-abc', '1', 'Standard')), False),
+   ('speech account', openai(dep('gpt-4o', '2024-08-06', 'ProvisionedManaged'), kind='SpeechServices'), False),
+   ('no deployments', openai(), False),
+ ],
  'leftsize-fluid-relay-retirement': [
    ('Fluid Relay server', {'type': 'Microsoft.FluidRelay/fluidRelayServers'}, True),
    ('lower-case type from the API', {'type': 'microsoft.fluidrelay/fluidrelayservers'}, True),
@@ -462,3 +504,64 @@ def test_query_api_keys_raises_when_no_component_can_be_read() -> None:
     manager = _query_keys_manager({'denied': denied})
     with pytest.raises(HttpResponseError):
         manager.filter_resources([denied])
+
+
+def _openai_manager(by_name: Dict[str, Dict[str, Any]]) -> Any:
+    manager = Policy(DOCS['leftsize-azure-openai-model-retirement'], Config.empty(region='westeurope')).resource_manager
+
+    class PerResource:
+        def __init__(self) -> None:
+            self._client = SimpleNamespace(
+                _base_url='https://management.azure.com',
+                send_request=lambda req: FakeClient(next(r for r in by_name.values() if r['id'] in req.url))._client.send_request(req))
+
+    manager.get_client = lambda *a, **k: PerResource()
+    for f in manager.filters:
+        f.manager.get_client = manager.get_client
+    return manager
+
+
+def _account(name: str, *deployments: Dict[str, Any], **extra: Any) -> Dict[str, Any]:
+    return dict(openai(*deployments), id=f'/subscriptions/s/resourceGroups/rg/providers/Microsoft.CognitiveServices/accounts/{name}',
+                name=name, **extra)
+
+
+def test_openai_annotates_retiring_deployments_earliest_first() -> None:
+    account = _account('ai', dep('gpt-4o-mini', '2024-07-18', 'ProvisionedManaged', name='mini'),
+                       dep('gpt-4o', '2024-05-13', 'GlobalBatch', name='batch'),
+                       dep('gpt-4o', '2024-08-06', 'GlobalStandard', name='auto'))
+    [found] = _openai_manager({'ai': account}).filter_resources([account])
+    assert [(d['deployment'], d['retires']) for d in found['c7n:retiring-deployments']] == [
+        ('batch', '2027-01-14'), ('mini', '2027-04-14')]
+
+
+def test_openai_fine_tuned_gets_its_own_date() -> None:
+    account = _account('ai', dep('gpt-4.1-mini-2025-04-14.ft-abc', '1', 'Standard', name='ft'))
+    [found] = _openai_manager({'ai': account}).filter_resources([account])
+    assert found['c7n:retiring-deployments'] == [{
+        'deployment': 'ft', 'model': 'gpt-4.1-mini-2025-04-14.ft-abc', 'version': '1', 'sku': 'Standard',
+        'versionUpgradeOption': None, 'baseModel': 'gpt-4.1-mini', 'baseVersion': '2025-04-14',
+        'retires': '2027-10-14', 'fineTuned': True}]
+
+
+def test_openai_follows_next_links() -> None:
+    account = _account('ai', _deployment_pages=[[dep('gpt-4o', '2025-01-01', 'Standard')],
+                                                 [dep('gpt-4o', '2024-08-06', 'ProvisionedManaged', name='p')]])
+    [found] = _openai_manager({'ai': account}).filter_resources([account])
+    assert [d['deployment'] for d in found['c7n:retiring-deployments']] == ['p']
+
+
+def test_openai_skips_an_account_that_fails_and_raises_when_none_can_be_read() -> None:
+    from azure.core.exceptions import HttpResponseError
+    ok = _account('ok', dep('gpt-4o', '2024-08-06', 'ProvisionedManaged'))
+    denied = _account('denied', _deployments_error=HttpResponseError(message='Forbidden'))
+    assert [r['name'] for r in _openai_manager({'ok': ok, 'denied': denied}).filter_resources([denied, ok])] == ['ok']
+    with pytest.raises(HttpResponseError):
+        _openai_manager({'denied': denied}).filter_resources([denied])
+
+
+def test_openai_skips_an_account_on_a_connection_error() -> None:
+    from azure.core.exceptions import ServiceRequestError
+    ok = _account('ok', dep('gpt-4o', '2024-08-06', 'ProvisionedManaged'))
+    down = _account('down', _deployments_error=ServiceRequestError('connection reset'))
+    assert [r['name'] for r in _openai_manager({'ok': ok, 'down': down}).filter_resources([down, ok])] == ['ok']
