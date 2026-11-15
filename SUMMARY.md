@@ -9,8 +9,6 @@ A production-ready GitHub Action that enables LeftSize customers to scan their A
 ```
 leftsize-action/
 ├── action.yml                         # Action metadata & interface (88 lines)
-├── Dockerfile                         # Container image definition (38 lines)
-├── entrypoint.sh                      # Entry script (23 lines)
 ├── run.py                            # Core scanner logic (900+ lines, adapted from apps/runner)
 ├── requirements.txt                   # Python dependencies (23 lines)
 ├── policies/                         # Curated Cloud Custodian policies

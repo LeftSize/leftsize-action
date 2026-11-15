@@ -16,8 +16,6 @@ A complete GitHub Action that:
 ```
 leftsize-action/
 ├── action.yml              # GitHub Action metadata and interface
-├── Dockerfile              # Container with Python, Cloud Custodian, Azure/AWS CLIs
-├── entrypoint.sh          # Entry script
 ├── run.py                 # Core scanner logic (adapted from apps/runner)
 ├── requirements.txt       # Python dependencies
 ├── policies/              # Curated Cloud Custodian policies
