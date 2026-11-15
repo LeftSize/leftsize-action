@@ -104,7 +104,7 @@ Cloud Custodian has no Cloudflare provider, so this repository ships one (read-o
 
 **Composite Action** (`action.yml` → `runs: using: composite`):
 - `actions/setup-python` (3.11, pinned by SHA), `pip install -r requirements.txt`, then `python3 run.py` on the customer's runner
-- The Dockerfile / ghcr.io image and `entrypoint.sh` are NOT used by `uses: leftsize/leftsize-action@v1`
+- There is no container image: the action only runs as a composite action (the old Dockerfile, `entrypoint.sh` and ghcr.io publish workflow were removed)
 - Test tools live in `requirements-dev.txt`, not `requirements.txt` (that one is installed on customer runners)
 - Safety: Custodian always runs with `--dry-run` and policies' `actions:` are stripped before running (`strip_policy_actions`)
 - Failures: a policy file that can't run returns None; no file running at all fails the step (exit 1); partial failures go to `config['scan_problems']` → job summary + `failed-policies` output
@@ -343,23 +343,6 @@ export INPUT_VERBOSE=true
 python run.py
 ```
 
-### Docker Testing
-
-```bash
-# Build container
-docker build -t leftsize-action .
-
-# Run container
-docker run --rm \
-  -e INPUT_INSTALLATION_ID=123456 \
-  -e INPUT_REPOSITORY_TOKEN=token_abc123 \
-  -e INPUT_CLOUD_PROVIDER=azure \
-  -e AZURE_CLIENT_ID=$AZURE_CLIENT_ID \
-  -e AZURE_TENANT_ID=$AZURE_TENANT_ID \
-  -e AZURE_SUBSCRIPTION_ID=$AZURE_SUBSCRIPTION_ID \
-  leftsize-action
-```
-
 ### Adding New Policies
 
 1. Create YAML file in appropriate directory
@@ -374,28 +357,6 @@ python leftsize_custodian.py validate policies/azure-deprecations.yml
 
 # Dry-run policy
 python leftsize_custodian.py run --dryrun -s out policies/azure-deprecations.yml
-```
-
-## Dockerfile
-
-```dockerfile
-FROM python:3.12-slim
-
-# Install Cloud Custodian
-RUN pip install --no-cache-dir \
-    c7n \
-    c7n-azure \
-    c7n-aws
-
-# Copy policies and entrypoint
-COPY policies /policies
-COPY run.py /run.py
-COPY requirements.txt /requirements.txt
-
-# Install dependencies
-RUN pip install --no-cache-dir -r /requirements.txt
-
-ENTRYPOINT ["python", "/run.py"]
 ```
 
 ## Dependencies
