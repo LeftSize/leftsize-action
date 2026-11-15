@@ -2352,7 +2352,6 @@ RESOURCE_FIELD_PATHS: Dict[str, Dict[str, List[str]]] = {
                 'instanceId': ['Attachments[].InstanceId'], 'deviceName': ['Attachments[].Device']},
     'aws.ebs-snapshot': {'volumeId': ['VolumeId'], 'volumeSize': ['VolumeSize']},
     'aws.network-addr': {'ipAddress': ['PublicIp'], 'instanceId': ['InstanceId']},
-    'aws.dynamodb-table': {'billingMode': ['BillingModeSummary.BillingMode']},
     'aws.vpc-endpoint': {'vpcEndpointType': ['VpcEndpointType'], 'serviceName': ['ServiceName']},
     'aws.cache-cluster': {'engine': ['Engine'], 'engineVersion': ['EngineVersion'],
                           'cacheNodeType': ['CacheNodeType'], 'nodeType': ['CacheNodeType'],
@@ -2668,6 +2667,33 @@ def _s3_bucket_region(resource: Dict[str, Any]) -> Optional[str]:
     return {None: 'us-east-1', '': 'us-east-1', 'EU': 'eu-west-1'}.get(constraint, constraint)
 
 
+def _ddb_billing_mode(resource: Dict[str, Any]) -> str:
+    """PROVISIONED or PAY_PER_REQUEST; BillingModeSummary may be absent for provisioned tables."""
+    return (resource.get('BillingModeSummary') or {}).get('BillingMode') or 'PROVISIONED'
+
+
+def _ddb_gsis(resource: Dict[str, Any]) -> List[Dict[str, Any]]:
+    return [g for g in resource.get('GlobalSecondaryIndexes') or [] if isinstance(g, dict)]
+
+
+def _ddb_capacity(resource: Dict[str, Any], key: str) -> Optional[int]:
+    """Provisioned read or write capacity units of the table plus its global secondary
+    indexes (billed separately). None for on-demand tables, which report 0."""
+    if _ddb_billing_mode(resource) != 'PROVISIONED':
+        return None
+    parts = [resource] + _ddb_gsis(resource)
+    units = [(p.get('ProvisionedThroughput') or {}).get(key) for p in parts]
+    return sum(u for u in units if isinstance(u, int) and u > 0) or None
+
+
+def _ddb_storage_bytes(resource: Dict[str, Any]) -> Optional[int]:
+    """Storage: TableSizeBytes plus the global secondary indexes, which are billed separately."""
+    sizes = [resource.get('TableSizeBytes')] + [g.get('IndexSizeBytes') for g in _ddb_gsis(resource)]
+    if not isinstance(sizes[0], int):
+        return None
+    return sum(s for s in sizes if isinstance(s, int))
+
+
 # Fields that need more than a path lookup (counts, lists, derived values).
 def _cloudflare_minify_on(resource: Dict[str, Any]) -> Optional[str]:
     """File types Auto Minify is still on for, e.g. 'css, js'."""
@@ -2709,6 +2735,12 @@ RESOURCE_FIELD_BUILDERS: Dict[str, Dict[str, Any]] = {
     'azure.loadbalancer': {'backendPoolCount': _lb_backend_pool_count, 'publicIpCount': _lb_public_ip_count},
     'aws.asg': {'instanceTypes': _asg_instance_types},
     'aws.ec2': {'avgCpuPercent': _avg_cpu_percent},
+    'aws.dynamodb-table': {
+        'billingMode': _ddb_billing_mode,
+        'tableClass': lambda r: (r.get('TableClassSummary') or {}).get('TableClass') or 'STANDARD',
+        'readCapacityUnits': lambda r: _ddb_capacity(r, 'ReadCapacityUnits'),
+        'writeCapacityUnits': lambda r: _ddb_capacity(r, 'WriteCapacityUnits'),
+        'storageBytes': _ddb_storage_bytes},
     'aws.rds': {'avgCpuPercent': _avg_cpu_percent},
     'aws.s3': {'region': _s3_bucket_region,
                'publicAccessBlockOff': lambda r: ', '.join(r.get('c7n:PublicAccessBlockOff') or []) or None},

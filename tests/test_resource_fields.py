@@ -287,6 +287,24 @@ class TestDerivedFields:
             "minSize": 3, "maxSize": 10, "desiredCapacity": 4,
             "instanceTypes": "m5.large, m5.xlarge"}
 
+    def test_dynamodb_on_demand_table(self):
+        r = {"BillingModeSummary": {"BillingMode": "PAY_PER_REQUEST"}, "TableSizeBytes": 2_000_000_000,
+             "ProvisionedThroughput": {"ReadCapacityUnits": 0, "WriteCapacityUnits": 0},
+             "GlobalSecondaryIndexes": [{"IndexSizeBytes": 500_000_000,
+                                         "ProvisionedThroughput": {"ReadCapacityUnits": 0}}]}
+        assert extract_resource_fields(r, "aws.dynamodb-table") == {
+            "billingMode": "PAY_PER_REQUEST", "tableClass": "STANDARD", "storageBytes": 2_500_000_000}
+
+    def test_dynamodb_provisioned_table_counts_indexes(self):
+        # BillingModeSummary may be absent for provisioned tables
+        r = {"TableSizeBytes": 0, "TableClassSummary": {"TableClass": "STANDARD_INFREQUENT_ACCESS"},
+             "ProvisionedThroughput": {"ReadCapacityUnits": 10, "WriteCapacityUnits": 5},
+             "GlobalSecondaryIndexes": [
+                 {"IndexSizeBytes": 0, "ProvisionedThroughput": {"ReadCapacityUnits": 4, "WriteCapacityUnits": 2}}]}
+        assert extract_resource_fields(r, "aws.dynamodb-table") == {
+            "billingMode": "PROVISIONED", "tableClass": "STANDARD_INFREQUENT_ACCESS",
+            "readCapacityUnits": 14, "writeCapacityUnits": 7, "storageBytes": 0}
+
     def test_average_cpu_from_metrics_annotation(self):
         r = {"c7n.metrics": {"AWS/EC2.CPUUtilization.Average.14": [{"Average": 20.0}, {"Average": 30.0}]}}
         assert extract_resource_fields(r, "aws.ec2") == {"avgCpuPercent": 25.0}
