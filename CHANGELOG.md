@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.36] - 2026-11-16
+
 ### Added
 - **AWS:** `leftsize-idle-dynamodb-table` findings now include the table's storage (`storageBytes`: the table size plus its global secondary indexes), table class and, for provisioned tables, the read and write capacity units of the table and its global secondary indexes, so LeftSize can estimate the monthly savings. `billingMode` is now `PROVISIONED` when DynamoDB reports no billing mode summary (provisioned tables).
 
