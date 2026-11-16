@@ -97,7 +97,8 @@ policies:
       removing from the Workers AI catalog.
 
       Cloudflare deprecates 24 older models on November 20, 2026. After that
-      date requests to them fail with HTTP 410 Gone (error code 5028), so the
+      date requests to them fail (HTTP 410 Gone with error code 5028 in the
+      changelog, 404 model_not_found in Cloudflare's reminder email), so the
       Workers, Pages projects or REST clients that call them break.
 
       Timeline:
@@ -113,7 +114,9 @@ policies:
       embeddinggemma-300m -> @cf/google/embeddinggemma-2 (available soon).
       LLMs: @cf/deepseek-ai/deepseek-v4.1-flash-1017 or @cf/zai-org/glm-5.3 for
       frontier needs, @cf/google/gemma-4-26b-a4b-it or @cf/qwen/qwen3.8-27b for
-      smaller needs.
+      smaller needs. These return OpenAI-style results
+      (choices[0].message.content, not response), and Gemma 4 reasons before
+      answering unless chat_template_kwargs.enable_thinking is false.
 
       Detection uses GraphQL Analytics (aiInferenceAdaptiveGroups) per account;
       it shows the request source (Worker binding, Pages binding, REST API) but

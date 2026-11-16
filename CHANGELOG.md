@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Cloudflare:** `leftsize-cloudflare-workers-ai-deprecated-model` description: removed models fail with HTTP 410 Gone (5028) per Cloudflare's changelog, but its reminder email says 404 `model_not_found`; both are named. Adds that the suggested LLM replacements return OpenAI-style results and that Gemma 4 reasons by default.
+
 ## [1.0.36] - 2026-11-16
 
 ### Added
