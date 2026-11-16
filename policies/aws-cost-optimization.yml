@@ -384,8 +384,8 @@ policies:
 
   - name: leftsize-ec2-scheduled-shutdown-missing
     description: |
-      Find non-production EC2 instances that have run for 7+ days without a Schedule, AutoStop
-      or StopSchedule tag.
+      Find non-production EC2 instances that have run for 7+ days without a Schedule, AutoStop,
+      AutoStopStart or StopSchedule tag.
 
       Non-production is decided per resource by classify_environment in run.py (after
       Custodian): environment tags on the resource or its resource group, then words
@@ -407,6 +407,9 @@ policies:
             value: present
           - type: value
             key: 'tag:AutoStop'
+            value: present
+          - type: value
+            key: 'tag:AutoStopStart'
             value: present
           - type: value
             key: 'tag:StopSchedule'

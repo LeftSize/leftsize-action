@@ -271,6 +271,21 @@ def test_scheduled_shutdown_env_tag_case(tag_value: str, expected: bool) -> None
     assert run('leftsize-ec2-scheduled-shutdown-missing', instance) is expected
 
 
+@pytest.mark.parametrize('schedule_tag, expected', [
+    (None, True),
+    ('Schedule', False),
+    ('AutoStop', False),
+    ('AutoStopStart', False),
+    ('StopSchedule', False),
+])
+def test_scheduled_shutdown_schedule_tags(schedule_tag: Optional[str], expected: bool) -> None:
+    # A schedule tag means a scheduler already stops the instance, whatever its value
+    tags = [{'Key': 'Environment', 'Value': 'acc'}]
+    if schedule_tag:
+        tags.append({'Key': schedule_tag, 'Value': 'true'})
+    assert run('leftsize-ec2-scheduled-shutdown-missing', dict(EC2_BASE, Tags=tags)) is expected
+
+
 @pytest.mark.parametrize('instance_exists, expected', [(False, True), (True, False)])
 def test_orphaned_rds_snapshots(instance_exists: bool, expected: bool, monkeypatch: pytest.MonkeyPatch) -> None:
     live = [dict(RDS_BASE, DBInstanceIdentifier='db1')] if instance_exists else []
