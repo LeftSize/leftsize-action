@@ -1387,7 +1387,7 @@ policies:
           - {model: gpt-4o-mini, version: '2024-07-18', date: '2027-04-14', fine_tuned_date: '2027-10-01'}
           - {model: gpt-4.1-mini, version: '2025-04-14', date: '2027-04-14', fine_tuned_date: '2027-10-14'}
           - {model: gpt-4.1, version: '2025-04-14', fine_tuned_date: '2027-10-14'}
-          - {model: gpt-4.1-nano, version: '2025-04-14', fine_tuned_date: '2027-10-14'}
+          - {model: gpt-4.1-nano, version: '2025-04-14', fine_tuned_date: '2028-04-13'}
           - {model: o4-mini, version: '2025-04-16', fine_tuned_date: '2027-10-16'}
 
   # ========================================

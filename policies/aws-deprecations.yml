@@ -19,7 +19,7 @@ policies:
   - name: leftsize-lambda-deprecated-runtime
     description: |
       Find Lambda functions on a runtime that is deprecated, or will be deprecated
-      within ~6 months (verified 2026-10-27).
+      within ~6 months (verified 2026-11-24).
 
       Lambda lifecycle: at the deprecation date AWS stops security patches and
       technical support. Later, Lambda blocks function create, then function update.
@@ -38,7 +38,7 @@ policies:
       Deprecating within ~6 months (checked 2026-10-31):
       - dotnet8: 2026-11-10
       - ruby3.3: 2027-03-31
-      - nodejs22.x: 2027-04-30
+      - nodejs22.x: 2027-05-30
 
       NOT yet included (add when inside the 6-month window):
       - python3.11, java11, java17, java8.al2 (deprecation 2027-06-30) -> add after 2026-12-31

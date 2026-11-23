@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- **AWS:** `leftsize-lambda-deprecated-runtime`: `nodejs22.x` is deprecated on 2027-05-30, not 2027-04-30 (the date on AWS's Lambda runtimes page changed). Block create and block update dates are unchanged.
+- **Azure:** `leftsize-azure-openai-model-retirement`: fine-tuned `gpt-4.1-nano` `2025-04-14` deployments retire on 2028-04-13, not 2027-10-14 (Azure OpenAI model retirements page).
 - **Cloudflare:** `leftsize-cloudflare-workers-ai-deprecated-model` description: removed models fail with HTTP 410 Gone (5028) per Cloudflare's changelog, but its reminder email says 404 `model_not_found`; both are named. Adds that the suggested LLM replacements return OpenAI-style results and that Gemma 4 reasons by default.
 
 ## [1.0.36] - 2026-11-16
