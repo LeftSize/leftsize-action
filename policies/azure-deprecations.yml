@@ -1353,8 +1353,8 @@ policies:
       versionUpgradeOption is NoAutoUpgrade. Provisioned (regional, Global, Data Zone)
       and Batch deployments are never upgraded: they're always flagged. Fine-tuned
       deployments of gpt-4o 2024-08-06 and gpt-4o-mini (October 1, 2027), the
-      gpt-4.1 family (October 14, 2027) and o4-mini (October 16, 2027) retire later
-      and are flagged with their own date.
+      gpt-4.1 and gpt-4.1-mini (October 14, 2027), o4-mini (October 16, 2027) and
+      gpt-4.1-nano (April 13, 2028) retire later and are flagged with their own date.
 
       Reads each account's deployments
       (Microsoft.CognitiveServices/accounts/deployments/read, part of Reader).
